@@ -1,5 +1,5 @@
 ---
-status: draft
+status: active
 branch: feature/openalex-client
 created: 2026-04-28T10:44:18-07:00
 completed:
