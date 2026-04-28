@@ -1,9 +1,9 @@
 ---
-status: active
+status: done
 branch: feature/openalex-client
 created: 2026-04-28T10:44:18-07:00
-completed:
-pr:
+completed: 2026-04-28T12:31:48-07:00
+pr: https://github.com/gitronald/citefinder/pull/5
 ---
 
 # Add OpenAlex client and arXiv DOI routing as Crossref fallback
@@ -63,3 +63,38 @@ OpenAlex (`api.openalex.org`) merges Crossref + Unpaywall + ORCID + ROR + reposi
 
 - Should `OpenAlexClient` accept a Crossref Work as a hint (e.g., to disambiguate ambiguous search hits)? Probably not — keep clients independent and let verify-bib do the cross-referencing.
 - Does the polite-pool `mailto` go in the URL or a header? Both work; OpenAlex docs prefer URL param. Use URL param for visibility in the cache key (different emails → different cache entries, which is correct because different polite-pool tiers may behave differently).
+
+## Log
+
+### 2026-04-28 — initial implementation
+
+Implemented in build-sequence order. All commits on `feature/openalex-client`:
+
+- `971c7d7` — `OpenAlexClient` (lookup_doi, search), `reconstruct_abstract`, `_strip_mailto` cache-key helper, `is_arxiv_doi` predicate, `__init__` exports, two CLI subcommands (`citefinder openalex doi`, `citefinder openalex search`) with separate default cache file.
+- `9765fd8` — `use-citefinder` skill updated with OpenAlex fallback section, arXiv routing example, and Crossref↔OpenAlex schema-diff table.
+- `2e1a9be` — 12 unit tests covering DOI lookup, search, 404 caching, polite-pool `mailto` round-trip, cache-key strip, abstract reconstruction, and arXiv detection.
+- `a8541ce` — README updated with OpenAlex section, schema map, mailto guidance, and CLI examples.
+
+### 2026-04-28 — API key support (added during plan close)
+
+Scope expansion driven by the user's README draft surfacing OpenAlex's API-key option, which the original plan hadn't covered.
+
+- `5bfc9d0` — added `api_key` arg to `OpenAlexClient.__init__` with fallback to `OPENALEX_API_KEY` env var. CLI loads `.env` from CWD-or-parent at startup via `python-dotenv`. Both subcommands accept `--api-key` with the env var also read by Typer's `envvar=`. Key sent as `Authorization: Bearer ...` header (never URL param) to keep it out of cache keys, logs, and referer trails. 5 new tests covering explicit > env-var > none precedence and absence-from-URL.
+
+Decision against URL-param auth: cache keys would either leak the key or require another `_strip_*` helper, both worse than just using the documented header form.
+
+### Decisions worth flagging
+
+- **Cache key strips `mailto`** but the network request keeps it — so changing your polite-pool email doesn't invalidate your cache.
+- **No `arxiv.py` client.** Routing arXiv DOIs through OpenAlex covers the common case; an arXiv-direct client is deferred until OpenAlex coverage proves insufficient. `is_arxiv_doi` is a predicate, not a router — callers (verify-bib) make the routing decision.
+- **No unified `Reference` model.** Each client returns its source's raw JSON; normalization happens at the consumer when needed.
+- **No live-API integration test** added in this PR. Plan called for one with `@pytest.mark.integration`; deferred since the unit tests cover the contract and a live test would require deciding on an opt-in mailto/api_key for CI. Easy to add later.
+- **`fetchbib` boundary held.** No BibTeX formatting in citefinder — keeps the two tools complementary.
+
+## Retrospective
+
+- The original plan's "open question" about polite-pool `mailto` placement (URL vs header) had a wrong assumption baked in: I'd written that different emails justify different cache entries because they hit different polite-pool tiers. They don't — the polite pool is binary, not tiered. Fixed in implementation by stripping `mailto` from the cache key.
+- Scope grew during the close: API-key support was out of the original plan but was the natural follow-up the moment OpenAlex auth was on the table. Worth folding in rather than splitting because the constructor signature would otherwise have churned twice.
+- The user pushed back on demo calls using their personal email as the polite-pool `mailto`. Fixed locally and elevated to a global rule (`~/.claude/rules/privacy.md`) — don't auto-pull personal email from environment context for service identifiers.
+- Ruff/pyrefly hooks caught: a stale `urlunsplit` return-type annotation and missing line wrapping. Both were one-line fixes; the type one (`urlunsplit` overloads as `str | bytes`) is worth remembering for future `urllib.parse` usage.
+- Verify-bib in `jots` will need a small adapter for OpenAlex's schema (`display_name`, `authorships[].author.display_name`, etc.). Schemas were different enough to confirm the plan's "no unified `Reference` model" call — premature normalization would have been the wrong move.
