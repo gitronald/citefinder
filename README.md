@@ -13,6 +13,30 @@ covers what Crossref doesn't — arXiv DOIs (`10.48550/arXiv.*`), other
 preprints, repository deposits — and frequently has richer metadata
 (abstracts, full author lists, affiliations) for records that exist in both.
 
+### OpenAlex API key (optional)
+
+OpenAlex works without authentication, but a free API key gives you higher
+limits and tier-specific endpoints.
+
+- Docs: https://developers.openalex.org/
+- Sign up / generate a key: https://openalex.org/login?redirect=/settings/api-key
+
+The key is read in this order:
+
+1. `api_key=...` argument to `OpenAlexClient(...)` (or `--api-key` on the CLI).
+2. `OPENALEX_API_KEY` environment variable.
+3. A `.env` file in the current working directory or any parent (loaded by
+   the CLI; library users can opt in via `from dotenv import load_dotenv`).
+
+```bash
+# .env
+OPENALEX_API_KEY=oa_pk_...
+```
+
+The key is sent as `Authorization: Bearer ...`, never as a URL parameter, so
+it doesn't land in cache keys, logs, or referer headers.
+
+
 ## Install
 
 ```bash

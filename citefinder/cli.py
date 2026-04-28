@@ -6,9 +6,15 @@ import json
 from pathlib import Path
 
 import typer
+from dotenv import find_dotenv, load_dotenv
 
 from citefinder.client import CrossrefClient
 from citefinder.openalex import OpenAlexClient
+
+# Load `.env` from the current working directory (or any parent) so users can
+# keep `OPENALEX_API_KEY` out of their shell rc and out of bash history.
+# Library users are unaffected — this only runs when the CLI is invoked.
+load_dotenv(find_dotenv(usecwd=True))
 
 app = typer.Typer(
     help="Crossref and OpenAlex reference lookups with local JSONL caching."
@@ -26,8 +32,10 @@ def _client(cache: Path) -> CrossrefClient:
     return CrossrefClient(cache_path=cache)
 
 
-def _openalex_client(cache: Path, mailto: str | None) -> OpenAlexClient:
-    return OpenAlexClient(cache_path=cache, mailto=mailto)
+def _openalex_client(
+    cache: Path, mailto: str | None, api_key: str | None
+) -> OpenAlexClient:
+    return OpenAlexClient(cache_path=cache, mailto=mailto, api_key=api_key)
 
 
 @app.command()
@@ -76,9 +84,15 @@ def openalex_doi(
     mailto: str | None = typer.Option(
         None, help="Email for OpenAlex polite pool (faster, higher quota)."
     ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        envvar="OPENALEX_API_KEY",
+        help="OpenAlex API key (also read from OPENALEX_API_KEY env or .env).",
+    ),
 ) -> None:
     """Look up a single DOI via OpenAlex."""
-    result = _openalex_client(cache, mailto).lookup_doi(doi)
+    result = _openalex_client(cache, mailto, api_key).lookup_doi(doi)
     if result is None:
         typer.echo(f"not found: {doi}", err=True)
         raise typer.Exit(code=1)
@@ -93,7 +107,13 @@ def openalex_search(
     mailto: str | None = typer.Option(
         None, help="Email for OpenAlex polite pool (faster, higher quota)."
     ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        envvar="OPENALEX_API_KEY",
+        help="OpenAlex API key (also read from OPENALEX_API_KEY env or .env).",
+    ),
 ) -> None:
     """Search OpenAlex by free-text query (title + abstract)."""
-    items = _openalex_client(cache, mailto).search(query, rows=rows)
+    items = _openalex_client(cache, mailto, api_key).search(query, rows=rows)
     typer.echo(json.dumps(items, indent=2, ensure_ascii=False))

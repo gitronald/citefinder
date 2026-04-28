@@ -17,6 +17,7 @@ entries. Negative results (404) are cached as `None`.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -27,6 +28,7 @@ from citefinder.cache import JsonlCache
 
 OPENALEX_BASE = "https://api.openalex.org"
 DEFAULT_TIMEOUT = 30.0
+API_KEY_ENV_VAR = "OPENALEX_API_KEY"
 
 
 def reconstruct_abstract(work: dict[str, Any]) -> str | None:
@@ -64,6 +66,7 @@ class OpenAlexClient:
         cache: JsonlCache | None = None,
         cache_path: str | Path | None = None,
         mailto: str | None = None,
+        api_key: str | None = None,
         user_agent: str = "citefinder/0.1 (https://github.com/gitronald/citefinder)",
         timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
@@ -71,9 +74,17 @@ class OpenAlexClient:
             cache = JsonlCache(cache_path)
         self.cache = cache
         self.mailto = mailto
+        # Falls back to env var so users can `export OPENALEX_API_KEY=...` (or
+        # set it in a `.env` file the CLI loads at startup) without threading
+        # the key through every call site.
+        self.api_key = api_key or os.environ.get(API_KEY_ENV_VAR)
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers["User-Agent"] = user_agent
+        if self.api_key:
+            # Header (not query param) so the key never lands in cache keys,
+            # logs, or HTTP referer trails.
+            self.session.headers["Authorization"] = f"Bearer {self.api_key}"
 
     def _polite(self, url: str) -> str:
         if not self.mailto:

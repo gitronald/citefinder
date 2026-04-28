@@ -137,3 +137,42 @@ def test_is_arxiv_doi() -> None:
     assert is_arxiv_doi("10.48550/arxiv.2410.21554")  # case-insensitive
     assert not is_arxiv_doi("10.1126/science.aap9559")
     assert not is_arxiv_doi("10.1145/3442188.3445922")
+
+
+def test_api_key_sets_authorization_header() -> None:
+    client = OpenAlexClient(api_key="test-key-123")
+    assert client.session.headers.get("Authorization") == "Bearer test-key-123"
+
+
+def test_api_key_falls_back_to_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENALEX_API_KEY", "env-key-456")
+    client = OpenAlexClient()
+    assert client.api_key == "env-key-456"
+    assert client.session.headers.get("Authorization") == "Bearer env-key-456"
+
+
+def test_api_key_explicit_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENALEX_API_KEY", "env-key")
+    client = OpenAlexClient(api_key="explicit-key")
+    assert client.api_key == "explicit-key"
+    assert client.session.headers.get("Authorization") == "Bearer explicit-key"
+
+
+def test_no_api_key_no_authorization_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    client = OpenAlexClient()
+    assert client.api_key is None
+    assert "Authorization" not in client.session.headers
+
+
+def test_api_key_not_in_url(tmp_path: Path) -> None:
+    """API key should never end up in the URL (only in headers)."""
+    cache = JsonlCache(tmp_path / "cache.jsonl")
+    client = OpenAlexClient(cache=cache, api_key="secret-key", mailto="x@y.com")
+    client.session = MagicMock()  # type: ignore[assignment]
+    client.session.headers = {"Authorization": "Bearer secret-key"}
+    client.session.get.return_value = _mock_response(200, {"display_name": "X"})
+    client.lookup_doi("10.1/test")
+    called_url = client.session.get.call_args[0][0]
+    assert "secret-key" not in called_url
+    assert "api_key" not in called_url

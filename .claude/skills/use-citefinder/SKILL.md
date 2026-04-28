@@ -121,6 +121,7 @@ crossref = CrossrefClient(cache_path="~/.cache/citefinder/crossref.jsonl")
 openalex = OpenAlexClient(
     cache_path="~/.cache/citefinder/openalex.jsonl",
     mailto="you@example.com",  # opts into OpenAlex's polite pool — faster, higher daily quota
+    # api_key is read from `OPENALEX_API_KEY` env or `.env` if not passed; sent as Authorization header.
 )
 
 doi = "10.48550/arXiv.2410.21554"
