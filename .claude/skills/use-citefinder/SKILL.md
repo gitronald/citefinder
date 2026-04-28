@@ -121,7 +121,6 @@ crossref = CrossrefClient(cache_path="~/.cache/citefinder/crossref.jsonl")
 openalex = OpenAlexClient(
     cache_path="~/.cache/citefinder/openalex.jsonl",
     mailto="you@example.com",  # opts into OpenAlex's polite pool — faster, higher daily quota
-    # api_key is read from `OPENALEX_API_KEY` env or `.env` if not passed; sent as Authorization header.
 )
 
 doi = "10.48550/arXiv.2410.21554"
@@ -154,7 +153,28 @@ from citefinder import reconstruct_abstract
 abstract = reconstruct_abstract(work)  # returns plain string or None
 ```
 
+### OpenAlex API key (optional, for higher rate limits)
+
+`OpenAlexClient` reads the API key in this order: explicit `api_key=...` arg → `OPENALEX_API_KEY` env var → (CLI only) `.env` in CWD or any parent. The key is sent as `Authorization: Bearer ...`, never in the URL or cache key.
+
+For ad-hoc lookups, no key is needed — common-pool requests work fine. If the user has a key set in their env or `.env`, the CLI picks it up automatically:
+
+```bash
+# .env in the project (gitignored)
+OPENALEX_API_KEY=oa_pk_...
+
+citefinder openalex doi 10.48550/arXiv.2410.21554  # uses key from .env automatically
+```
+
+For programmatic library use, `.env` is *not* auto-loaded — pass `api_key=...` explicitly or set the env var before constructing the client.
+
+### Picking `mailto`
+
+Use a project alias (e.g. the `authors` email in `pyproject.toml`) or omit entirely. Don't drop the user's personal email into `mailto` without asking — it's an outbound identifier, and a project/noreply address is the right default.
+
 ## When citefinder isn't enough
+
+For **generating formatted BibTeX strings** from a DOI or query, use [`fetchbib`](https://github.com/mr-devs/fetchbib) (`fbib`) instead — it handles doi.org content negotiation, arXiv routing, and BibTeX-flavored config (protect titles, exclude ISSN, etc.). citefinder returns raw JSON for verification; fetchbib emits paste-ready BibTeX for citation lists.
 
 Drop down to raw HTTP (`requests.get("https://api.crossref.org/...")`) only if you need:
 
