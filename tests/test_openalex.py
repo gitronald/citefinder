@@ -8,6 +8,7 @@ import pytest
 from citefinder.cache import JsonlCache
 from citefinder.openalex import (
     OpenAlexClient,
+    _normalize_title_query,
     _strip_mailto,
     is_arxiv_doi,
     reconstruct_abstract,
@@ -85,6 +86,71 @@ def test_search_returns_results(
     called_url = session.get.call_args[0][0]
     assert "search=hate+speech" in called_url
     assert "per-page=2" in called_url
+
+
+def test_search_title_uses_title_search_filter(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, {"results": [{"id": "W1"}]})
+    client.search_title("Backstabber's Knife Collection", rows=2)
+    called_url = session.get.call_args[0][0]
+    assert "filter=title.search:" in called_url
+    assert "per-page=2" in called_url
+
+
+def test_search_title_remaps_apostrophe_to_curly(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, {"results": []})
+    client.search_title("Backstabber's Knife Collection")
+    called_url = session.get.call_args[0][0]
+    # U+2019 is %E2%80%99 in URL-encoded form
+    assert "%E2%80%99" in called_url
+    assert "Backstabber%27s" not in called_url  # straight apostrophe gone
+
+
+def test_search_title_strips_reserved_filter_chars(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, {"results": []})
+    client.search_title("Title: with, all|reserved!chars?")
+    called_url = session.get.call_args[0][0]
+    # Title value should be free of the reserved chars (encoded or raw).
+    _, _, value = called_url.partition("filter=title.search:")
+    value = value.split("&", 1)[0]
+    for ch in (":", ",", "|", "!", "?", "%2C", "%3A", "%7C", "%21", "%3F"):
+        assert ch not in value
+
+
+def test_search_title_empty_returns_empty(
+    setup: tuple[OpenAlexClient, MagicMock],
+) -> None:
+    client, session = setup
+    assert client.search_title("") == []
+    assert client.search_title(",,,!!?") == []
+    assert session.get.call_count == 0
+
+
+def test_search_title_404_returns_empty(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(404)
+    assert client.search_title("Some Title") == []
+
+
+def test_normalize_title_query() -> None:
+    assert _normalize_title_query("Backstabber's") == "Backstabber’s"
+    assert _normalize_title_query("a, b: c|d!e?") == "a b c d e"
+    assert _normalize_title_query("  spaced   out  ") == "spaced out"
+    assert _normalize_title_query("") == ""
 
 
 def test_polite_pool_mailto_added_to_url(
