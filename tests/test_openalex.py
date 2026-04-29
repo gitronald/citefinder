@@ -6,16 +6,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from citefinder.cache import JsonlCache
-from citefinder.client import is_arxiv_doi
-from citefinder.openalex import OpenAlexClient, _strip_mailto, reconstruct_abstract
-
-
-def _mock_response(status: int, payload: dict | None = None) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status
-    response.json.return_value = payload
-    response.raise_for_status = MagicMock()
-    return response
+from citefinder.openalex import (
+    OpenAlexClient,
+    _strip_mailto,
+    is_arxiv_doi,
+    reconstruct_abstract,
+)
 
 
 @pytest.fixture
@@ -27,9 +23,12 @@ def setup(tmp_path: Path) -> tuple[OpenAlexClient, MagicMock]:
     return client, session
 
 
-def test_lookup_doi_returns_work(setup: tuple[OpenAlexClient, MagicMock]) -> None:
+def test_lookup_doi_returns_work(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
     client, session = setup
-    session.get.return_value = _mock_response(
+    session.get.return_value = mock_response(
         200,
         {"id": "W123", "display_name": "A Paper", "doi": "https://doi.org/10.1/test"},
     )
@@ -43,33 +42,41 @@ def test_lookup_doi_returns_work(setup: tuple[OpenAlexClient, MagicMock]) -> Non
 
 def test_lookup_doi_404_returns_none(
     setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
 ) -> None:
     client, session = setup
-    session.get.return_value = _mock_response(404)
+    session.get.return_value = mock_response(404)
     assert client.lookup_doi("10.1/missing") is None
 
 
 def test_lookup_doi_uses_cache_on_repeat(
     setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
 ) -> None:
     client, session = setup
-    session.get.return_value = _mock_response(200, {"display_name": "A Paper"})
+    session.get.return_value = mock_response(200, {"display_name": "A Paper"})
     client.lookup_doi("10.1/test")
     client.lookup_doi("10.1/test")
     assert session.get.call_count == 1
 
 
-def test_404_is_cached(setup: tuple[OpenAlexClient, MagicMock]) -> None:
+def test_404_is_cached(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
     client, session = setup
-    session.get.return_value = _mock_response(404)
+    session.get.return_value = mock_response(404)
     assert client.lookup_doi("10.1/missing") is None
     assert client.lookup_doi("10.1/missing") is None
     assert session.get.call_count == 1
 
 
-def test_search_returns_results(setup: tuple[OpenAlexClient, MagicMock]) -> None:
+def test_search_returns_results(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
     client, session = setup
-    session.get.return_value = _mock_response(
+    session.get.return_value = mock_response(
         200,
         {"results": [{"id": "W1"}, {"id": "W2"}]},
     )
@@ -82,21 +89,22 @@ def test_search_returns_results(setup: tuple[OpenAlexClient, MagicMock]) -> None
 
 def test_polite_pool_mailto_added_to_url(
     setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
 ) -> None:
     client, session = setup
-    session.get.return_value = _mock_response(200, {"display_name": "X"})
+    session.get.return_value = mock_response(200, {"display_name": "X"})
     client.lookup_doi("10.1/test")
     called_url = session.get.call_args[0][0]
     assert "mailto=test%40example.com" in called_url
 
 
-def test_cache_key_strips_mailto(tmp_path: Path) -> None:
+def test_cache_key_strips_mailto(tmp_path: Path, mock_response) -> None:
     """Cache should be unaffected by the mailto used on the request."""
     cache = JsonlCache(tmp_path / "cache.jsonl")
 
     client_a = OpenAlexClient(cache=cache, mailto="a@example.com")
     client_a.session = MagicMock()  # type: ignore[assignment]
-    client_a.session.get.return_value = _mock_response(200, {"display_name": "A Paper"})
+    client_a.session.get.return_value = mock_response(200, {"display_name": "A Paper"})
     client_a.lookup_doi("10.1/test")
 
     client_b = OpenAlexClient(cache=cache, mailto="b@example.com")
@@ -165,13 +173,13 @@ def test_no_api_key_no_authorization_header(monkeypatch: pytest.MonkeyPatch) -> 
     assert "Authorization" not in client.session.headers
 
 
-def test_api_key_not_in_url(tmp_path: Path) -> None:
+def test_api_key_not_in_url(tmp_path: Path, mock_response) -> None:
     """API key should never end up in the URL (only in headers)."""
     cache = JsonlCache(tmp_path / "cache.jsonl")
     client = OpenAlexClient(cache=cache, api_key="secret-key", mailto="x@y.com")
     client.session = MagicMock()  # type: ignore[assignment]
     client.session.headers = {"Authorization": "Bearer secret-key"}
-    client.session.get.return_value = _mock_response(200, {"display_name": "X"})
+    client.session.get.return_value = mock_response(200, {"display_name": "X"})
     client.lookup_doi("10.1/test")
     called_url = client.session.get.call_args[0][0]
     assert "secret-key" not in called_url
