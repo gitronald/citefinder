@@ -9,6 +9,10 @@ Three lookup styles, each cached separately:
 Caching is keyed by URL so that the same request returns a stable response
 across sessions. Negative results (404) are cached as `None` to avoid
 re-hammering Crossref for known-missing DOIs.
+
+Pass `mailto="you@example.com"` to opt into Crossref's polite pool — sent
+as a `?mailto=…` query param. The cache key strips it, so rotating the
+email doesn't invalidate prior entries.
 """
 
 from __future__ import annotations

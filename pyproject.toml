@@ -48,7 +48,7 @@ select = [
 
 [tool.pyrefly]
 python-version = "3.11"
-project-includes = ["."]
+project-includes = ["citefinder", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
