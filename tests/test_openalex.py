@@ -6,8 +6,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from citefinder.cache import JsonlCache
-from citefinder.client import is_arxiv_doi
-from citefinder.openalex import OpenAlexClient, _strip_mailto, reconstruct_abstract
+from citefinder.openalex import (
+    OpenAlexClient,
+    _strip_mailto,
+    is_arxiv_doi,
+    reconstruct_abstract,
+)
 
 
 @pytest.fixture

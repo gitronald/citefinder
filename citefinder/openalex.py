@@ -29,6 +29,16 @@ OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
 
 
+def is_arxiv_doi(doi: str) -> bool:
+    """Whether a DOI is an arXiv-issued DOI.
+
+    arXiv mints DOIs under the `10.48550` prefix (e.g.
+    `10.48550/arXiv.2410.21554`). Crossref does not index these, so callers
+    should route them to a source that does (OpenAlex, arXiv API).
+    """
+    return doi.lower().startswith("10.48550/arxiv.")
+
+
 def reconstruct_abstract(work: dict[str, Any]) -> str | None:
     """Reassemble OpenAlex's `abstract_inverted_index` into plain text.
 

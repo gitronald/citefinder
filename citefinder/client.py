@@ -21,16 +21,6 @@ from citefinder._base import CachedJsonClient
 CROSSREF_BASE = "https://api.crossref.org"
 
 
-def is_arxiv_doi(doi: str) -> bool:
-    """Whether a DOI is an arXiv-issued DOI.
-
-    arXiv mints DOIs under the `10.48550` prefix (e.g.
-    `10.48550/arXiv.2410.21554`). Crossref does not index these, so callers
-    should route them to a source that does (OpenAlex, arXiv API).
-    """
-    return doi.lower().startswith("10.48550/arxiv.")
-
-
 class CrossrefClient(CachedJsonClient):
     def lookup_doi(self, doi: str) -> dict[str, Any] | None:
         """Fetch metadata for a single DOI. Returns None if not found."""
