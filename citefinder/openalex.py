@@ -5,10 +5,11 @@ OpenAlex (https://api.openalex.org) merges Crossref + Unpaywall + ORCID + ROR
 (abstracts, full author lists, affiliations) and indexes records that Crossref
 404s (arXiv preprints, repository deposits).
 
-Two lookup styles, each cached separately:
+Three lookup styles, each cached separately:
 
 - `lookup_doi(doi)` — single-DOI metadata via `/works/doi:{doi}`
 - `search(query, rows)` — free-text search across titles and abstracts
+- `search_title(title, rows)` — title-only search via `filter=title.search:`
 
 Caching is keyed by URL with the polite-pool `mailto` stripped, so changing
 the email used for a polite-pool request does not invalidate prior cache
@@ -18,15 +19,22 @@ entries. Negative results (404) are cached as `None`.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from citefinder._base import DEFAULT_TIMEOUT, CachedJsonClient
 from citefinder.cache import JsonlCache
 
 OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
+
+# OpenAlex `filter=` syntax reserves these characters (`,` separates filters,
+# `|` is OR, `:` separates field from value, `!` is negation). Including them
+# in the value returns HTTP 400, so they're stripped before quoting. `?` is
+# stripped too as a defense against URL-parsing oddities.
+_FILTER_RESERVED_RE = re.compile(r"[,:|!?]")
 
 
 def is_arxiv_doi(doi: str) -> bool:
@@ -62,6 +70,23 @@ def _strip_mailto(url: str) -> str:
         return url
     pairs = [(k, v) for k, v in parse_qsl(parts.query) if k != "mailto"]
     return str(urlunsplit(parts._replace(query=urlencode(pairs))))
+
+
+def _normalize_title_query(title: str) -> str:
+    """Prepare a title for OpenAlex's `filter=title.search:` syntax.
+
+    Two known quirks:
+
+    - OpenAlex's title index stores curly right-single-quotes (U+2019), not
+      straight ASCII apostrophes. A query for `Backstabber's` returns zero
+      hits while `Backstabber's` finds the paper. Remap before sending.
+    - The `filter=` syntax reserves `,`, `:`, `|`, and `!`; including them
+      returns HTTP 400. Strip them out — `title.search` is fuzzy, so missing
+      punctuation doesn't hurt recall.
+    """
+    title = title.replace("'", "’")
+    title = _FILTER_RESERVED_RE.sub(" ", title)
+    return re.sub(r"\s+", " ", title).strip()
 
 
 class OpenAlexClient(CachedJsonClient):
@@ -107,6 +132,28 @@ class OpenAlexClient(CachedJsonClient):
         """Search OpenAlex by free-text query (title + abstract)."""
         params = {"search": query, "per-page": str(rows)}
         payload = self._get(f"{OPENALEX_BASE}/works?{urlencode(params)}")
+        if payload is None:
+            return []
+        return payload.get("results", [])
+
+    def search_title(self, title: str, rows: int = 3) -> list[dict[str, Any]]:
+        """Search OpenAlex by title only (`filter=title.search:`).
+
+        Title-restricted matching is the right shape for citation
+        verification: the default `?search=` query runs full-text against
+        title + abstract and returns unrelated noise for typical
+        author+title+year inputs. The query is normalized first to handle
+        OpenAlex's curly-apostrophe quirk and to drop filter-reserved
+        punctuation that would 400 the request.
+        """
+        normalized = _normalize_title_query(title)
+        if not normalized:
+            return []
+        url = (
+            f"{OPENALEX_BASE}/works?filter=title.search:{quote(normalized)}"
+            f"&per-page={rows}"
+        )
+        payload = self._get(url)
         if payload is None:
             return []
         return payload.get("results", [])
