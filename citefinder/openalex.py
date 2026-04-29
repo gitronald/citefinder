@@ -39,13 +39,9 @@ def reconstruct_abstract(work: dict[str, Any]) -> str | None:
     index = work.get("abstract_inverted_index")
     if not index:
         return None
-    positions: list[tuple[int, str]] = []
-    for word, idxs in index.items():
-        for i in idxs:
-            positions.append((i, word))
+    positions = sorted((i, word) for word, idxs in index.items() for i in idxs)
     if not positions:
         return None
-    positions.sort()
     return " ".join(word for _, word in positions)
 
 
