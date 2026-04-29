@@ -95,7 +95,10 @@ invalidate prior entries.
 ```python
 from citefinder import CrossrefClient
 
-client = CrossrefClient(cache_path="~/.cache/citefinder/crossref.jsonl")
+client = CrossrefClient(
+    cache_path="~/.cache/citefinder/crossref.jsonl",
+    mailto="you@example.com",  # opts into Crossref's polite pool — faster, higher quota
+)
 
 # Single DOI
 work = client.lookup_doi("10.1126/science.aap9559")
@@ -107,6 +110,10 @@ hits = client.search_bibliographic("Wolfowicz hate speech meta-analysis", rows=3
 # Book chapter via {book_doi}.{NNN} pattern
 chapter = client.lookup_book_chapter("10.1017/9781108890960", 5)
 ```
+
+Crossref and OpenAlex both honor `mailto` for their polite pools; the cache
+key strips it on either side, so rotating the email doesn't invalidate prior
+entries.
 
 OpenAlex's schema differs from Crossref. Quick map:
 
@@ -125,7 +132,7 @@ citefinder doi 10.48550/arXiv.2410.21554 --mailto you@example.com
 citefinder search "Backstabber's Knife Collection" --rows 3
 
 # Crossref
-citefinder crossref doi 10.1126/science.aap9559
+citefinder crossref doi 10.1126/science.aap9559 --mailto you@example.com
 citefinder crossref search "Wolfowicz hate speech meta-analysis" --rows 3
 citefinder crossref chapter 10.1017/9781108890960 5
 ```
@@ -138,10 +145,10 @@ citefinder crossref chapter 10.1017/9781108890960 5
   files so sources don't mix; override per command if you want
   per-project caches (e.g., `--cache ./data/refs.jsonl`).
 - `--rows N` *(search only)* — Number of results to return. Default `3`.
-- `--mailto EMAIL` *(OpenAlex only)* — Opts the request into OpenAlex's
-  [polite pool](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool):
-  faster responses and a higher quota. Stripped from the cache key, so
-  changing it doesn't invalidate prior entries.
+- `--mailto EMAIL` — Opts the request into the source's polite pool (both
+  OpenAlex and Crossref honor it): faster responses and a higher quota.
+  Sent as a `?mailto=…` query param; stripped from the cache key, so
+  rotating the email doesn't invalidate prior entries.
 - `--api-key KEY` *(OpenAlex only)* — OpenAlex API key for higher
   rate limits and tier-specific endpoints. Also read from `OPENALEX_API_KEY`
   in the env or a `.env` file (loaded from cwd or any parent). Sent as

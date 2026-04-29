@@ -38,7 +38,7 @@ OpenAlexCacheOption = typer.Option(DEFAULT_OPENALEX_CACHE, help="JSONL cache pat
 CrossrefCacheOption = typer.Option(DEFAULT_CROSSREF_CACHE, help="JSONL cache path.")
 RowsOption = typer.Option(3, help="Number of results to return.")
 MailtoOption = typer.Option(
-    None, help="Email for OpenAlex polite pool (faster, higher quota)."
+    None, help="Email for the source's polite pool (faster, higher quota)."
 )
 ApiKeyOption = typer.Option(
     None,
@@ -89,9 +89,13 @@ def search(
 
 
 @crossref_app.command("doi")
-def crossref_doi(doi: str, cache: Path = CrossrefCacheOption) -> None:
+def crossref_doi(
+    doi: str,
+    cache: Path = CrossrefCacheOption,
+    mailto: str | None = MailtoOption,
+) -> None:
     """Look up a single DOI via Crossref."""
-    result = CrossrefClient(cache_path=cache).lookup_doi(doi)
+    result = CrossrefClient(cache_path=cache, mailto=mailto).lookup_doi(doi)
     if result is None:
         typer.echo(f"not found: {doi}", err=True)
         raise typer.Exit(code=1)
@@ -100,20 +104,28 @@ def crossref_doi(doi: str, cache: Path = CrossrefCacheOption) -> None:
 
 @crossref_app.command("search")
 def crossref_search(
-    query: str, rows: int = RowsOption, cache: Path = CrossrefCacheOption
+    query: str,
+    rows: int = RowsOption,
+    cache: Path = CrossrefCacheOption,
+    mailto: str | None = MailtoOption,
 ) -> None:
     """Search Crossref by free-form bibliographic query (author + title + year)."""
-    items = CrossrefClient(cache_path=cache).search_bibliographic(query, rows=rows)
+    client = CrossrefClient(cache_path=cache, mailto=mailto)
+    items = client.search_bibliographic(query, rows=rows)
     _emit(items)
 
 
 @crossref_app.command("chapter")
 def crossref_chapter(
-    book_doi: str, chapter: str, cache: Path = CrossrefCacheOption
+    book_doi: str,
+    chapter: str,
+    cache: Path = CrossrefCacheOption,
+    mailto: str | None = MailtoOption,
 ) -> None:
     """Look up a book chapter by `{book_doi}.{NNN}` pattern."""
     chapter_arg: int | str = int(chapter) if chapter.isdigit() else chapter
-    result = CrossrefClient(cache_path=cache).lookup_book_chapter(book_doi, chapter_arg)
+    client = CrossrefClient(cache_path=cache, mailto=mailto)
+    result = client.lookup_book_chapter(book_doi, chapter_arg)
     if result is None:
         typer.echo(f"not found: {book_doi}.{chapter}", err=True)
         raise typer.Exit(code=1)

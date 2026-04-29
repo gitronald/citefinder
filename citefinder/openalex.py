@@ -11,9 +11,9 @@ Three lookup styles, each cached separately:
 - `search(query, rows)` — free-text search across titles and abstracts
 - `search_title(title, rows)` — title-only search via `filter=title.search:`
 
-Caching is keyed by URL with the polite-pool `mailto` stripped, so changing
-the email used for a polite-pool request does not invalidate prior cache
-entries. Negative results (404) are cached as `None`.
+Caching is keyed by URL with the polite-pool `mailto` stripped (handled by
+the base client), so changing the email used for a request does not
+invalidate prior cache entries. Negative results (404) are cached as `None`.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ import os
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode
 
-from citefinder._base import DEFAULT_TIMEOUT, CachedJsonClient
+from citefinder._base import DEFAULT_TIMEOUT, CachedJsonClient, _strip_mailto
 from citefinder.cache import JsonlCache
 
 OPENALEX_BASE = "https://api.openalex.org"
@@ -35,6 +35,15 @@ API_KEY_ENV_VAR = "OPENALEX_API_KEY"
 # in the value returns HTTP 400, so they're stripped before quoting. `?` is
 # stripped too as a defense against URL-parsing oddities.
 _FILTER_RESERVED_RE = re.compile(r"[,:|!?]")
+
+__all__ = [
+    "API_KEY_ENV_VAR",
+    "OPENALEX_BASE",
+    "OpenAlexClient",
+    "_strip_mailto",
+    "is_arxiv_doi",
+    "reconstruct_abstract",
+]
 
 
 def is_arxiv_doi(doi: str) -> bool:
@@ -61,15 +70,6 @@ def reconstruct_abstract(work: dict[str, Any]) -> str | None:
     if not positions:
         return None
     return " ".join(word for _, word in positions)
-
-
-def _strip_mailto(url: str) -> str:
-    """Return `url` with any `mailto` query param removed."""
-    parts = urlsplit(url)
-    if not parts.query:
-        return url
-    pairs = [(k, v) for k, v in parse_qsl(parts.query) if k != "mailto"]
-    return str(urlunsplit(parts._replace(query=urlencode(pairs))))
 
 
 def _normalize_title_query(title: str) -> str:
@@ -102,10 +102,10 @@ class OpenAlexClient(CachedJsonClient):
         super().__init__(
             cache=cache,
             cache_path=cache_path,
+            mailto=mailto,
             user_agent=user_agent,
             timeout=timeout,
         )
-        self.mailto = mailto
         # Falls back to env var so users can `export OPENALEX_API_KEY=...` (or
         # set it in a `.env` file the CLI loads at startup) without threading
         # the key through every call site.
@@ -114,15 +114,6 @@ class OpenAlexClient(CachedJsonClient):
             # Header (not query param) so the key never lands in cache keys,
             # logs, or HTTP referer trails.
             self.session.headers["Authorization"] = f"Bearer {self.api_key}"
-
-    def _cache_key(self, url: str) -> str:
-        return _strip_mailto(url)
-
-    def _request_url(self, url: str) -> str:
-        if not self.mailto:
-            return url
-        sep = "&" if "?" in url else "?"
-        return f"{url}{sep}{urlencode({'mailto': self.mailto})}"
 
     def lookup_doi(self, doi: str) -> dict[str, Any] | None:
         """Fetch OpenAlex metadata for a DOI. Returns None if not found."""
