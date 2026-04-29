@@ -5,30 +5,55 @@ OpenAlex (https://api.openalex.org) merges Crossref + Unpaywall + ORCID + ROR
 (abstracts, full author lists, affiliations) and indexes records that Crossref
 404s (arXiv preprints, repository deposits).
 
-Two lookup styles, each cached separately:
+Three lookup styles, each cached separately:
 
 - `lookup_doi(doi)` — single-DOI metadata via `/works/doi:{doi}`
 - `search(query, rows)` — free-text search across titles and abstracts
+- `search_title(title, rows)` — title-only search via `filter=title.search:`
 
-Caching is keyed by URL with the polite-pool `mailto` stripped, so changing
-the email used for a polite-pool request does not invalidate prior cache
-entries. Negative results (404) are cached as `None`.
+Caching is keyed by URL with the polite-pool `mailto` stripped (handled by
+the base client), so changing the email used for a request does not
+invalidate prior cache entries. Negative results (404) are cached as `None`.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode
 
-import requests
-
+from citefinder._base import DEFAULT_TIMEOUT, CachedJsonClient, _strip_mailto
 from citefinder.cache import JsonlCache
 
 OPENALEX_BASE = "https://api.openalex.org"
-DEFAULT_TIMEOUT = 30.0
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
+
+# OpenAlex `filter=` syntax reserves these characters (`,` separates filters,
+# `|` is OR, `:` separates field from value, `!` is negation). Including them
+# in the value returns HTTP 400, so they're stripped before quoting. `?` is
+# stripped too as a defense against URL-parsing oddities.
+_FILTER_RESERVED_RE = re.compile(r"[,:|!?]")
+
+__all__ = [
+    "API_KEY_ENV_VAR",
+    "OPENALEX_BASE",
+    "OpenAlexClient",
+    "_strip_mailto",
+    "is_arxiv_doi",
+    "reconstruct_abstract",
+]
+
+
+def is_arxiv_doi(doi: str) -> bool:
+    """Whether a DOI is an arXiv-issued DOI.
+
+    arXiv mints DOIs under the `10.48550` prefix (e.g.
+    `10.48550/arXiv.2410.21554`). Crossref does not index these, so callers
+    should route them to a source that does (OpenAlex, arXiv API).
+    """
+    return doi.lower().startswith("10.48550/arxiv.")
 
 
 def reconstruct_abstract(work: dict[str, Any]) -> str | None:
@@ -41,80 +66,84 @@ def reconstruct_abstract(work: dict[str, Any]) -> str | None:
     index = work.get("abstract_inverted_index")
     if not index:
         return None
-    positions: list[tuple[int, str]] = []
-    for word, idxs in index.items():
-        for i in idxs:
-            positions.append((i, word))
+    positions = sorted((i, word) for word, idxs in index.items() for i in idxs)
     if not positions:
         return None
-    positions.sort()
     return " ".join(word for _, word in positions)
 
 
-def _strip_mailto(url: str) -> str:
-    """Return `url` with any `mailto` query param removed."""
-    parts = urlsplit(url)
-    if not parts.query:
-        return url
-    pairs = [(k, v) for k, v in parse_qsl(parts.query) if k != "mailto"]
-    return str(urlunsplit(parts._replace(query=urlencode(pairs))))
+def _normalize_title_query(title: str) -> str:
+    """Prepare a title for OpenAlex's `filter=title.search:` syntax.
+
+    Two known quirks:
+
+    - OpenAlex's title index stores curly right-single-quotes (U+2019), not
+      straight ASCII apostrophes. A query for `Backstabber's` returns zero
+      hits while `Backstabber's` finds the paper. Remap before sending.
+    - The `filter=` syntax reserves `,`, `:`, `|`, and `!`; including them
+      returns HTTP 400. Strip them out — `title.search` is fuzzy, so missing
+      punctuation doesn't hurt recall.
+    """
+    title = title.replace("'", "’")
+    title = _FILTER_RESERVED_RE.sub(" ", title)
+    return re.sub(r"\s+", " ", title).strip()
 
 
-class OpenAlexClient:
+class OpenAlexClient(CachedJsonClient):
     def __init__(
         self,
         cache: JsonlCache | None = None,
         cache_path: str | Path | None = None,
         mailto: str | None = None,
         api_key: str | None = None,
-        user_agent: str = "citefinder/0.1 (https://github.com/gitronald/citefinder)",
+        user_agent: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
-        if cache is None and cache_path is not None:
-            cache = JsonlCache(cache_path)
-        self.cache = cache
-        self.mailto = mailto
+        super().__init__(
+            cache=cache,
+            cache_path=cache_path,
+            mailto=mailto,
+            user_agent=user_agent,
+            timeout=timeout,
+        )
         # Falls back to env var so users can `export OPENALEX_API_KEY=...` (or
         # set it in a `.env` file the CLI loads at startup) without threading
         # the key through every call site.
         self.api_key = api_key or os.environ.get(API_KEY_ENV_VAR)
-        self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers["User-Agent"] = user_agent
         if self.api_key:
             # Header (not query param) so the key never lands in cache keys,
             # logs, or HTTP referer trails.
             self.session.headers["Authorization"] = f"Bearer {self.api_key}"
 
-    def _polite(self, url: str) -> str:
-        if not self.mailto:
-            return url
-        sep = "&" if "?" in url else "?"
-        return f"{url}{sep}{urlencode({'mailto': self.mailto})}"
-
-    def _get(self, url: str) -> Any | None:
-        cache_key = _strip_mailto(url)
-        if self.cache is not None and cache_key in self.cache:
-            return self.cache.get(cache_key)
-        response = self.session.get(self._polite(url), timeout=self.timeout)
-        if response.status_code == 404:
-            value: Any | None = None
-        else:
-            response.raise_for_status()
-            value = response.json()
-        if self.cache is not None:
-            self.cache.put(cache_key, value)
-        return value
-
     def lookup_doi(self, doi: str) -> dict[str, Any] | None:
         """Fetch OpenAlex metadata for a DOI. Returns None if not found."""
-        url = f"{OPENALEX_BASE}/works/doi:{doi}"
-        return self._get(url)
+        return self._get(f"{OPENALEX_BASE}/works/doi:{doi}")
 
     def search(self, query: str, rows: int = 3) -> list[dict[str, Any]]:
         """Search OpenAlex by free-text query (title + abstract)."""
         params = {"search": query, "per-page": str(rows)}
-        url = f"{OPENALEX_BASE}/works?{urlencode(params)}"
+        payload = self._get(f"{OPENALEX_BASE}/works?{urlencode(params)}")
+        if payload is None:
+            return []
+        return payload.get("results", [])
+
+    def search_title(self, title: str, rows: int = 3) -> list[dict[str, Any]]:
+        """Search OpenAlex by title only (`filter=title.search:`).
+
+        Title-restricted matching is the right shape for citation
+        verification: the default `?search=` query runs full-text against
+        title + abstract and returns unrelated noise for typical
+        author+title+year inputs. The query is normalized first to handle
+        OpenAlex's curly-apostrophe quirk and to drop filter-reserved
+        punctuation that would 400 the request.
+        """
+        normalized = _normalize_title_query(title)
+        if not normalized:
+            return []
+        url = (
+            f"{OPENALEX_BASE}/works?filter=title.search:{quote(normalized)}"
+            f"&per-page={rows}"
+        )
         payload = self._get(url)
         if payload is None:
             return []
