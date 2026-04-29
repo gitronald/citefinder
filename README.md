@@ -1,17 +1,20 @@
 # citefinder
 
-Crossref and OpenAlex reference lookups with local JSONL caching.
+OpenAlex (default) + Crossref reference lookups with local JSONL caching.
 
 A small Python library + CLI for verifying academic references against the
-Crossref and OpenAlex APIs. Every lookup is appended to an append-only JSONL
+OpenAlex and Crossref APIs. Every lookup is appended to an append-only JSONL
 log so repeated queries (across verification passes or sessions) are served
 from the cache. Negative results (404s) are cached too, so known-missing DOIs
 aren't re-hit.
 
-Crossref is the canonical source for published-deposit metadata. OpenAlex
-covers what Crossref doesn't — arXiv DOIs (`10.48550/arXiv.*`), other
-preprints, repository deposits — and frequently has richer metadata
-(abstracts, full author lists, affiliations) for records that exist in both.
+OpenAlex is the default source: it merges Crossref + Unpaywall + ORCID + ROR
++ repository sources, so it covers what Crossref alone is missing — arXiv
+DOIs (`10.48550/arXiv.*`), other preprints, repository deposits — and
+frequently has richer metadata (abstracts, full author lists, affiliations)
+for records that exist in both. Crossref is still available via the
+`crossref` subcommand for its own workflows (book-chapter lookup, the
+canonical published-deposit metadata).
 
 ### OpenAlex API key (optional)
 
@@ -53,6 +56,40 @@ uv sync
 
 ## Library usage
 
+### OpenAlex (default)
+
+```python
+from citefinder import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
+
+openalex = OpenAlexClient(
+    cache_path="~/.cache/citefinder/openalex.jsonl",
+    mailto="you@example.com",  # opts into OpenAlex's polite pool — faster, higher quota
+)
+
+# Single DOI (works for arXiv DOIs that Crossref doesn't index)
+work = openalex.lookup_doi("10.48550/arXiv.2410.21554")
+
+# Title-only search — tuned for citation verification. Handles OpenAlex's
+# curly-apostrophe quirk and strips filter-reserved punctuation that would
+# 400 the request, so straight ASCII inputs match curly-quoted indexed titles.
+hits = openalex.search_title("Backstabber's Knife Collection", rows=3)
+
+# Free-text search across titles + abstracts (noisier; prefer search_title
+# for citation lookup)
+hits = openalex.search("fact-checking large language models", rows=3)
+
+# OpenAlex stores abstracts as an inverted index — reconstruct to plain text
+abstract = reconstruct_abstract(work) if work else None
+
+# Helper for routing logic
+assert is_arxiv_doi("10.48550/arXiv.2410.21554")
+```
+
+The `mailto` argument is optional but recommended: it puts requests into
+OpenAlex's [polite pool](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool)
+for faster responses. The cache key strips `mailto` so changing it doesn't
+invalidate prior entries.
+
 ### Crossref
 
 ```python
@@ -64,38 +101,12 @@ client = CrossrefClient(cache_path="~/.cache/citefinder/crossref.jsonl")
 work = client.lookup_doi("10.1126/science.aap9559")
 print(work["title"][0])
 
-# Bibliographic search
+# Bibliographic search (author + title + year)
 hits = client.search_bibliographic("Wolfowicz hate speech meta-analysis", rows=3)
 
 # Book chapter via {book_doi}.{NNN} pattern
 chapter = client.lookup_book_chapter("10.1017/9781108890960", 5)
 ```
-
-### OpenAlex (fallback for arXiv / preprint / thin Crossref deposits)
-
-```python
-from citefinder import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
-
-openalex = OpenAlexClient(
-    cache_path="~/.cache/citefinder/openalex.jsonl",
-    mailto="you@example.com",  # opts into OpenAlex's polite pool — faster, higher quota
-)
-
-# arXiv DOIs aren't in Crossref — route them straight to OpenAlex
-doi = "10.48550/arXiv.2410.21554"
-work = openalex.lookup_doi(doi) if is_arxiv_doi(doi) else None
-
-# Free-text search across titles + abstracts
-hits = openalex.search("fact-checking large language models", rows=3)
-
-# OpenAlex stores abstracts as an inverted index — reconstruct to plain text
-abstract = reconstruct_abstract(work) if work else None
-```
-
-The `mailto` argument is optional but recommended: it puts requests into
-OpenAlex's [polite pool](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool)
-for faster responses. The cache key strips `mailto` so changing it doesn't
-invalidate prior entries.
 
 OpenAlex's schema differs from Crossref. Quick map:
 
@@ -109,18 +120,18 @@ OpenAlex's schema differs from Crossref. Quick map:
 ## CLI usage
 
 ```bash
-# Crossref
-citefinder doi 10.1126/science.aap9559
-citefinder search "Wolfowicz hate speech meta-analysis" --rows 3
-citefinder chapter 10.1017/9781108890960 5
+# OpenAlex (default)
+citefinder doi 10.48550/arXiv.2410.21554 --mailto you@example.com
+citefinder search "Backstabber's Knife Collection" --rows 3
 
-# OpenAlex
-citefinder openalex doi 10.48550/arXiv.2410.21554 --mailto you@example.com
-citefinder openalex search "fact-checking large language models" --rows 3
+# Crossref
+citefinder crossref doi 10.1126/science.aap9559
+citefinder crossref search "Wolfowicz hate speech meta-analysis" --rows 3
+citefinder crossref chapter 10.1017/9781108890960 5
 ```
 
-Default caches live at `~/.cache/citefinder/crossref.jsonl` and
-`~/.cache/citefinder/openalex.jsonl` — separate files so sources don't mix.
+Default caches live at `~/.cache/citefinder/openalex.jsonl` and
+`~/.cache/citefinder/crossref.jsonl` — separate files so sources don't mix.
 Override with `--cache <path>` per command.
 
 ## Why JSONL?
