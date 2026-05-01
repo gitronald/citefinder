@@ -124,6 +124,27 @@ OpenAlex's schema differs from Crossref. Quick map:
 | Container | `work["container-title"][0]` (+ `short-container-title`) | `work["primary_location"]["source"]["display_name"]` (+ `host_venue` on older records) |
 | Year | `published-print` / `published-online` / `issued` / `created` → `["date-parts"][0][0]` | `work["publication_year"]` (int) |
 
+### Bib verification
+
+A `.bib` file can be parsed and verified against either source end-to-end:
+
+```python
+from citefinder import (
+    OpenAlexClient,
+    Source,
+    parse_entries,
+    verify_entry,
+)
+
+source = Source(name="openalex", client=OpenAlexClient(cache_path="cache.jsonl"))
+
+for entry in parse_entries(open("refs.bib").read()):
+    result = verify_entry(entry, source)
+    print(result.key, result.status, result.matched_doi)
+```
+
+Each `Result` reports a `Status` (matched / probable / mismatch / unmatched / doi-not-found / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
+
 ## CLI usage
 
 ```bash
@@ -135,7 +156,18 @@ citefinder search "Backstabber's Knife Collection" --rows 3
 citefinder crossref doi 10.1126/science.aap9559 --mailto you@example.com
 citefinder crossref search "Wolfowicz hate speech meta-analysis" --rows 3
 citefinder crossref chapter 10.1017/9781108890960 5
+
+# .bib parsing & verification
+citefinder parse refs.bib                                # CSV to stdout (no network)
+citefinder parse refs.bib --out parsed.csv               # ...or to a file
+citefinder verify refs.bib                               # full pipeline (defaults to OpenAlex)
+citefinder verify refs.bib --source crossref             # ...or against Crossref
+citefinder verify refs.bib --out path/to/output/dir/     # custom output directory
 ```
+
+`parse` emits a CSV with columns `key, etype, title, author, year, doi, container` where `author` is the first-author surname (the form used downstream for matching) and `container` is the entry's `journal` or `booktitle`.
+
+`verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `data/citefinder/<bib-stem>/<source>/`: a `<source>.jsonl` cache and a structured `results.json`. Re-running is cheap — every cache hit is served from disk.
 
 ### CLI arguments
 
