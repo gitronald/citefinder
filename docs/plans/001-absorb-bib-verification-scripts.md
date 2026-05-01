@@ -1,5 +1,5 @@
 ---
-status: draft
+status: active
 branch: feature/absorb-bib-verification
 created: 2026-05-01T09:27:40-07:00
 completed:
