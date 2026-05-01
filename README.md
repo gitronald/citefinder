@@ -16,28 +16,39 @@ for records that exist in both. Crossref is still available via the
 `crossref` subcommand for its own workflows (book-chapter lookup, the
 canonical published-deposit metadata).
 
-### OpenAlex API key (optional)
+### Configuration: API key and mailto
 
 OpenAlex works without authentication, but a free API key gives you higher
-limits and tier-specific endpoints.
+limits and tier-specific endpoints. Both Crossref and OpenAlex honor a
+`mailto` for their polite pools (faster responses, higher quotas).
 
-- Docs: https://developers.openalex.org/
-- Sign up / generate a key: https://openalex.org/login?redirect=/settings/api-key
+- OpenAlex docs: https://developers.openalex.org/
+- Sign up / generate an OpenAlex key: https://openalex.org/login?redirect=/settings/api-key
 
-The key is read in this order:
+Lookup order (CLI), highest priority first:
 
-1. `api_key=...` argument to `OpenAlexClient(...)` (or `--api-key` on the CLI).
-2. `OPENALEX_API_KEY` environment variable.
-3. A `.env` file in the current working directory or any parent (loaded by
-   the CLI; library users can opt in via `from dotenv import load_dotenv`).
+1. CLI flag: `--api-key`, `--mailto`.
+2. Shell environment: `OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`.
+3. Project-local `.env` in the current working directory or any parent.
+4. **`~/.config/citefinder/config.toml`** (honors `$XDG_CONFIG_HOME`) — store
+   it once on this machine.
 
-```bash
-# .env
-OPENALEX_API_KEY=oa_pk_...
+```toml
+# ~/.config/citefinder/config.toml
+[openalex]
+api_key = "oa_pk_..."
+mailto = "you@example.com"
+
+[crossref]
+mailto = "you@example.com"
 ```
 
-The key is sent as `Authorization: Bearer ...`, never as a URL parameter, so
-it doesn't land in cache keys, logs, or referer headers.
+Library users: pass `api_key=...` and `mailto=...` to the client constructors
+explicitly. The config-file fallback is CLI-only (it shouldn't be a surprise
+side effect of importing the library).
+
+The API key is sent as `Authorization: Bearer ...`, never as a URL parameter,
+so it doesn't land in cache keys, logs, or referer headers.
 
 
 ## Install

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import sys
 import time
+import tomllib
 from dataclasses import asdict
 from pathlib import Path
 
@@ -29,6 +31,41 @@ from citefinder.verify import Result, Source, verify_entry
 # Library users are unaffected — this only runs when the CLI is invoked.
 load_dotenv(find_dotenv(usecwd=True))
 
+
+def _load_user_config() -> None:
+    """Read `~/.config/citefinder/config.toml` (honors `$XDG_CONFIG_HOME`)
+    and populate env vars for any values not already set. Lowest-priority
+    fallback — `.env` and shell env still win — so users can store keys
+    once per machine while overriding per-shell or per-project.
+
+    Expected format:
+        [openalex]
+        api_key = "oa_pk_..."
+        mailto = "you@example.com"
+
+        [crossref]
+        mailto = "you@example.com"
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    config_dir = Path(xdg) if xdg else Path.home() / ".config"
+    config_path = config_dir / "citefinder" / "config.toml"
+    if not config_path.is_file():
+        return
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+    mappings = {
+        "OPENALEX_API_KEY": ("openalex", "api_key"),
+        "OPENALEX_MAILTO": ("openalex", "mailto"),
+        "CROSSREF_MAILTO": ("crossref", "mailto"),
+    }
+    for env_name, (section, key) in mappings.items():
+        value = (config.get(section) or {}).get(key)
+        if value and env_name not in os.environ:
+            os.environ[env_name] = value
+
+
+_load_user_config()
+
 app = typer.Typer(
     help="OpenAlex (default) + Crossref reference lookups with local JSONL caching."
 )
@@ -43,14 +80,23 @@ DEFAULT_CROSSREF_CACHE = Path.home() / ".cache" / "citefinder" / "crossref.jsonl
 OpenAlexCacheOption = typer.Option(DEFAULT_OPENALEX_CACHE, help="JSONL cache path.")
 CrossrefCacheOption = typer.Option(DEFAULT_CROSSREF_CACHE, help="JSONL cache path.")
 RowsOption = typer.Option(3, help="Number of results to return.")
-MailtoOption = typer.Option(
-    None, help="Email for the source's polite pool (faster, higher quota)."
+OpenAlexMailtoOption = typer.Option(
+    None,
+    "--mailto",
+    envvar="OPENALEX_MAILTO",
+    help="Email for OpenAlex's polite pool (also OPENALEX_MAILTO env or config.toml).",
+)
+CrossrefMailtoOption = typer.Option(
+    None,
+    "--mailto",
+    envvar="CROSSREF_MAILTO",
+    help="Email for Crossref's polite pool (also CROSSREF_MAILTO env or config.toml).",
 )
 ApiKeyOption = typer.Option(
     None,
     "--api-key",
     envvar="OPENALEX_API_KEY",
-    help="OpenAlex API key (also read from OPENALEX_API_KEY env or .env).",
+    help="OpenAlex API key (also OPENALEX_API_KEY env, .env, or config.toml).",
 )
 
 
@@ -65,7 +111,7 @@ def _emit(result: object) -> None:
 def doi(
     doi: str,
     cache: Path = OpenAlexCacheOption,
-    mailto: str | None = MailtoOption,
+    mailto: str | None = OpenAlexMailtoOption,
     api_key: str | None = ApiKeyOption,
 ) -> None:
     """Look up a single DOI via OpenAlex."""
@@ -82,7 +128,7 @@ def search(
     title: str,
     rows: int = RowsOption,
     cache: Path = OpenAlexCacheOption,
-    mailto: str | None = MailtoOption,
+    mailto: str | None = OpenAlexMailtoOption,
     api_key: str | None = ApiKeyOption,
 ) -> None:
     """Search OpenAlex by title (title-only filter; tuned for citation lookup)."""
@@ -147,7 +193,7 @@ def verify(
         help="Metadata source to verify against.",
         case_sensitive=False,
     ),
-    mailto: str | None = MailtoOption,
+    mailto: str | None = OpenAlexMailtoOption,
     out: Path | None = typer.Option(
         None,
         "--out",
@@ -243,7 +289,7 @@ def verify(
 def crossref_doi(
     doi: str,
     cache: Path = CrossrefCacheOption,
-    mailto: str | None = MailtoOption,
+    mailto: str | None = CrossrefMailtoOption,
 ) -> None:
     """Look up a single DOI via Crossref."""
     result = CrossrefClient(cache_path=cache, mailto=mailto).lookup_doi(doi)
@@ -258,7 +304,7 @@ def crossref_search(
     query: str,
     rows: int = RowsOption,
     cache: Path = CrossrefCacheOption,
-    mailto: str | None = MailtoOption,
+    mailto: str | None = CrossrefMailtoOption,
 ) -> None:
     """Search Crossref by free-form bibliographic query (author + title + year)."""
     client = CrossrefClient(cache_path=cache, mailto=mailto)
@@ -271,7 +317,7 @@ def crossref_chapter(
     book_doi: str,
     chapter: str,
     cache: Path = CrossrefCacheOption,
-    mailto: str | None = MailtoOption,
+    mailto: str | None = CrossrefMailtoOption,
 ) -> None:
     """Look up a book chapter by `{book_doi}.{NNN}` pattern."""
     chapter_arg: int | str = int(chapter) if chapter.isdigit() else chapter

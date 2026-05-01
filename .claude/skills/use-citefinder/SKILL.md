@@ -199,18 +199,21 @@ abstract = reconstruct_abstract(work)  # returns plain string or None
 
 ### OpenAlex API key (optional, for higher rate limits)
 
-`OpenAlexClient` reads the API key in this order: explicit `api_key=...` arg → `OPENALEX_API_KEY` env var → (CLI only) `.env` in CWD or any parent. The key is sent as `Authorization: Bearer ...`, never in the URL or cache key.
+`OpenAlexClient` reads the API key in this order: explicit `api_key=...` arg → `OPENALEX_API_KEY` env var → (CLI only) project-local `.env` → (CLI only) `~/.config/citefinder/config.toml`. The key is sent as `Authorization: Bearer ...`, never in the URL or cache key.
 
-For ad-hoc lookups, no key is needed — common-pool requests work fine. If the user has a key set in their env or `.env`, the CLI picks it up automatically:
+For ad-hoc lookups, no key is needed — common-pool requests work fine. To store the key once per machine, drop a TOML file at the XDG config path:
 
-```bash
-# .env in the project (gitignored)
-OPENALEX_API_KEY=oa_pk_...
+```toml
+# ~/.config/citefinder/config.toml
+[openalex]
+api_key = "oa_pk_..."
+mailto = "you@example.com"
 
-citefinder openalex doi 10.48550/arXiv.2410.21554  # uses key from .env automatically
+[crossref]
+mailto = "you@example.com"
 ```
 
-For programmatic library use, `.env` is *not* auto-loaded — pass `api_key=...` explicitly or set the env var before constructing the client.
+The CLI picks it up automatically; project-local `.env` and shell env still override it. For programmatic library use, the config file is *not* auto-loaded — pass `api_key=...` and `mailto=...` explicitly or set the env vars before constructing the client.
 
 ### Picking `mailto`
 
