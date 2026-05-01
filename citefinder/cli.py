@@ -142,7 +142,7 @@ def parse(
 def verify(
     bib_file: Path,
     source: str = typer.Option(
-        "crossref",
+        "openalex",
         "--source",
         help="Metadata source to verify against.",
         case_sensitive=False,
