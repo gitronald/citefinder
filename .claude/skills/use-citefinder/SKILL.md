@@ -1,6 +1,6 @@
 ---
 name: use-citefinder
-description: Look up DOIs, search Crossref or OpenAlex, and resolve book chapters with `citefinder` — a small Crossref + OpenAlex client with a JSONL cache that survives sessions and remembers 404s. Use this whenever the user wants to verify a DOI, find a paper by author + title, check whether a citation is real, resolve a chapter DOI, look up an arXiv/preprint DOI Crossref doesn't index, or generate canonical metadata for a reference list — even when they don't say "Crossref" or "DOI" explicitly. Phrases like "is this paper real?", "find the published version", "look up this citation", "the subagent gave me these papers — verify them", or "what's the DOI for X?" should trigger it.
+description: Look up DOIs, search Crossref or OpenAlex, resolve book chapters, and verify whole `.bib` files with `citefinder` — a small Crossref + OpenAlex client with a JSONL cache that survives sessions and remembers 404s. Use this whenever the user wants to verify a DOI, find a paper by author + title, check whether a citation is real, resolve a chapter DOI, look up an arXiv/preprint DOI Crossref doesn't index, generate canonical metadata for a reference list, or audit a `.bib` file end-to-end — even when they don't say "Crossref" or "DOI" explicitly. Phrases like "is this paper real?", "find the published version", "look up this citation", "the subagent gave me these papers — verify them", "audit refs.bib", or "what's the DOI for X?" should trigger it.
 ---
 
 # Use citefinder
@@ -17,6 +17,7 @@ description: Look up DOIs, search Crossref or OpenAlex, and resolve book chapter
 - Verifying that a DOI resolves to the paper the user expects (the most common need).
 - Finding the canonical / published DOI from an arxiv ID, SSRN URL, preprint title, or an `(Author Year)` inline citation.
 - Resolving a book chapter DOI when you only have the book's DOI and a chapter number.
+- Auditing a whole `.bib` file: which entries match, which have wrong DOIs, which can't be found.
 - Sanity-checking a list of references produced by a research subagent or extracted from a PDF.
 - Building or enriching a bibliography (`.bib`, CSV) from an outline.
 
@@ -36,7 +37,7 @@ Confirm it's wired:
 uv run citefinder --help
 ```
 
-## Three core operations
+## Four core operations
 
 ### 1. Verify a single DOI
 
@@ -52,10 +53,11 @@ else:
     print(work["title"][0])
 ```
 
-CLI:
+CLI (top-level commands default to OpenAlex; use the `crossref` subcommand for Crossref-specific shapes):
 
 ```bash
-citefinder doi 10.1126/science.aap9559
+citefinder doi 10.1126/science.aap9559                  # OpenAlex
+citefinder crossref doi 10.1126/science.aap9559         # Crossref
 ```
 
 **Always compare the returned title to the title you expected.** This is the single most important habit. Subagents and PDF extractors regularly produce DOIs that are *off by a few characters* in the suffix (e.g., `psrm.2025.14` vs `psrm.2025.10063`) — those wrong suffixes often resolve to a real-but-different paper in the same journal. The DOI lookup itself returns 200; only a title comparison catches it.
@@ -76,8 +78,11 @@ for hit in hits:
 CLI:
 
 ```bash
-citefinder search "Wolfowicz hate speech meta-analysis" --rows 3
+citefinder search "Backstabber's Knife Collection"               # OpenAlex (title-only filter)
+citefinder crossref search "Wolfowicz hate speech meta-analysis" # Crossref (author + title + year)
 ```
+
+Note: `citefinder search` (OpenAlex) runs a title-only filter — pass just title words. `citefinder crossref search` accepts free-form bibliographic queries (author + title + year) and is closer in behavior to a generic "find this paper" query.
 
 Tips for good queries:
 
@@ -96,10 +101,49 @@ chapter = client.lookup_book_chapter("10.1017/9781108890960", 5)
 CLI:
 
 ```bash
-citefinder chapter 10.1017/9781108890960 5
+citefinder crossref chapter 10.1017/9781108890960 5
 ```
 
 `lookup_book_chapter` zero-pads numeric chapters to 3 digits. Pass a string instead (`client.lookup_book_chapter(book_doi, "ch1a")`) for publishers using a different format.
+
+### 4. Verify a whole .bib file
+
+When the user has a `.bib` and asks "audit these references" / "check what's wrong" / "which entries don't resolve" — use the bib-verification pipeline rather than calling `lookup_doi` per entry by hand. It parses, resolves DOIs, falls back to bibliographic search, checks four signals (title, year, first-author surname, container), and buckets each entry by status.
+
+CLI:
+
+```bash
+citefinder verify refs.bib                       # OpenAlex (default)
+citefinder verify refs.bib --source crossref     # ...or Crossref
+citefinder verify refs.bib --out path/to/dir/    # custom output directory
+```
+
+Output lands in `data/citefinder/<bib-stem>/<source>/`:
+
+- `<source>.jsonl` — append-only response cache; re-running is cheap.
+- `results.json` — structured per-entry result (status, matched DOI, signals).
+
+Per-entry statuses: `matched`, `probable` (one signal disagreed — review), `mismatch` (≥2 signals disagreed — DOI to wrong work), `doi-not-found` (404 — common for arXiv/preprint DOIs in Crossref), `unmatched` (no plausible hit), `skip-source` (`@online`/`@misc` — verify via URL), `error`.
+
+Crossref and OpenAlex are complementary — Crossref has richer metadata for indexed records (full title + subtitle, multiple container aliases) but doesn't index arXiv/preprints; OpenAlex covers preprints but sometimes truncates titles or returns preprint years instead of publication years. For a thorough audit, run both and compare.
+
+For programmatic use:
+
+```python
+from citefinder import OpenAlexClient, Source, parse_entries, verify_entry
+
+source = Source(name="openalex", client=OpenAlexClient(cache_path="cache.jsonl"))
+for entry in parse_entries(open("refs.bib").read()):
+    r = verify_entry(entry, source)
+    print(r.key, r.status, r.matched_doi)
+```
+
+For a quick non-network preview of what's in a `.bib` (useful for sanity-checking parsing or dumping to CSV):
+
+```bash
+citefinder parse refs.bib                # CSV to stdout: key, etype, title, author, year, doi, container
+citefinder parse refs.bib --out parsed.csv
+```
 
 ## Key behaviors to know
 
@@ -130,11 +174,11 @@ else:
     work = crossref.lookup_doi(doi) or openalex.lookup_doi(doi)  # Crossref-first, OpenAlex fallback
 ```
 
-CLI:
+CLI (top-level commands are OpenAlex by default):
 
 ```bash
-citefinder openalex doi 10.48550/arXiv.2410.21554
-citefinder openalex search "fact-checking large language models"
+citefinder doi 10.48550/arXiv.2410.21554
+citefinder search "fact-checking large language models"
 ```
 
 OpenAlex's schema differs from Crossref — different keys for the same data:
@@ -155,18 +199,23 @@ abstract = reconstruct_abstract(work)  # returns plain string or None
 
 ### OpenAlex API key (optional, for higher rate limits)
 
-`OpenAlexClient` reads the API key in this order: explicit `api_key=...` arg → `OPENALEX_API_KEY` env var → (CLI only) `.env` in CWD or any parent. The key is sent as `Authorization: Bearer ...`, never in the URL or cache key.
+`OpenAlexClient` reads the API key in this order: explicit `api_key=...` arg → `OPENALEX_API_KEY` env var → (CLI only) project-local `.env` → (CLI only) `~/.config/citefinder/config.toml`. The key is sent as `Authorization: Bearer ...`, never in the URL or cache key.
 
-For ad-hoc lookups, no key is needed — common-pool requests work fine. If the user has a key set in their env or `.env`, the CLI picks it up automatically:
+For ad-hoc lookups, no key is needed — common-pool requests work fine. To store the key once per machine, drop a TOML file at the XDG config path:
 
-```bash
-# .env in the project (gitignored)
-OPENALEX_API_KEY=oa_pk_...
+```toml
+# ~/.config/citefinder/config.toml
+[openalex]
+api_key = "your-openalex-key"
+mailto = "you@example.com"
 
-citefinder openalex doi 10.48550/arXiv.2410.21554  # uses key from .env automatically
+[crossref]
+mailto = "you@example.com"
 ```
 
-For programmatic library use, `.env` is *not* auto-loaded — pass `api_key=...` explicitly or set the env var before constructing the client.
+Each section is optional; omit anything you don't need. The file is plain-text — recommend `chmod 600` so it's only readable by the user.
+
+The CLI picks the config up automatically; project-local `.env` and shell env still override it. For programmatic library use, the config file is *not* auto-loaded — pass `api_key=...` and `mailto=...` explicitly or set the env vars before constructing the client.
 
 ### Picking `mailto`
 
