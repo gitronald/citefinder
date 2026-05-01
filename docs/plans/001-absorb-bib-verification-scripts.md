@@ -10,13 +10,18 @@ pr:
 
 ## Plan
 
-Promote the modular logic in `scripts/comparison.py` and `scripts/verify-bib.py`
+Promote the modular logic in `scripts/signals.py` and `scripts/verify-bib.py`
 into the `citefinder` package so it can be imported, tested, and maintained as
 first-class library code rather than one-off scripts.
 
 ### Scope
 
-**`scripts/comparison.py`** → `citefinder/comparison.py` (verbatim move):
+**`scripts/comparison.py`** → `citefinder/signals.py` (rename + verbatim
+move). The module is the source-agnostic "signal layer": canonical types
+in, per-signal verdicts computed, status reduced out. Renamed from
+`comparison` because that name was generic — `signals` describes what's
+actually inside.
+
 - `Status` (StrEnum), `BibCitation`, `Work` (dataclasses)
 - Pure signal-check functions: `normalize_title`, `title_similarity`,
   `container_similarity`, `check_title`, `check_year`, `check_author`,
@@ -54,6 +59,21 @@ first-class library code rather than one-off scripts.
    - `citefinder verify <bib>` — run the full verification pipeline (replaces
      `scripts/verify-bib.py main()`). Accepts `--source`, `--mailto`, `--out`.
 
+### Public API (`citefinder/__init__.py`)
+
+Re-export the names users will import directly. Implementation-detail
+helpers (the individual `check_*` functions, normalization helpers,
+bib-side query builders, internal constants) stay module-private —
+importable from their module if needed, but not surfaced from the
+package root.
+
+New additions to `__all__`:
+- From `bib`: `Entry`, `parse_entries`
+- From `signals`: `Status`, `BibCitation`, `Work`, `compute_signals`,
+  `status_from_signals`
+- From `adapters`: `crossref_to_work`, `openalex_to_work`
+- From `verify`: `Source`, `Result`, `verify_entry`
+
 ### Dependencies
 
 `bibtexparser>=2.0.0b0` is currently in the `dev` group of `pyproject.toml`.
@@ -70,7 +90,7 @@ citefinder/
 ├── client.py            # existing (Crossref)
 ├── openalex.py          # existing
 ├── bib.py               # NEW: Entry, parse_entries, bib helpers
-├── comparison.py        # NEW: Work, BibCitation, Status, signal checks
+├── signals.py        # NEW: Work, BibCitation, Status, signal checks
 ├── adapters.py          # NEW: crossref_to_work, openalex_to_work (pure)
 ├── verify.py            # NEW: Source, Result, verify_entry, constants
 └── cli.py               # UPDATED: add `parse` and `verify` commands
@@ -78,7 +98,7 @@ citefinder/
 
 ### Migration steps
 
-1. Create `citefinder/comparison.py` from `scripts/comparison.py` — minimal
+1. Create `citefinder/signals.py` from `scripts/comparison.py` — minimal
    changes (adjust imports, confirm tests pass).
 2. Create `citefinder/bib.py` — `Entry`, `parse_entries`, and bib helpers.
 3. Create `citefinder/adapters.py` — `Work` adapters and `Source` wrapper.
@@ -89,7 +109,7 @@ citefinder/
 8. Delete `scripts/verify-bib.py` and `scripts/comparison.py` — the CLI
    covers the use case 1:1, no shims (they rot).
 9. Add tests under `tests/`: `test_bib.py` (parse_entries, name parsing,
-   query builders), `test_comparison.py` (signal checks, status reduction),
+   query builders), `test_signals.py` (signal checks, status reduction),
    `test_adapters.py` (Crossref/OpenAlex JSON → Work fixtures), and a small
    `test_verify.py` covering `verify_entry` against a fake `Source`.
 
