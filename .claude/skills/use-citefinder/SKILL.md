@@ -206,14 +206,16 @@ For ad-hoc lookups, no key is needed — common-pool requests work fine. To stor
 ```toml
 # ~/.config/citefinder/config.toml
 [openalex]
-api_key = "oa_pk_..."
+api_key = "your-openalex-key"
 mailto = "you@example.com"
 
 [crossref]
 mailto = "you@example.com"
 ```
 
-The CLI picks it up automatically; project-local `.env` and shell env still override it. For programmatic library use, the config file is *not* auto-loaded — pass `api_key=...` and `mailto=...` explicitly or set the env vars before constructing the client.
+Each section is optional; omit anything you don't need. The file is plain-text — recommend `chmod 600` so it's only readable by the user.
+
+The CLI picks the config up automatically; project-local `.env` and shell env still override it. For programmatic library use, the config file is *not* auto-loaded — pass `api_key=...` and `mailto=...` explicitly or set the env vars before constructing the client.
 
 ### Picking `mailto`
 

@@ -36,12 +36,16 @@ Lookup order (CLI), highest priority first:
 ```toml
 # ~/.config/citefinder/config.toml
 [openalex]
-api_key = "oa_pk_..."
+api_key = "your-openalex-key"
 mailto = "you@example.com"
 
 [crossref]
 mailto = "you@example.com"
 ```
+
+The file is plain-text — if your environment is shared, `chmod 600
+~/.config/citefinder/config.toml` so it's only readable by you. Each section
+is optional; omit anything you don't need.
 
 Library users: pass `api_key=...` and `mailto=...` to the client constructors
 explicitly. The config-file fallback is CLI-only (it shouldn't be a surprise
