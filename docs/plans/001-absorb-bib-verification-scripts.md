@@ -16,16 +16,13 @@ first-class library code rather than one-off scripts.
 
 ### Scope
 
-**`scripts/comparison.py`** — entirely library-worthy. Contains:
+**`scripts/comparison.py`** → `citefinder/comparison.py` (verbatim move):
 - `Status` (StrEnum), `BibCitation`, `Work` (dataclasses)
 - Pure signal-check functions: `normalize_title`, `title_similarity`,
   `container_similarity`, `check_title`, `check_year`, `check_author`,
   `check_container`, `compute_signals`, `status_from_signals`
 
-Move these verbatim into `citefinder/comparison.py` (or `citefinder/verify.py`
-— decide during implementation based on what name feels more natural to importers).
-
-**`scripts/verify-bib.py`** — mixed. Break it into:
+**`scripts/verify-bib.py`** — split as follows:
 
 1. **BibTeX parsing** → `citefinder/bib.py`
    - `parse_entries(text: str) -> list[Entry]` — bibtexparser v2 wrapper
@@ -34,30 +31,34 @@ Move these verbatim into `citefinder/comparison.py` (or `citefinder/verify.py`
      `build_title_query`
    - `citation_from_entry(entry: Entry) -> BibCitation`
 
-2. **Source adapters** → `citefinder/adapters.py` (or fold into `bib.py` if
-   small enough)
+2. **Source adapters** → `citefinder/adapters.py`
    - `crossref_to_work`, `openalex_to_work` and their private helpers
-   - `Source` dataclass (thin wrapper over the two clients)
+   - Pure functions over the source JSON shape — no client imports.
 
-3. **Verification orchestration** → `citefinder/verify.py` (or keep as a CLI
-   entry point)
+3. **Verification orchestration** → `citefinder/verify.py`
+   - `Source` dataclass (thin wrapper around `CrossrefClient` / `OpenAlexClient`)
    - `verify_entry(entry, source) -> Result`
    - `Result` dataclass
    - Constants: `SKIP_SOURCE_TYPES`, `TITLE_MATCH_THRESHOLD`
 
+   `Source` lives here (not in `adapters.py`) because it holds a live client.
+   Keeping `adapters.py` import-free of the clients lets the adapters be
+   tested as pure JSON-shape transforms.
+
 4. **CLI entry point** — wire two top-level Typer commands:
-   - `citefinder parse <bib>` — parse a `.bib` file and emit a CSV of entries
-     (key, type, title, author, year, doi). Useful for quick inspection without
-     hitting any network.
+   - `citefinder parse <bib> [--out <file>]` — parse a `.bib` file and emit
+     CSV. Default to stdout for piping; `--out` writes to a file. Columns:
+     `key, etype, title, author, year, doi, container` where `author` is the
+     **first-author surname** (the form used downstream for matching) and
+     `container` is `journal` or `booktitle`. No network calls.
    - `citefinder verify <bib>` — run the full verification pipeline (replaces
      `scripts/verify-bib.py main()`). Accepts `--source`, `--mailto`, `--out`.
-   Keep the script in place during transition if needed, or replace with a thin
-   shim once the CLI covers the use case.
 
 ### Dependencies
 
-`bibtexparser` (v2) is not yet in `pyproject.toml`. Add it as a runtime
-dependency (`uv add bibtexparser`).
+`bibtexparser>=2.0.0b0` is currently in the `dev` group of `pyproject.toml`.
+Promote it to runtime `dependencies` since `citefinder/bib.py` will import it
+at module load time.
 
 ### Module layout after this plan
 
@@ -70,9 +71,9 @@ citefinder/
 ├── openalex.py          # existing
 ├── bib.py               # NEW: Entry, parse_entries, bib helpers
 ├── comparison.py        # NEW: Work, BibCitation, Status, signal checks
-├── adapters.py          # NEW: crossref_to_work, openalex_to_work, Source
-├── verify.py            # NEW: Result, verify_entry, constants
-└── cli.py               # UPDATED: add `verify-bib` subcommand
+├── adapters.py          # NEW: crossref_to_work, openalex_to_work (pure)
+├── verify.py            # NEW: Source, Result, verify_entry, constants
+└── cli.py               # UPDATED: add `parse` and `verify` commands
 ```
 
 ### Migration steps
@@ -85,12 +86,16 @@ citefinder/
 5. Add `bibtexparser` dependency.
 6. Update `citefinder/__init__.py` `__all__` with new public names.
 7. Add `citefinder parse` and `citefinder verify` commands in `cli.py`.
-8. Update `scripts/verify-bib.py` to import from the package (thin shim) or
-   delete it if the CLI covers the use case.
-9. Write or move tests from any existing test scripts into `tests/`.
+8. Delete `scripts/verify-bib.py` and `scripts/comparison.py` — the CLI
+   covers the use case 1:1, no shims (they rot).
+9. Add tests under `tests/`: `test_bib.py` (parse_entries, name parsing,
+   query builders), `test_comparison.py` (signal checks, status reduction),
+   `test_adapters.py` (Crossref/OpenAlex JSON → Work fixtures), and a small
+   `test_verify.py` covering `verify_entry` against a fake `Source`.
 
 ### What stays in `scripts/`
 
-Scripts that are one-off pipeline runners (e.g., `summarize-bib.py`) and don't
-contain reusable logic can stay as scripts. Only logic that is worth unit-testing
-or re-using across multiple entry points moves into the package.
+Pipeline runners with no reusable logic (e.g., a future `summarize-bib.py`)
+can stay as scripts. Only logic worth unit-testing or re-using across entry
+points moves into the package. After this plan, `scripts/` should be empty
+of the absorbed files.
