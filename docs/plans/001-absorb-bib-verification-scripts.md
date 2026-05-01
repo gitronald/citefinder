@@ -45,9 +45,14 @@ Move these verbatim into `citefinder/comparison.py` (or `citefinder/verify.py`
    - `Result` dataclass
    - Constants: `SKIP_SOURCE_TYPES`, `TITLE_MATCH_THRESHOLD`
 
-4. **CLI entry point** — wire a `citefinder verify-bib` subcommand (Typer) that
-   replicates what `scripts/verify-bib.py main()` does today. Keep the script
-   in place during transition if needed, or replace it with a thin shim.
+4. **CLI entry point** — wire two top-level Typer commands:
+   - `citefinder parse <bib>` — parse a `.bib` file and emit a CSV of entries
+     (key, type, title, author, year, doi). Useful for quick inspection without
+     hitting any network.
+   - `citefinder verify <bib>` — run the full verification pipeline (replaces
+     `scripts/verify-bib.py main()`). Accepts `--source`, `--mailto`, `--out`.
+   Keep the script in place during transition if needed, or replace with a thin
+   shim once the CLI covers the use case.
 
 ### Dependencies
 
@@ -79,7 +84,7 @@ citefinder/
 4. Create `citefinder/verify.py` — `Result`, `verify_entry`, constants.
 5. Add `bibtexparser` dependency.
 6. Update `citefinder/__init__.py` `__all__` with new public names.
-7. Add `verify-bib` CLI subcommand in `cli.py`.
+7. Add `citefinder parse` and `citefinder verify` commands in `cli.py`.
 8. Update `scripts/verify-bib.py` to import from the package (thin shim) or
    delete it if the CLI covers the use case.
 9. Write or move tests from any existing test scripts into `tests/`.
