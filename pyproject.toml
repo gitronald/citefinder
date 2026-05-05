@@ -32,7 +32,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov",
     "ruff",
-    "types-requests>=2.33.0.20260408",
+    "types-requests>=2.33.0.20260503",
 ]
 
 [tool.ruff]
