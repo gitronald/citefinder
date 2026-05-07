@@ -146,6 +146,15 @@ citefinder bib-to-table refs.bib --csv > refs.csv         # ...or CSV to stdout
 citefinder bib-to-table refs.bib --fields title,year,doi  # subset of columns
 ```
 
+`bib-to-table` ↔ `table-to-bib` round-trips, so the CSV is also an editing surface — fix entries in a spreadsheet, then regenerate the `.bib`:
+
+```bash
+citefinder bib-to-table refs.bib --csv > refs.csv         # edit refs.csv in a spreadsheet
+citefinder table-to-bib refs.csv --out refs.bib           # regenerate
+```
+
+Field order within each entry is not preserved (it follows the CSV's column order), but keys, entry types, and field values round-trip verbatim.
+
 ## Key behaviors to know
 
 - **Cache path:** defaults to `~/.cache/citefinder/crossref.jsonl`. Use a project-local path (e.g., `data/crossref-cache.jsonl`) when you want results committed alongside an outline so collaborators don't re-query.
