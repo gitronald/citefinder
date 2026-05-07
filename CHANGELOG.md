@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-07
+
+### Removed
+
+- CLI `citefinder parse <bib>`: superseded by `citefinder bib-to-table` (wider,
+  faithful tabulation that round-trips through `table-to-bib`).
+
+## [0.4.1] - 2026-05-07
+
+### Added
+
+- New `citefinder.bib_table` module: `bib_to_table` tabulates a `.bib` file
+  into a wide polars DataFrame (one row per entry, one column per field);
+  `table_to_bib` is the inverse, regenerating BibTeX from the table.
+- CLI `citefinder bib-to-table <bib>`: emits a polars table to the terminal,
+  or CSV to stdout via `--csv`. `--fields` filters to a subset of columns.
+- CLI `citefinder table-to-bib <csv>`: converts a CSV (from
+  `bib-to-table --csv`) back into a `.bib` file. Round-trip-safe except for
+  field ordering within entries.
+
+### Changed
+
+- `polars` promoted to a runtime dependency (used by `bib_table`).
+
 ## [0.4.0] - 2026-05-01
 
 ### Added

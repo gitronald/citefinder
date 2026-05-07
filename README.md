@@ -185,9 +185,7 @@ citefinder crossref doi 10.1126/science.aap9559 --mailto you@example.com
 citefinder crossref search "Wolfowicz hate speech meta-analysis" --rows 3
 citefinder crossref chapter 10.1017/9781108890960 5
 
-# .bib parsing & verification
-citefinder parse refs.bib                                # CSV to stdout (no network)
-citefinder parse refs.bib --out parsed.csv               # ...or to a file
+# .bib verification
 citefinder verify refs.bib                               # full pipeline (defaults to OpenAlex)
 citefinder verify refs.bib --source crossref             # ...or against Crossref
 citefinder verify refs.bib --out path/to/output/dir/     # custom output directory
@@ -199,8 +197,6 @@ citefinder bib-to-table refs.bib --fields title,year,doi    # subset of columns
 citefinder table-to-bib refs.csv                            # CSV back to .bib on stdout
 citefinder table-to-bib refs.csv --out refs.regen.bib       # ...or to a file
 ```
-
-`parse` emits a CSV with columns `key, etype, title, author, year, doi, container` where `author` is the first-author surname (the form used downstream for matching) and `container` is the entry's `journal` or `booktitle`.
 
 `verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `data/citefinder/<bib-stem>/<source>/`: a `<source>.jsonl` cache and a structured `results.json`. Re-running is cheap — every cache hit is served from disk.
 
