@@ -185,8 +185,8 @@ def parse(
             sink.close()
 
 
-@app.command("bib-table")
-def bib_table(
+@app.command("bib-to-table")
+def bib_to_table_cmd(
     bib_file: Path,
     csv_out: bool = typer.Option(
         False, "--csv", help="Output CSV to stdout instead of a polars table."
@@ -226,16 +226,16 @@ def bib_table(
         print(df)
 
 
-@app.command("table-bib")
-def table_bib(
+@app.command("table-to-bib")
+def table_to_bib_cmd(
     csv_file: Path,
     out: Path | None = typer.Option(
         None, "--out", help="Write `.bib` here. Defaults to stdout."
     ),
 ) -> None:
-    """Convert a CSV (from `bib-table --csv`) back into a `.bib` file.
+    """Convert a CSV (from `bib-to-table --csv`) back into a `.bib` file.
 
-    Inverse of `bib-table`. Input CSV must have `key` and `entry_type`
+    Inverse of `bib-to-table`. Input CSV must have `key` and `entry_type`
     columns; remaining columns become bib fields. Empty cells are
     treated as absent fields. Field order within each entry follows
     the CSV's column order, so the source bib's original field order
