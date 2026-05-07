@@ -22,6 +22,7 @@ import typer
 from dotenv import find_dotenv, load_dotenv
 
 from citefinder.bib import first_author_surname, parse_entries, strip_braces
+from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.client import CrossrefClient
 from citefinder.openalex import OpenAlexClient
 from citefinder.verify import Result, Source, verify_entry
@@ -182,6 +183,79 @@ def parse(
     finally:
         if out:
             sink.close()
+
+
+@app.command("bib-table")
+def bib_table(
+    bib_file: Path,
+    csv_out: bool = typer.Option(
+        False, "--csv", help="Output CSV to stdout instead of a polars table."
+    ),
+    fields: str | None = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated list of additional columns to include "
+        "(besides key/entry_type). Default: all fields present in the file.",
+    ),
+) -> None:
+    """Tabulate a `.bib` file into a wide table (one row per entry).
+
+    Default output is a polars table sized for terminal viewing. `--csv`
+    writes to stdout for piping into a spreadsheet or another tool.
+    `--fields` filters to a subset (`key` and `entry_type` are always shown).
+    """
+    import polars as pl
+
+    if not bib_file.is_file():
+        typer.echo(f"Error: {bib_file} is not a file", err=True)
+        raise typer.Exit(code=1)
+
+    df = bib_to_table(bib_file.read_text())
+
+    if fields:
+        wanted = ["key", "entry_type", *(f.strip() for f in fields.split(","))]
+        present = [c for c in wanted if c in df.columns]
+        df = df.select(present)
+
+    if csv_out:
+        sys.stdout.write(df.write_csv())
+    else:
+        pl.Config.set_tbl_rows(max(len(df), 50))
+        pl.Config.set_tbl_width_chars(180)
+        pl.Config.set_fmt_str_lengths(80)
+        print(df)
+
+
+@app.command("table-bib")
+def table_bib(
+    csv_file: Path,
+    out: Path | None = typer.Option(
+        None, "--out", help="Write `.bib` here. Defaults to stdout."
+    ),
+) -> None:
+    """Convert a CSV (from `bib-table --csv`) back into a `.bib` file.
+
+    Inverse of `bib-table`. Input CSV must have `key` and `entry_type`
+    columns; remaining columns become bib fields. Empty cells are
+    treated as absent fields. Field order within each entry follows
+    the CSV's column order, so the source bib's original field order
+    is not recoverable.
+    """
+    import polars as pl
+
+    if not csv_file.is_file():
+        typer.echo(f"Error: {csv_file} is not a file", err=True)
+        raise typer.Exit(code=1)
+
+    # `infer_schema_length=0` keeps every column as a string — year,
+    # volume, etc. are bib values, not numbers, and downstream consumers
+    # expect them to round-trip verbatim.
+    df = pl.read_csv(csv_file, infer_schema_length=0)
+    bib = table_to_bib(df)
+    if out:
+        out.write_text(bib)
+    else:
+        sys.stdout.write(bib)
 
 
 @app.command()
