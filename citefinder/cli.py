@@ -9,7 +9,6 @@ remains accessible via the `crossref` subcommand for its own workflows
 
 from __future__ import annotations
 
-import csv
 import json
 import os
 import sys
@@ -21,7 +20,7 @@ from pathlib import Path
 import typer
 from dotenv import find_dotenv, load_dotenv
 
-from citefinder.bib import first_author_surname, parse_entries, strip_braces
+from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.client import CrossrefClient
 from citefinder.openalex import OpenAlexClient
@@ -139,50 +138,6 @@ def search(
 
 
 # --- bib parsing & verification --------------------------------------------
-
-
-PARSE_COLUMNS = ["key", "etype", "title", "author", "year", "doi", "container"]
-
-
-@app.command()
-def parse(
-    bib_file: Path,
-    out: Path | None = typer.Option(
-        None, "--out", help="Write CSV here. Defaults to stdout."
-    ),
-) -> None:
-    """Parse a `.bib` file and emit CSV (no network calls).
-
-    `author` is the first-author surname (the form used downstream for
-    matching). `container` is `journal` or `booktitle`, whichever the
-    entry has.
-    """
-    if not bib_file.is_file():
-        typer.echo(f"Error: {bib_file} is not a file", err=True)
-        raise typer.Exit(code=1)
-
-    entries = parse_entries(bib_file.read_text())
-    sink = out.open("w", newline="") if out else sys.stdout
-    try:
-        writer = csv.writer(sink)
-        writer.writerow(PARSE_COLUMNS)
-        for e in entries:
-            writer.writerow(
-                [
-                    e.key,
-                    e.etype,
-                    strip_braces(e.fields.get("title", "")),
-                    first_author_surname(e.fields.get("author", "")),
-                    strip_braces(e.fields.get("year", "")),
-                    strip_braces(e.fields.get("doi", "")),
-                    strip_braces(
-                        e.fields.get("journal") or e.fields.get("booktitle") or ""
-                    ),
-                ]
-            )
-    finally:
-        if out:
-            sink.close()
 
 
 @app.command("bib-to-table")

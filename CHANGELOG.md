@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- CLI `citefinder parse <bib>`: superseded by `citefinder bib-to-table` (wider,
+  faithful tabulation that round-trips through `table-to-bib`).
+
 ## [0.4.0] - 2026-05-01
 
 ### Added

@@ -15,7 +15,7 @@ citefinder/
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
-└── cli.py              # Typer CLI: doi, search, parse, verify, crossref subcommand
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, crossref subcommand
 ```
 
 The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)

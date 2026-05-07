@@ -141,8 +141,9 @@ for entry in parse_entries(open("refs.bib").read()):
 For a quick non-network preview of what's in a `.bib` (useful for sanity-checking parsing or dumping to CSV):
 
 ```bash
-citefinder parse refs.bib                # CSV to stdout: key, etype, title, author, year, doi, container
-citefinder parse refs.bib --out parsed.csv
+citefinder bib-to-table refs.bib                          # wide polars table to terminal
+citefinder bib-to-table refs.bib --csv > refs.csv         # ...or CSV to stdout
+citefinder bib-to-table refs.bib --fields title,year,doi  # subset of columns
 ```
 
 ## Key behaviors to know
