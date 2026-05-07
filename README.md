@@ -160,6 +160,19 @@ for entry in parse_entries(open("refs.bib").read()):
 
 Each `Result` reports a `Status` (matched / probable / mismatch / unmatched / doi-not-found / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
 
+### Bib ↔ table
+
+A `.bib` file can be loaded into a wide polars DataFrame (one row per entry, one column per field) for inspection or bulk editing, then serialized back:
+
+```python
+from citefinder import bib_to_table, table_to_bib
+
+df = bib_to_table(open("refs.bib").read())   # key, entry_type, then fields alphabetical
+new_bib = table_to_bib(df)                    # back to .bib, null cells skipped
+```
+
+`bib_to_table` lowercases field keys (`DOI` → `doi`) and stores the entry kind in `entry_type` to avoid collision with the literal `type` field that some entries carry (e.g., SSRN papers set `type = {SSRN Scholarly Paper}`). `table_to_bib` requires `key` and `entry_type` columns and serializes the rest in column order. The round-trip is lossless on field values and entry types; the original within-entry field order and any source-file `@string`/`@comment` blocks are not preserved.
+
 ## CLI usage
 
 ```bash
@@ -178,11 +191,20 @@ citefinder parse refs.bib --out parsed.csv               # ...or to a file
 citefinder verify refs.bib                               # full pipeline (defaults to OpenAlex)
 citefinder verify refs.bib --source crossref             # ...or against Crossref
 citefinder verify refs.bib --out path/to/output/dir/     # custom output directory
+
+# .bib ↔ table
+citefinder bib-to-table refs.bib                            # wide polars table to terminal
+citefinder bib-to-table refs.bib --csv > refs.csv           # ...or CSV to stdout
+citefinder bib-to-table refs.bib --fields title,year,doi    # subset of columns
+citefinder table-to-bib refs.csv                            # CSV back to .bib on stdout
+citefinder table-to-bib refs.csv --out refs.regen.bib       # ...or to a file
 ```
 
 `parse` emits a CSV with columns `key, etype, title, author, year, doi, container` where `author` is the first-author surname (the form used downstream for matching) and `container` is the entry's `journal` or `booktitle`.
 
 `verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `data/citefinder/<bib-stem>/<source>/`: a `<source>.jsonl` cache and a structured `results.json`. Re-running is cheap — every cache hit is served from disk.
+
+`bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved.
 
 ### CLI arguments
 
