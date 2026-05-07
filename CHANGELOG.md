@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-07
+
 ### Removed
 
 - CLI `citefinder parse <bib>`: superseded by `citefinder bib-to-table` (wider,
