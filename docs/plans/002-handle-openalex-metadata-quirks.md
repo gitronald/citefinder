@@ -1,8 +1,10 @@
 ---
+id: 2
+slug: handle-openalex-metadata-quirks
 status: draft
 branch:
 created: 2026-05-01T10:30:45-07:00
-completed:
+concluded:
 pr:
 ---
 

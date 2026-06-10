@@ -1,8 +1,10 @@
 ---
+id: 1
+slug: absorb-bib-verification-scripts
 status: done
 branch: feature/absorb-bib-verification
 created: 2026-05-01T09:27:40-07:00
-completed: 2026-05-01T10:24:13-07:00
+concluded: 2026-05-01T10:24:13-07:00
 pr: https://github.com/gitronald/citefinder/pull/12
 ---
 
