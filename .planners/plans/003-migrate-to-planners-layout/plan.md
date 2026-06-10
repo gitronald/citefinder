@@ -1,11 +1,11 @@
 ---
 id: 3
 slug: migrate-to-planners-layout
-status: active
+status: done
 branch: feature/migrate-to-planners-layout
 created: 2026-06-10T09:40:57-07:00
-concluded:
-pr:
+concluded: 2026-06-10T09:45:06-07:00
+pr: https://github.com/gitronald/citefinder/pull/26
 ---
 
 # Migrate plans to the .planners layout
@@ -31,3 +31,25 @@ Scope:
   pre-commit config, activate it, generate the index, and validate.
 
 ## Log
+**2026-06-10 — migration run (review list + decisions).**
+
+- **Frontmatter pass (3 legacy plans, 000-002):** added `id`/`slug`; renamed
+  `completed:` -> `concluded:`. Done plans already carried branch + PR.
+- **TODO.md reconciliation:** the done bib-table item carried no plan marker
+  -> archive plan 004 (`concluded` = migration date); the open item's plan
+  002 remains `draft`.
+- **docs/README.md (mixed case):** kept Guides; plans section repointed to
+  `.planners/`.
+- **Review follow-up (fix):** the review caught a stale `docs/plans/` link
+  in CLAUDE.md — the run had skipped the Step 5a reference sweep. Repointed
+  (commit 8325233) and re-grepped the tree clean. Check gate: pytest 110
+  passed; `planners validate` ok (5 plans).
+- **Hook:** appended to the existing ruff/pyrefly config and active.
+  Installed from the worktree — re-install from the main checkout after
+  merge.
+
+## Retrospective
+
+- The one finding across ten repos so far came from skipping the mechanical
+  reference sweep — the review gate caught it, which is exactly the
+  defense-in-depth the runbook intends. Don't inline-optimize away Step 5a.
