@@ -177,6 +177,35 @@ def test_table_to_bib_requires_key_and_entry_type() -> None:
         table_to_bib(df)
 
 
+def test_bib_to_table_rejects_reserved_field_name() -> None:
+    # BibTeX has a real `key` sort field; tabulating it would clobber the
+    # citation-key column and lose data, so refuse loudly instead.
+    text = "@book{realkey, key = {SortKey}, title = {A Book}}"
+    with pytest.raises(ValueError, match="key"):
+        bib_to_table(text)
+
+
+def test_table_to_bib_rejects_null_key() -> None:
+    df = pl.DataFrame({"key": [None], "entry_type": ["misc"], "title": ["T"]})
+    with pytest.raises(ValueError, match="null key/entry_type"):
+        table_to_bib(df)
+
+
+def test_table_to_bib_rejects_non_string_value() -> None:
+    # A float cell (e.g. from an un-typed read_csv) would serialize as `12.0`.
+    df = pl.DataFrame({"key": ["a"], "entry_type": ["article"], "volume": [12.0]})
+    with pytest.raises(ValueError, match="not str"):
+        table_to_bib(df)
+
+
+def test_table_to_bib_rejects_unbalanced_braces() -> None:
+    df = pl.DataFrame(
+        {"key": ["a"], "entry_type": ["misc"], "note": ["a } stray brace"]}
+    )
+    with pytest.raises(ValueError, match="unbalanced braces"):
+        table_to_bib(df)
+
+
 def test_table_to_bib_preserves_unicode_and_nested_braces() -> None:
     # Non-ASCII characters and nested braces (BibTeX's title-case
     # protection) must survive a round trip verbatim.

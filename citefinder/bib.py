@@ -74,27 +74,14 @@ def build_search_query(entry: Entry) -> str:
 
 
 def build_title_query(entry: Entry) -> str:
-    """Title-only query for OpenAlex `filter=title.search:`.
+    """Brace-stripped title for OpenAlex's title-only search.
 
-    OpenAlex's plain `?search=` runs full-text against title + abstract
-    and was returning unrelated noise for our author + title + year
-    queries. Restricting to title-only via the filter syntax matches
-    what verifies search hits in the first place: title similarity.
-
-    OpenAlex filter syntax reserves `,` (filter separator), `|` (OR),
-    `:` (field separator), and `!` (negation), so titles containing
-    them return HTTP 400. Strip those out — `title.search` is fuzzy
-    anyway, so dropping punctuation doesn't hurt recall.
-
-    Straight apostrophes are also remapped to U+2019 because OpenAlex's
-    title index stores the curly form (e.g., Ohm2020 is indexed as
-    `Backstabber’s Knife Collection`); a query with `Backstabber's`
-    returns zero hits while `Backstabber’s` finds the paper.
+    OpenAlex-specific normalization (remapping straight apostrophes to the
+    curly U+2019 its index stores, dropping filter-reserved punctuation that
+    would 400 the request) lives at the client boundary in
+    `OpenAlexClient.search_title`, so this just extracts the bib title.
     """
-    title = strip_braces(entry.fields.get("title", ""))
-    title = title.replace("'", "’")
-    title = re.sub(r"[,:|!?]", " ", title)
-    return re.sub(r"\s+", " ", title).strip()
+    return strip_braces(entry.fields.get("title", ""))
 
 
 def citation_from_entry(entry: Entry) -> BibCitation:

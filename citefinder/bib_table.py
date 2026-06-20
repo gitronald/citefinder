@@ -16,6 +16,23 @@ import polars as pl
 from citefinder.bib import parse_entries
 
 
+def _braces_balanced(s: str) -> bool:
+    """Whether `{`/`}` in `s` are balanced and never close before opening.
+
+    A brace-delimited bib value must satisfy this or it corrupts the entry
+    when wrapped in `{...}` (`a } b` would truncate at the stray `}`).
+    """
+    depth = 0
+    for ch in s:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
 def bib_to_table(text: str) -> pl.DataFrame:
     """Parse a bib string into a wide DataFrame.
 
@@ -36,6 +53,16 @@ def bib_to_table(text: str) -> pl.DataFrame:
     all_fields: set[str] = set()
     for e in entries:
         all_fields.update(e.fields.keys())
+
+    # `key` and `entry_type` are reserved for the citation key and entry kind.
+    # A bib field with either name (BibTeX has a real `key` sort field) would
+    # be silently overwritten and lost on round-trip, so refuse loudly instead.
+    reserved = sorted(all_fields & {"key", "entry_type"})
+    if reserved:
+        raise ValueError(
+            f"bib field(s) {reserved} collide with reserved table columns "
+            "(key, entry_type); cannot tabulate without data loss"
+        )
 
     rows: list[dict[str, str | None]] = []
     for e in entries:
@@ -69,8 +96,27 @@ def table_to_bib(df: pl.DataFrame, indent: str = "  ") -> str:
     field_cols = [c for c in df.columns if c not in ("key", "entry_type")]
     chunks: list[str] = []
     for row in df.iter_rows(named=True):
+        key, etype = row["key"], row["entry_type"]
+        if key is None or etype is None:
+            raise ValueError(
+                f"row has null key/entry_type: key={key!r}, entry_type={etype!r}"
+            )
         fields = [(c, row[c]) for c in field_cols if row[c] is not None]
-        header = f"@{row['entry_type']}{{{row['key']},"
+        for c, v in fields:
+            # Values are emitted verbatim inside `{...}`. A non-string cell
+            # (e.g. a float `12.0` from an un-typed frame) would stringify into
+            # a corrupted value, and unbalanced braces would break the entry's
+            # brace nesting — reject both rather than write a malformed bib.
+            if not isinstance(v, str):
+                raise ValueError(
+                    f"field {c!r} in entry {key!r} is {type(v).__name__}, not str; "
+                    "cast table columns to strings before serializing"
+                )
+            if not _braces_balanced(v):
+                raise ValueError(
+                    f"field {c!r} in entry {key!r} has unbalanced braces: {v!r}"
+                )
+        header = f"@{etype}{{{key},"
         if fields:
             body = ",\n".join(f"{indent}{c} = {{{v}}}" for c, v in fields)
             chunks.append(f"{header}\n{body},\n}}")

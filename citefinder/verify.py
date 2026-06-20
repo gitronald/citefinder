@@ -116,7 +116,10 @@ class Source:
 def verify_entry(entry: Entry, source: Source) -> Result:
     title = strip_braces(entry.fields.get("title", ""))
     year = strip_braces(entry.fields.get("year", ""))
-    bib_doi = strip_braces(entry.fields["doi"]) if "doi" in entry.fields else None
+    # `... or None` collapses both a missing `doi` field and a present-but-
+    # empty one (`doi = {}`) to None, so the reported `bib_doi` doesn't
+    # conflate "no DOI" with "blank DOI".
+    bib_doi = strip_braces(entry.fields.get("doi", "")) or None
     citation = citation_from_entry(entry)
 
     base = Result(

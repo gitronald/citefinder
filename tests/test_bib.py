@@ -92,11 +92,12 @@ def test_build_search_query_omits_missing_fields() -> None:
     assert build_search_query(e) == "Just a Title"
 
 
-def test_build_title_query_strips_filter_chars_and_remaps_apostrophe() -> None:
-    [e] = parse_entries("@article{x, title = {Backstabber's, Knife: Collection!}}")
-    # `,` `:` `!` get stripped (OpenAlex filter syntax reserves them); the
-    # straight apostrophe gets remapped to U+2019.
-    assert build_title_query(e) == "Backstabber’s Knife Collection"
+def test_build_title_query_strips_braces() -> None:
+    # build_title_query only strips braces; OpenAlex-specific normalization
+    # (apostrophe remap, reserved-char stripping) is applied later at the
+    # client boundary in OpenAlexClient.search_title.
+    [e] = parse_entries("@article{x, title = {The {LLM} Revolution}}")
+    assert build_title_query(e) == "The LLM Revolution"
 
 
 def test_citation_from_entry_pulls_journal_then_booktitle() -> None:

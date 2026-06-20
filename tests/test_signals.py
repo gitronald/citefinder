@@ -98,6 +98,14 @@ def test_container_similarity_prefix_matches_abbreviations() -> None:
     assert sim > 0.0
 
 
+def test_container_similarity_single_token_requires_exact_match() -> None:
+    # A lone 4-char prefix is too loose: "Comp" must not match "Companion"
+    # the way "proc" matches "proceedings" inside a multi-word venue.
+    assert container_similarity("Comp", "Companion") == 0.0
+    # Exact single-token venues still match.
+    assert container_similarity("Nature", "Nature") == 1.0
+
+
 def test_check_container_full_overlap_passes() -> None:
     r = check_container("Journal of Things", ["Journal of Things"])
     assert r["verdict"] == "pass"

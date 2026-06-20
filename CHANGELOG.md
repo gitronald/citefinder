@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `bib_to_table`/`table_to_bib` round-trip data safety: a bib field colliding
+  with a reserved column (`key`, `entry_type`) now raises instead of being
+  silently dropped; `table_to_bib` rejects null `key`/`entry_type` cells,
+  non-string values (which would corrupt e.g. `12` into `12.0`), and values
+  with unbalanced braces (which would truncate the entry) rather than emitting
+  a malformed `.bib`.
+- `openalex_to_work`: coerce a string `publication_year` to int instead of
+  dropping it to `None`, so a matching record keeps its year signal (matches
+  the Crossref adapter's behavior).
+- `container_similarity`: disable loose 4-char prefix matching for single-token
+  venues, so `Comp` no longer matches `Companion` (exact match still applies;
+  multi-word abbreviations like `proc`↔`proceedings` are unaffected).
+- `verify_entry`: a present-but-empty `doi = {}` field now reports `bib_doi`
+  as `None` rather than `""`.
+
+### Changed
+
+- `build_title_query` now only strips braces; OpenAlex-specific title
+  normalization (apostrophe remap, reserved-char stripping) lives solely at
+  the client boundary in `OpenAlexClient.search_title`, removing duplicated
+  logic.
+
 ## [0.4.2] - 2026-05-07
 
 ### Removed

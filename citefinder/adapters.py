@@ -120,10 +120,18 @@ def openalex_to_work(message: dict[str, Any] | None) -> Work | None:
     host = message.get("host_venue") or {}
     if host.get("display_name") and host["display_name"] not in container_names:
         container_names.append(host["display_name"])
-    year = message.get("publication_year")
+    # OpenAlex normally returns `publication_year` as an int, but cached or
+    # older JSON can hold a string; coerce both rather than dropping a string
+    # year to None (which would silently lose the year signal). Mirrors the
+    # Crossref adapter's `int()` coercion of string date-parts.
+    raw_year = message.get("publication_year")
+    try:
+        year = int(raw_year) if raw_year is not None else None
+    except (TypeError, ValueError):
+        year = None
     return Work(
         title=message.get("display_name") or message.get("title"),
-        year=int(year) if isinstance(year, int) else None,
+        year=year,
         first_author_surname=first_author or None,
         container_names=container_names,
     )

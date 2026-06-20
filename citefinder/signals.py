@@ -30,7 +30,7 @@ class Status(StrEnum):
     Each member carries a `header` for the report. StrEnum members are
     also `str`, so existing string comparisons, JSON serialization, and
     dict keys keep working unchanged. Iteration order is declaration
-    order, and `render_summary` uses it directly as section order.
+    order, which doubles as the report's section order.
 
     Note: the per-member attribute is named `header`, not `title`, to
     avoid shadowing `str.title()` (the built-in title-case method).
@@ -172,13 +172,23 @@ def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str,
     return {"verdict": v, "bib": bib_surname, "crossref": work_surname}
 
 
-def _container_token_match(a: str, b: str, min_prefix: int = 4) -> bool:
-    """Two container tokens match if equal, or one is a `min_prefix`-long
-    prefix of the other. Catches ACM/IEEE-style abbreviations:
-    `proc` ↔ `proceedings`, `interact` ↔ `interaction`, `comput` ↔ `computer`.
+def _container_token_match(
+    a: str, b: str, allow_prefix: bool = True, min_prefix: int = 4
+) -> bool:
+    """Two container tokens match if equal, or (when `allow_prefix`) one is a
+    `min_prefix`-long prefix of the other. Prefix matching catches ACM/IEEE
+    abbreviations: `proc` ↔ `proceedings`, `interact` ↔ `interaction`,
+    `comput` ↔ `computer`.
+
+    A 4-char prefix is inherently ambiguous on a lone token — `comp` would
+    match `companion` as readily as `computer` — so callers disable
+    `allow_prefix` when either side is a single-token venue and require an
+    exact match there instead.
     """
     if a == b:
         return True
+    if not allow_prefix:
+        return False
     short, long_ = (a, b) if len(a) <= len(b) else (b, a)
     return len(short) >= min_prefix and long_.startswith(short)
 
@@ -187,16 +197,21 @@ def container_similarity(a: str, b: str) -> float:
     """Like `title_similarity` but token equality is loosened to prefix
     matching, since bibs frequently abbreviate venue names while
     metadata sources keep the full form.
+
+    Prefix matching is only enabled when *both* sides are multi-word
+    venues. For a single-token venue ("Nature", "PNAS") a 4-char prefix
+    match is too loose, so those fall back to exact token equality.
     """
     sa = normalize_title(a).split()
     sb = normalize_title(b).split()
     if not sa or not sb:
         return 0.0
+    allow_prefix = len(sa) > 1 and len(sb) > 1
     matched_a: set[str] = set()
     matched_b: set[str] = set()
     for ta in sa:
         for tb in sb:
-            if _container_token_match(ta, tb):
+            if _container_token_match(ta, tb, allow_prefix=allow_prefix):
                 matched_a.add(ta)
                 matched_b.add(tb)
     union_size = len(set(sa) | set(sb))

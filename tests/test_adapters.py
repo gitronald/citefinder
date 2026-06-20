@@ -83,6 +83,22 @@ def test_openalex_to_work_typical() -> None:
     assert work.container_names == ["Journal of Things"]
 
 
+def test_openalex_to_work_coerces_string_year() -> None:
+    # Cached/older JSON can hold `publication_year` as a string; it must be
+    # coerced rather than dropped to None (which would lose the year signal).
+    record = {"display_name": "A Paper", "publication_year": "2020"}
+    work = openalex_to_work(record)
+    assert work is not None
+    assert work.year == 2020
+
+
+def test_openalex_to_work_unparseable_year_is_none() -> None:
+    record = {"display_name": "A Paper", "publication_year": "forthcoming"}
+    work = openalex_to_work(record)
+    assert work is not None
+    assert work.year is None
+
+
 def test_openalex_to_work_keeps_von_particles_with_surname() -> None:
     # Mirrors the bib-side `first_author_surname` behavior — must combine
     # von + last so equality checks match.
