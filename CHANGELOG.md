@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   rejecting the whole config) was removed.
 - Test workflow: `UV_PYTHON` pinned per matrix cell so each cell tests its
   own interpreter instead of silently re-resolving to `.python-version`.
+- The published sdist is now allowlisted to the package source, README,
+  changelog, and license — internal plan files, agent tooling, and tests no
+  longer ship to PyPI.
 
 ## [0.4.2] - 2026-05-07
 

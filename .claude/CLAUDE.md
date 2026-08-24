@@ -15,6 +15,7 @@ citefinder/
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
+├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
 └── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, crossref subcommand
 ```
 
