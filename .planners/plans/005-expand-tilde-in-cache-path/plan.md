@@ -1,8 +1,8 @@
 ---
 id: 5
 slug: expand-tilde-in-cache-path
-status: draft
-branch:
+status: active
+branch: feature/expand-tilde-in-cache-path
 created: 2026-08-23T21:45:53-07:00
 concluded:
 pr:
