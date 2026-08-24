@@ -8,8 +8,6 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
-    # github-actions cooldown supports only default-days; a semver-*-days
-    # key here gets the whole file rejected and Dependabot silently stops.
     cooldown:
       default-days: 5
   - package-ecosystem: uv
