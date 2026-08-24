@@ -139,6 +139,16 @@ OpenAlex's schema differs from Crossref. Quick map:
 | Container | `work["container-title"][0]` (+ `short-container-title`) | `work["primary_location"]["source"]["display_name"]` (+ `host_venue` on older records) |
 | Year | `published-print` / `published-online` / `issued` / `created` → `["date-parts"][0][0]` | `work["publication_year"]` (int) |
 
+The two sources regularly disagree on a work's year because they index
+different events: Crossref's `published-print` tracks the printed
+issue/volume year, while OpenAlex's `publication_year` often collapses to
+the online-first date — or, for books, to a precursor work (e.g., the
+dissertation a monograph grew out of; a `type` of `dissertation` or
+`posted-content` next to a journal/monograph DOI is the giveaway). Treat a
+year mismatch as a flag for review, and default to the final printed
+record: the journal volume year, or the publisher's first-published edition
+year for books.
+
 ### Bib verification
 
 A `.bib` file can be parsed and verified against either source end-to-end:
@@ -247,3 +257,7 @@ interface.
 ```bash
 uv run pytest
 ```
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the release history.
