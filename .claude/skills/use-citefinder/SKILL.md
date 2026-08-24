@@ -222,7 +222,9 @@ Two patterns to watch:
 Quick mismatch check:
 
 ```python
-cr_year = (work_cr.get("published-print") or work_cr.get("issued") or {}).get("date-parts", [[None]])[0][0]
+cr_year = (work_cr.get("published-print") or work_cr.get("issued") or {}).get(
+    "date-parts", [[None]]
+)[0][0]
 oa_year = work_oa.get("publication_year")
 if cr_year != oa_year:
     # flag for human review; default to printed-volume / published-edition year
@@ -264,17 +266,19 @@ For ad-hoc audits that show two or three fields side by side (e.g. `doi` vs. `ur
 ```python
 from citefinder import bib_to_table
 
-df = bib_to_table(open('refs.bib').read())
-fields = ['key', 'doi', 'url']  # adjust to taste
+df = bib_to_table(open("refs.bib").read())
+fields = ["key", "doi", "url"]  # adjust to taste
 rows = [r for r in df.iter_rows(named=True) if all(r.get(f) for f in fields[1:])]
 
 widths = {f: max(len(str(r[f])) for r in rows + [{f: f}]) for f in fields}
-sep = '+' + '+'.join('-' * (widths[f] + 2) for f in fields) + '+'
-hdr = '| ' + ' | '.join(f'{f:<{widths[f]}}' for f in fields) + ' |'
-print(f'{len(rows)} rows\n')
-print(sep); print(hdr); print(sep)
+sep = "+" + "+".join("-" * (widths[f] + 2) for f in fields) + "+"
+hdr = "| " + " | ".join(f"{f:<{widths[f]}}" for f in fields) + " |"
+print(f"{len(rows)} rows\n")
+print(sep)
+print(hdr)
+print(sep)
 for r in rows:
-    print('| ' + ' | '.join(f'{str(r[f]):<{widths[f]}}' for f in fields) + ' |')
+    print("| " + " | ".join(f"{str(r[f]):<{widths[f]}}" for f in fields) + " |")
 print(sep)
 ```
 
