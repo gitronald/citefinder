@@ -210,6 +210,29 @@ from citefinder import reconstruct_abstract
 abstract = reconstruct_abstract(work)  # returns plain string or None
 ```
 
+### Year mismatches between Crossref and OpenAlex — flag and prefer the final printed record
+
+Crossref and OpenAlex regularly disagree on a work's year because they index different events. Crossref's `published-print` tracks the issue/volume year; OpenAlex's `publication_year` often collapses to the online-first or precursor date. Treat any year mismatch as something to flag for review, then default to the **final printed record** — the journal volume year, or for books the publisher's first-published edition year.
+
+Two patterns to watch:
+
+- **Online-first vs volume year (journal articles).** A DOI minted in 2016-10 for online-first, printed later in a volume (2018-09). Crossref splits it cleanly (`published-print` 2018-09, `created` 2016-10); OpenAlex's `publication_year` is 2016. Cite the volume year (2018).
+- **Precursor work vs published edition (books).** A monograph DOI may surface in OpenAlex as a `dissertation` dated 2020, while Crossref returns the same DOI as a `monograph` issued 2022 — the dissertation became the book. Cite the publisher's first-published year (2022).
+
+Quick mismatch check:
+
+```python
+cr_year = (work_cr.get("published-print") or work_cr.get("issued") or {}).get(
+    "date-parts", [[None]]
+)[0][0]
+oa_year = work_oa.get("publication_year")
+if cr_year != oa_year:
+    # flag for human review; default to printed-volume / published-edition year
+    ...
+```
+
+If only OpenAlex has the record, sanity-check its `type` field — `dissertation` or `posted-content` next to a journal/monograph DOI is the giveaway that you're looking at a precursor, not the cite-target.
+
 ### OpenAlex API key (optional, for higher rate limits)
 
 `OpenAlexClient` reads the API key in this order: explicit `api_key=...` arg → `OPENALEX_API_KEY` env var → (CLI only) project-local `.env` → (CLI only) `~/.config/citefinder/config.toml`. The key is sent as `Authorization: Bearer ...`, never in the URL or cache key.
@@ -233,6 +256,33 @@ The CLI picks the config up automatically; project-local `.env` and shell env st
 ### Picking `mailto`
 
 Use a project alias (e.g. the `authors` email in `pyproject.toml`) or omit entirely. Don't drop the user's personal email into `mailto` without asking — it's an outbound identifier, and a project/noreply address is the right default.
+
+## Inspecting `bib_to_table` output side-by-side in the terminal
+
+`citefinder.bib_to_table` returns a polars DataFrame, one row per bib entry. polars's default text rendering wraps long values mid-string — fine for short columns, ugly for URLs and titles where the wrap point lands inside a token.
+
+For ad-hoc audits that show two or three fields side by side (e.g. `doi` vs. `url`, `title` vs. `journal`), use this dynamic-width plain-text helper instead. Each column expands to fit its longest value, so URLs and DOIs never break across lines:
+
+```python
+from citefinder import bib_to_table
+
+df = bib_to_table(open("refs.bib").read())
+fields = ["key", "doi", "url"]  # adjust to taste
+rows = [r for r in df.iter_rows(named=True) if all(r.get(f) for f in fields[1:])]
+
+widths = {f: max(len(str(r[f])) for r in rows + [{f: f}]) for f in fields}
+sep = "+" + "+".join("-" * (widths[f] + 2) for f in fields) + "+"
+hdr = "| " + " | ".join(f"{f:<{widths[f]}}" for f in fields) + " |"
+print(f"{len(rows)} rows\n")
+print(sep)
+print(hdr)
+print(sep)
+for r in rows:
+    print("| " + " | ".join(f"{str(r[f]):<{widths[f]}}" for f in fields) + " |")
+print(sep)
+```
+
+Edit `fields` and the row-filter predicate for the columns you want. Keep this as a one-off rendering helper — don't promote it into a script unless the same audit shows up across many papers.
 
 ## When citefinder isn't enough
 
