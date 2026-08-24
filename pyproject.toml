@@ -10,8 +10,8 @@ dependencies = [
     "bibtexparser>=2.0.0b0",
     "polars>=1.0.0",
     "python-dotenv>=1.2.2",
-    "requests>=2.33.1",
-    "typer>=0.25.0",
+    "requests>=2.34.2",
+    "typer>=0.25.1",
 ]
 readme = "README.md"
 license = "MIT"
@@ -33,7 +33,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov",
     "ruff",
-    "types-requests>=2.33.0.20260408",
+    "types-requests>=2.33.0.20260518",
 ]
 
 [tool.ruff]
