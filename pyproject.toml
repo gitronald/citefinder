@@ -10,7 +10,7 @@ dependencies = [
     "bibtexparser>=2.0.0b0",
     "polars>=1.0.0",
     "python-dotenv>=1.2.2",
-    "requests>=2.33.1",
+    "requests>=2.34.2",
     "typer>=0.25.1",
 ]
 readme = "README.md"
