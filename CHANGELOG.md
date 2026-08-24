@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-24
+
 ### Fixed
 
 - Cache paths given with a leading `~` (e.g.
