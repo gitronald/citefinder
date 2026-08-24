@@ -15,6 +15,7 @@ import sys
 import time
 import tomllib
 from dataclasses import asdict
+from operator import itemgetter
 from pathlib import Path
 
 import typer
@@ -295,7 +296,8 @@ def verify(
     typer.echo(
         "Final counts — "
         + ", ".join(
-            f"{k}: {v}" for k, v in sorted(status_counts.items(), key=lambda kv: -kv[1])
+            f"{k}: {v}"
+            for k, v in sorted(status_counts.items(), key=itemgetter(1), reverse=True)
         )
     )
 
