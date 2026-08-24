@@ -1,10 +1,10 @@
 ---
 id: 6
 slug: update-use-citefinder-skill
-status: active
+status: done
 branch: feature/update-use-citefinder-skill
 created: 2026-08-24T08:20:14-07:00
-concluded:
+concluded: 2026-08-24T08:28:36-07:00
 pr: https://github.com/gitronald/citefinder/pull/33
 ---
 
@@ -89,3 +89,38 @@ packaged, changelog-worthy artifact in
 2. Add the `bib_to_table` rendering-helper section.
 3. Read the full skill top to bottom for flow/consistency with the two
    insertions.
+
+## Log
+
+- 2026-08-24 — Activated on dev, branched
+  `feature/update-use-citefinder-skill` (main checkout, no worktree).
+  Identified the downstream source copy (the one carrying both sections;
+  the other downstream copy had neither) and ported both sections per the
+  adaptation rules: year-mismatch subsection placed directly after the
+  schema table + `reconstruct_abstract` helper, rendering-helper section
+  placed before "When citefinder isn't enough", example path generalized
+  to `refs.bib`, no repo-specific cache-path/storage material carried
+  over. Verified `bib_to_table` is public API and takes a bib string.
+  Full read-through found no flow issues. PR:
+  https://github.com/gitronald/citefinder/pull/33
+- 2026-08-24 — **Review follow-up.** Review found no content issues; one
+  planned no-op (keeping the ported blocks' single-quote style "as-is")
+  was overturned by the check gate: `ruff format --check .` formats
+  Python code blocks inside markdown, so the ported snippets had to be
+  ruff-formatted (double quotes, line splits) to keep CI green. Fixed
+  with `ruff format` on the skill file; full gate (ruff check, format
+  check, pyrefly, 112 tests) green.
+
+## Retrospective
+
+- The plan's "port the code block as-is" instruction conflicted with the
+  repo's format gate — ruff formats fenced Python in markdown here, which
+  the downstream repo evidently doesn't enforce. Porting plans should
+  assume the destination repo's format gate wins over verbatim fidelity.
+- Placement guidance in the plan ("after the schema table and
+  `reconstruct_abstract` helper") made the edit mechanical — worth
+  keeping that level of anchor detail in future content-port plans.
+- The pre-commit ruff hooks skip markdown (they filter to Python file
+  types) while CI's `ruff format --check .` covers it — a local commit
+  can pass hooks yet fail CI on a docs-only change. Mirroring CI before
+  push caught it.
