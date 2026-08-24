@@ -1,11 +1,11 @@
 ---
 id: 5
 slug: expand-tilde-in-cache-path
-status: active
+status: done
 branch: feature/expand-tilde-in-cache-path
 created: 2026-08-23T21:45:53-07:00
-concluded:
-pr:
+concluded: 2026-08-24T07:59:25-07:00
+pr: https://github.com/gitronald/citefinder/pull/32
 ---
 
 # Expand tilde in cache paths
@@ -77,3 +77,27 @@ directory under the current working directory.
 
 1. Fix + tests in one commit.
 2. Changelog entry.
+
+## Log
+
+- 2026-08-24: Implemented exactly as planned. `fix: expand tilde in jsonl
+  cache paths` (`ca3ea88`) landed the one-line `expanduser()` change plus
+  both planned tests; `update changelog: tilde expansion fix entry`
+  (`9f9e30d`) added the `[Unreleased]` Fixed entry. PR #32 opened against
+  `dev`.
+- 2026-08-24: Close review gate ran clean — no findings; ruff check/format,
+  pyrefly, and the full test suite (112 passed) all green. Review posted to
+  the PR and the draft marked ready.
+
+## Retrospective
+
+- The fix landed exactly as specced — a single `expanduser()` at the
+  `JsonlCache` constructor choke point covered every client entry path, so
+  no scope grew during implementation.
+- Writing the failure analysis into the plan first (orphan per-CWD caches,
+  the `rm -rf ~` footgun, repo pollution) made the test design obvious:
+  one unit test for resolution, one end-to-end reproduction of the
+  original stray-`~/` symptom.
+- Sandboxing home in tests via `monkeypatch.setenv("HOME", ...)` works
+  because CI is ubuntu-only; if a Windows runner is ever added, these
+  tests will need `USERPROFILE` handled too.

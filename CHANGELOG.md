@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Cache paths given with a leading `~` (e.g.
+  `cache_path="~/.cache/citefinder/openalex.jsonl"`) now expand to the
+  user's home directory instead of creating a literal `~/` directory under
+  the current working directory.
+
 ### Security
 
 - `urllib3` bumped 2.6.3 → 2.7.0: fixes two high-severity advisories
