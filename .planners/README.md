@@ -2,6 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
+| 005 | [Expand tilde in cache paths](plans/005-expand-tilde-in-cache-path/plan.md) | draft | — | — |
 | 002 | [Reduce false positives and false negatives in signal checks](plans/002-handle-openalex-metadata-quirks/plan.md) | draft | — | — |
 | 003 | [Migrate plans to the .planners layout](plans/003-migrate-to-planners-layout/plan.md) | done | 2026-06-10 09:45 PT | [#26](https://github.com/gitronald/citefinder/pull/26) |
 | 004 | [Pre-planners completed tasks from TODO.md](plans/004-pre-planners-completed-tasks/plan.md) | done | 2026-06-10 09:40 PT | — |
