@@ -181,7 +181,9 @@ doi = "10.48550/arXiv.2410.21554"
 if is_arxiv_doi(doi):
     work = openalex.lookup_doi(doi)  # arXiv DOIs go straight to OpenAlex
 else:
-    work = crossref.lookup_doi(doi) or openalex.lookup_doi(doi)  # Crossref-first, OpenAlex fallback
+    work = crossref.lookup_doi(doi) or openalex.lookup_doi(
+        doi
+    )  # Crossref-first, OpenAlex fallback
 ```
 
 CLI (top-level commands are OpenAlex by default):
@@ -204,6 +206,7 @@ OpenAlex stores abstracts as an `abstract_inverted_index` (`{word: [positions]}`
 
 ```python
 from citefinder import reconstruct_abstract
+
 abstract = reconstruct_abstract(work)  # returns plain string or None
 ```
 

@@ -167,8 +167,8 @@ A `.bib` file can be loaded into a wide polars DataFrame (one row per entry, one
 ```python
 from citefinder import bib_to_table, table_to_bib
 
-df = bib_to_table(open("refs.bib").read())   # key, entry_type, then fields alphabetical
-new_bib = table_to_bib(df)                    # back to .bib, null cells skipped
+df = bib_to_table(open("refs.bib").read())  # key, entry_type, then fields alphabetical
+new_bib = table_to_bib(df)  # back to .bib, null cells skipped
 ```
 
 `bib_to_table` lowercases field keys (`DOI` → `doi`) and stores the entry kind in `entry_type` to avoid collision with the literal `type` field that some entries carry (e.g., SSRN papers set `type = {SSRN Scholarly Paper}`). `table_to_bib` requires `key` and `entry_type` columns and serializes the rest in column order. The round-trip is lossless on field values and entry types; the original within-entry field order and any source-file `@string`/`@comment` blocks are not preserved.
