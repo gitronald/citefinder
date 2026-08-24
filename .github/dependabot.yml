@@ -4,16 +4,19 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    target-branch: dev
     groups:
       github-actions:
         patterns: ["*"]
+    # github-actions cooldown supports only default-days; a semver-*-days
+    # key here gets the whole file rejected and Dependabot silently stops.
     cooldown:
       default-days: 5
-      semver-major-days: 14
   - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
+    target-branch: dev
     groups:
       python:
         patterns: ["*"]
