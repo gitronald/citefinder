@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-24
+
+### Fixed
+
+- Cache paths given with a leading `~` (e.g.
+  `cache_path="~/.cache/citefinder/openalex.jsonl"`) now expand to the
+  user's home directory instead of creating a literal `~/` directory under
+  the current working directory.
+
+### Security
+
+- `urllib3` bumped 2.6.3 → 2.7.0: fixes two high-severity advisories
+  (decompression-bomb safeguards bypassed in parts of the streaming API;
+  sensitive headers forwarded across origins in proxied low-level redirects).
+- `idna` bumped 3.13 → 3.19: fixes a bypass of the CVE-2024-3651 fix in
+  `idna.encode()`.
+
+### Changed
+
+- Consolidated Dependabot bumps: `requests` lower bound raised to 2.34.2,
+  `typer` 0.27.1 (upstream drops its `click` dependency), and dev tools
+  `ruff` 0.16.3, `pyrefly` 1.2.0, and `types-requests` 2.33.0.20260712.
+  Pre-commit ruff hook rev aligned to v0.16.3, and ruff 0.16's new markdown
+  code-block formatting applied to the README and skill docs.
+- GitHub Actions: every workflow action is now pinned to a commit SHA —
+  `checkout` v7.0.1, `setup-uv` v9.0.0, `upload-artifact` v7.0.1,
+  `download-artifact` v8.0.1, and `gh-action-pypi-publish` v1.14.2
+  (previously tracking the mutable `release/v1` branch).
+- Dependabot config: updates are grouped per ecosystem with cooldown
+  windows, PRs now target `dev`, and the `semver-major-days` cooldown key
+  (unsupported for the `github-actions` ecosystem, and grounds for GitHub
+  rejecting the whole config) was removed.
+- Test workflow: `UV_PYTHON` pinned per matrix cell so each cell tests its
+  own interpreter instead of silently re-resolving to `.python-version`.
+- The published sdist is now allowlisted to the package source, README,
+  changelog, and license — internal plan files, agent tooling, and tests no
+  longer ship to PyPI.
+
 ## [0.4.2] - 2026-05-07
 
 ### Removed

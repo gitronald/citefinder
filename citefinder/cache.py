@@ -21,7 +21,7 @@ class JsonlCache:
     """
 
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path = Path(path).expanduser()
         self._store: dict[str, Any] = {}
         if self.path.exists():
             self._replay()

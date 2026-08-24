@@ -1,8 +1,10 @@
 ---
+id: 0
+slug: add-openalex-client
 status: done
 branch: feature/openalex-client
 created: 2026-04-28T10:44:18-07:00
-completed: 2026-04-28T12:31:48-07:00
+concluded: 2026-04-28T12:31:48-07:00
 pr: https://github.com/gitronald/citefinder/pull/5
 ---
 

@@ -15,12 +15,13 @@ citefinder/
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
+├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
 └── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, crossref subcommand
 ```
 
 The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan
-[`001-absorb-bib-verification-scripts.md`](docs/plans/001-absorb-bib-verification-scripts.md)
+[`001-absorb-bib-verification-scripts.md`](.planners/plans/001-absorb-bib-verification-scripts/plan.md)
 — `signals.py` is shape-independent, `adapters.py` is the per-source JSON
 boundary, `verify.py` orchestrates lookups against a `Source`.
 
