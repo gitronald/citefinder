@@ -1,7 +1,7 @@
 ---
 id: 6
 slug: update-use-citefinder-skill
-status: draft
+status: active
 branch: feature/update-use-citefinder-skill
 created: 2026-08-24T08:20:14-07:00
 concluded:
