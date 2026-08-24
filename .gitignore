@@ -1,10 +1,22 @@
 .archive/
+.claude/settings.local.json
+.hypothesis/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.vscode/
+.worktrees/
+
 __pycache__/
+build/
+dist/
+*.egg-info/
 
 .DS_Store
 
-.claude/settings.local.json
-.worktrees/
+.coverage
+.coverage.*
+
+.env
+.env.*
+!.env.example
