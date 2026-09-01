@@ -1,10 +1,10 @@
 ---
 id: 7
 slug: bundle-skill-in-package
-status: active
+status: done
 branch: feature/bundle-skill-in-package
 created: 2026-08-24T08:20:14-07:00
-concluded:
+concluded: 2026-08-31T22:44:40-07:00
 pr: https://github.com/gitronald/citefinder/pull/37
 ---
 
@@ -205,3 +205,71 @@ immediately while `install --check` still reported `ok` — i.e. a package upgra
 now updates the instructions with no install step and no drift window.
 
 `uv run pytest` — 147 passed. ruff and pyrefly clean.
+
+**2026-08-31 (review follow-up)** — Close-gate adversarial review of PR #37
+surfaced 15 verified findings; all fixed in `9daf987` except two conscious
+no-ops. The substantive ones:
+
+- **Symlink write-through.** A dangling symlink at the skill path bypassed the
+  overwrite guard (`exists()` follows the link) and routed the write to a
+  foreign target; `--force` over a live symlink clobbered its target. Occupancy
+  is now `is_symlink() or exists()`, and `write_skill` replaces a link with a
+  plain file rather than writing through it. Tests cover refusal, forced
+  replacement with the target untouched, and `--check` reporting `drifted`.
+- **`citefinder skill` crashed on non-UTF-8 stdout** (cp1252 console or
+  redirect) — fatal for the stub's only delivery path. Output now degrades via
+  `reconfigure(errors="backslashreplace")`; subprocess regression test under
+  `PYTHONIOENCODING=cp1252`.
+- **`--local` used `Path.cwd()` as the repo root**, so a subdirectory install
+  buried the stub where Claude Code never looks. New `find_repo_root()` walks
+  up to `.git`/`.claude/`.
+- **Version-stamp drift noise.** The byte-for-byte comparison meant every
+  release — including prerelease bumps — flipped every stub to `drifted`,
+  contradicting the shipped "changes rarely" docs. `check_mode` now masks the
+  stamp's version token; drift means the content changed.
+- **Mode resolution reversed: location now beats stamp.** This undoes the
+  implementation-time decision above ("`resolve_mode` prefers the stamp over
+  the location"). The stamp-preferred design produced repair hints naming
+  commands that never touched the failing file, and passed a local-rendered
+  stub at the global path as `ok` though its embedded `uv run` commands are
+  wrong there. `_recover_mode`/`resolve_mode` deleted outright, which also
+  removed the whole-file `(mode=...)` regex trap.
+- Smaller fixes, each with a paired test: clean errors instead of
+  `NotADirectoryError`/`IsADirectoryError` tracebacks on squatting files and
+  directories; malformed `config.toml` warns instead of crashing the CLI at
+  import; `PackageNotFoundError` falls back to `0.0.0` like `_base.py`; the
+  local stub's self-check command carries `--local`; `is_generated` anchors to
+  the stamp line rather than a substring; `.gitattributes` pins the prompt to
+  LF for the wheel test; `[build-system]` mirrors the dev hatchling floor; the
+  four copies of the safe-read guard collapsed into `_read_plain()`.
+
+Conscious no-ops: the body keeps its `→`/`≥` characters (delivery hardened
+instead — ASCII-fying is whack-a-mole against future edits), and no upper cap
+on the hatchling build requirement (a floor mirrors the tested backend; a cap
+would over-constrain downstream builds).
+
+Gate after fixes: ruff lint + format clean, pyrefly clean, 161 passed (14 new).
+
+## Retrospective
+
+- The plan's core bet — no copy of the instructions on disk — held up: the
+  review found real bugs in the *plumbing* (writes, mode resolution, encodings)
+  but none in the delivery model itself.
+- Two implementation-time decisions were reversed under review, and both
+  reversals share a root: reasoning from the artifact's provenance instead of
+  its position. The stamp-preferred mode resolution served the file's history
+  when only its location determines how it is invoked; the byte-exact drift
+  check treated the version token as signal when it is provenance.
+- The adversarial close-gate review earned its cost: 13 of 15 findings were
+  reproduced, several (symlink traversal, cp1252 crash, cwd-rooted `--local`)
+  were failures the happy-path test suite structurally could not see because
+  every test ran from a sandbox root with a UTF-8 stdout.
+- A design that replaces N failure modes with one chokepoint (`citefinder
+  skill`) must budget hardening for that chokepoint — the config-toml and
+  encoding crashes were pre-existing or benign before, and became
+  skill-delivery outages only because everything now routes through one
+  command.
+- Next time, write the "what invalidates this file" semantics (what counts as
+  drift, who owns the mode) into the plan's Design section explicitly — both
+  reversed decisions were made ad hoc during implementation because the plan
+  specified the mechanism but not the semantics.
