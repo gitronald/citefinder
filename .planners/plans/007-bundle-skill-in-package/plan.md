@@ -171,3 +171,37 @@ trusted.
 - Exercised end-to-end outside the test suite: global install under a sandbox
   `HOME`, `--check` reporting `ok`/`drifted`/`missing`, the unstamped-file
   refusal, and `--force` proceeding.
+
+**2026-08-31 (revision)** — Switched the generated artifact from a full-body
+copy to a dispatcher stub, at the plan author's direction. The plan's Approach
+section said the holder and the body should collapse into one file because
+citefinder has a single body; in practice that reasoning conflates two separable
+things. "Dispatcher" is *routing between N bodies*, which citefinder genuinely
+does not need. *Print-on-demand* is not duplicating the body into `.claude/` at
+all, and that is worth having for one body just as much as for seven — it is
+what makes the original failure structurally impossible rather than merely
+detectable.
+
+So `citefinder/prompts/skill.md` is now the only place the instructions exist:
+
+- `citefinder skill` prints the body (frontmatter stripped) from the installed
+  package.
+- `install` writes a ~1.7 KB stub — the frontmatter triggers, which Claude Code
+  must read off disk, lifted verbatim from the bundled body so the trigger text
+  still has a single source, plus a pointer to `citefinder skill` and the
+  `--check` command. planners' equivalent stub is 1,798 B.
+- `--check`, the stamp, mode recovery, and the overwrite guard are unchanged;
+  they now guard the stub, which changes rarely.
+
+The `{cli}` non-goal is partly reversed as a consequence: the *stub* renders
+`citefinder` vs `uv run citefinder` per mode, via `invocation(mode)`. The skill
+*body* still carries no placeholder and is printed verbatim, so no templating
+layer over the prompt was added.
+
+Verified in the throwaway consumer repo: the stub is 1,764 B and contains none
+of the instruction text, `citefinder skill` serves 15 KB from site-packages, and
+appending a section to the *installed* body showed up in `citefinder skill`
+immediately while `install --check` still reported `ok` — i.e. a package upgrade
+now updates the instructions with no install step and no drift window.
+
+`uv run pytest` — 147 passed. ruff and pyrefly clean.
