@@ -1,11 +1,11 @@
 ---
 id: 7
 slug: bundle-skill-in-package
-status: active
+status: done
 branch: feature/bundle-skill-in-package
 created: 2026-08-24T08:20:14-07:00
-concluded:
-pr:
+concluded: 2026-08-31T22:44:40-07:00
+pr: https://github.com/gitronald/citefinder/pull/37
 ---
 
 # Bundle the use-citefinder skill in the package
@@ -109,3 +109,167 @@ materializes it into `.claude/skills/` and detects drift.
 3. `--check` drift reporting.
 4. Replace the repo's `.claude/` copy via `citefinder install --local`.
 5. Tests, README section, changelog entry.
+
+## Log
+
+**2026-08-31** — Implemented on `feature/bundle-skill-in-package`
+([PR #37](https://github.com/gitronald/citefinder/pull/37)).
+
+- `875d647` — `citefinder/prompts/skill.md` (the body, moved with `git mv` so
+  its history follows), `citefinder/install.py`, the `install` subcommand, the
+  hatchling include, and the dogfooded `.claude/` copy.
+- `17306da` — tests, README section, changelog entry, module-map update.
+
+### Decisions taken during implementation
+
+**The stamp's repair command is mode-correct.** The plan's example stamp reads
+`run: citefinder install --force`; that is right for global mode but actively
+wrong for a per-repo install, where following it writes to `~/.claude/` and
+leaves the repo copy exactly as stale as before. `install_command(mode,
+force=...)` is the single source for the string, so the stamp, the `--check`
+hint, and the docs never disagree. This is not the `{cli}` token rendering the
+non-goals rule out — the prompt body carries no placeholder; the command is
+assembled in `install.py` alongside the stamp it belongs to.
+
+**`--check` auto-resolves by default, `--local` narrows it.** Bare `--check`
+resolves whichever copy is installed (global first, matching Claude Code's own
+precedence) and recovers the stamped mode, so it needs no flags to match how
+the skill was installed. `resolve_mode` prefers the stamp over the location, so
+a copy that has been moved still names its own repair command.
+
+**The wheel test builds a real wheel.** The `importlib.resources` check the
+plan called for passes under an editable install whether or not the build
+config ships the body — an editable install resolves `citefinder.prompts`
+straight to the repo. Only building a wheel and looking inside it catches a
+package that would break for anyone installing from PyPI, so
+`test_built_wheel_ships_the_bundled_body` calls `hatchling.build.build_wheel`
+in-process (hatchling added to the dev group, ~0.1s). Verified it fails when
+the path is excluded and passes when it isn't.
+
+**`artifacts` is belt-and-suspenders, not load-bearing.** hatchling already
+ships `citefinder/prompts/skill.md` by default — it lives inside the package
+and isn't VCS-ignored — so removing the `artifacts` entry does not break the
+build today. It is kept to state the dependency and to force inclusion if the
+path ever becomes ignored; the wheel test is what actually guards the outcome.
+The `pyproject.toml` comment says so rather than implying the line is doing
+work it isn't.
+
+**The skill documents its own sync loop.** A `## Keeping this skill in sync
+with the installed version` section was added to the body, so an agent reading
+a generated copy learns from the file itself that it is generated, that edits
+belong upstream, and that `--check` gates whether the examples below can be
+trusted.
+
+### Verification
+
+- `uv run pytest` — 140 passed (28 new in `tests/test_install.py`), and again
+  on the 3.11 floor.
+- ruff format + lint, pyrefly strict — clean.
+- Generated `.claude/skills/use-citefinder/SKILL.md` diffs against
+  `citefinder/prompts/skill.md` as exactly one added stamp line, as the plan
+  required.
+- Exercised end-to-end outside the test suite: global install under a sandbox
+  `HOME`, `--check` reporting `ok`/`drifted`/`missing`, the unstamped-file
+  refusal, and `--force` proceeding.
+
+**2026-08-31 (revision)** — Switched the generated artifact from a full-body
+copy to a dispatcher stub, at the plan author's direction. The plan's Approach
+section said the holder and the body should collapse into one file because
+citefinder has a single body; in practice that reasoning conflates two separable
+things. "Dispatcher" is *routing between N bodies*, which citefinder genuinely
+does not need. *Print-on-demand* is not duplicating the body into `.claude/` at
+all, and that is worth having for one body just as much as for seven — it is
+what makes the original failure structurally impossible rather than merely
+detectable.
+
+So `citefinder/prompts/skill.md` is now the only place the instructions exist:
+
+- `citefinder skill` prints the body (frontmatter stripped) from the installed
+  package.
+- `install` writes a ~1.7 KB stub — the frontmatter triggers, which Claude Code
+  must read off disk, lifted verbatim from the bundled body so the trigger text
+  still has a single source, plus a pointer to `citefinder skill` and the
+  `--check` command. planners' equivalent stub is 1,798 B.
+- `--check`, the stamp, mode recovery, and the overwrite guard are unchanged;
+  they now guard the stub, which changes rarely.
+
+The `{cli}` non-goal is partly reversed as a consequence: the *stub* renders
+`citefinder` vs `uv run citefinder` per mode, via `invocation(mode)`. The skill
+*body* still carries no placeholder and is printed verbatim, so no templating
+layer over the prompt was added.
+
+Verified in the throwaway consumer repo: the stub is 1,764 B and contains none
+of the instruction text, `citefinder skill` serves 15 KB from site-packages, and
+appending a section to the *installed* body showed up in `citefinder skill`
+immediately while `install --check` still reported `ok` — i.e. a package upgrade
+now updates the instructions with no install step and no drift window.
+
+`uv run pytest` — 147 passed. ruff and pyrefly clean.
+
+**2026-08-31 (review follow-up)** — Close-gate adversarial review of PR #37
+surfaced 15 verified findings; all fixed in `9daf987` except two conscious
+no-ops. The substantive ones:
+
+- **Symlink write-through.** A dangling symlink at the skill path bypassed the
+  overwrite guard (`exists()` follows the link) and routed the write to a
+  foreign target; `--force` over a live symlink clobbered its target. Occupancy
+  is now `is_symlink() or exists()`, and `write_skill` replaces a link with a
+  plain file rather than writing through it. Tests cover refusal, forced
+  replacement with the target untouched, and `--check` reporting `drifted`.
+- **`citefinder skill` crashed on non-UTF-8 stdout** (cp1252 console or
+  redirect) — fatal for the stub's only delivery path. Output now degrades via
+  `reconfigure(errors="backslashreplace")`; subprocess regression test under
+  `PYTHONIOENCODING=cp1252`.
+- **`--local` used `Path.cwd()` as the repo root**, so a subdirectory install
+  buried the stub where Claude Code never looks. New `find_repo_root()` walks
+  up to `.git`/`.claude/`.
+- **Version-stamp drift noise.** The byte-for-byte comparison meant every
+  release — including prerelease bumps — flipped every stub to `drifted`,
+  contradicting the shipped "changes rarely" docs. `check_mode` now masks the
+  stamp's version token; drift means the content changed.
+- **Mode resolution reversed: location now beats stamp.** This undoes the
+  implementation-time decision above ("`resolve_mode` prefers the stamp over
+  the location"). The stamp-preferred design produced repair hints naming
+  commands that never touched the failing file, and passed a local-rendered
+  stub at the global path as `ok` though its embedded `uv run` commands are
+  wrong there. `_recover_mode`/`resolve_mode` deleted outright, which also
+  removed the whole-file `(mode=...)` regex trap.
+- Smaller fixes, each with a paired test: clean errors instead of
+  `NotADirectoryError`/`IsADirectoryError` tracebacks on squatting files and
+  directories; malformed `config.toml` warns instead of crashing the CLI at
+  import; `PackageNotFoundError` falls back to `0.0.0` like `_base.py`; the
+  local stub's self-check command carries `--local`; `is_generated` anchors to
+  the stamp line rather than a substring; `.gitattributes` pins the prompt to
+  LF for the wheel test; `[build-system]` mirrors the dev hatchling floor; the
+  four copies of the safe-read guard collapsed into `_read_plain()`.
+
+Conscious no-ops: the body keeps its `→`/`≥` characters (delivery hardened
+instead — ASCII-fying is whack-a-mole against future edits), and no upper cap
+on the hatchling build requirement (a floor mirrors the tested backend; a cap
+would over-constrain downstream builds).
+
+Gate after fixes: ruff lint + format clean, pyrefly clean, 161 passed (14 new).
+
+## Retrospective
+
+- The plan's core bet — no copy of the instructions on disk — held up: the
+  review found real bugs in the *plumbing* (writes, mode resolution, encodings)
+  but none in the delivery model itself.
+- Two implementation-time decisions were reversed under review, and both
+  reversals share a root: reasoning from the artifact's provenance instead of
+  its position. The stamp-preferred mode resolution served the file's history
+  when only its location determines how it is invoked; the byte-exact drift
+  check treated the version token as signal when it is provenance.
+- The adversarial close-gate review earned its cost: 13 of 15 findings were
+  reproduced, several (symlink traversal, cp1252 crash, cwd-rooted `--local`)
+  were failures the happy-path test suite structurally could not see because
+  every test ran from a sandbox root with a UTF-8 stdout.
+- A design that replaces N failure modes with one chokepoint (`citefinder
+  skill`) must budget hardening for that chokepoint — the config-toml and
+  encoding crashes were pre-existing or benign before, and became
+  skill-delivery outages only because everything now routes through one
+  command.
+- Next time, write the "what invalidates this file" semantics (what counts as
+  drift, who owns the mode) into the plan's Design section explicitly — both
+  reversed decisions were made ad hoc during implementation because the plan
+  specified the mechanism but not the semantics.
