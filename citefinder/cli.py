@@ -319,6 +319,17 @@ def verify(
 
 
 @app.command()
+def skill() -> None:
+    """Print the full `use-citefinder` skill instructions.
+
+    The generated stub in `.claude/skills/` points here rather than carrying a
+    copy of the body, so the instructions an agent reads always come from the
+    installed package and can never be a stale duplicate.
+    """
+    typer.echo(install_mod.skill_body(), nl=False)
+
+
+@app.command()
 def install(
     local: bool = typer.Option(
         False,
@@ -336,13 +347,13 @@ def install(
         help="Overwrite a file at the target path that citefinder did not generate.",
     ),
 ) -> None:
-    """Materialize the bundled `use-citefinder` Claude Code skill.
+    """Materialize the `use-citefinder` Claude Code skill stub.
 
-    Writes `.claude/skills/use-citefinder/SKILL.md` from the copy shipped
-    inside the package, stamped with the installed version. Global by default
-    (`~/.claude/`, serving every repo); `--local` vendors it in the current
-    repo. `--check` reports whether the installed copy still matches this
-    version's render, so a consuming repo's skill can't drift unnoticed.
+    Writes `.claude/skills/use-citefinder/SKILL.md`: the skill's frontmatter
+    triggers plus a short stub pointing at `citefinder skill`, which prints the
+    instructions from the installed package. Global by default (`~/.claude/`,
+    serving every repo); `--local` vendors the stub in the current repo.
+    `--check` reports whether the stub still matches this version's render.
     """
     version = metadata_version("citefinder")
     root = Path.cwd()
