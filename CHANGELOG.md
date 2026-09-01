@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   required to overwrite a file at the target path that citefinder did not
   generate.
 
+### Changed
+
+- Dependency bumps: `polars` 1.40.1 → 1.44.1 and `python-dotenv` 1.2.2 →
+  1.2.3 (runtime), plus dev tools `pytest` 9.1.1, `ruff` 0.16.4, and
+  `pre-commit` 4.6.2. The `setup-uv` CI action moved to v10.0.1.
+
 ## [0.4.3] - 2026-08-24
 
 ### Fixed
