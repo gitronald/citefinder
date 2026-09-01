@@ -5,7 +5,7 @@ status: active
 branch: feature/bundle-skill-in-package
 created: 2026-08-24T08:20:14-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/37
 ---
 
 # Bundle the use-citefinder skill in the package
