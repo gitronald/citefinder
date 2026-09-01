@@ -16,8 +16,15 @@ citefinder/
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, crossref subcommand
+├── install.py          # render/stamp/drift-check for the bundled Claude Code skill
+├── prompts/skill.md    # canonical `use-citefinder` skill body (package data)
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, install, crossref subcommand
 ```
+
+`.claude/skills/use-citefinder/SKILL.md` is **generated** — a stamped copy of
+`citefinder/prompts/skill.md` written by `citefinder install --local`. Edit the
+prompt body, then re-run the install; edits made directly to the `.claude/`
+copy are lost on the next one. `citefinder install --check` reports drift.
 
 The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan

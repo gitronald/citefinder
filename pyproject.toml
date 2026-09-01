@@ -27,9 +27,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-# The bundled `use-citefinder` skill is package data, not source. Forcing it in
-# here (global config, so both wheel and sdist) keeps `citefinder install` from
-# shipping a package whose only prompt body is missing.
+# The bundled `use-citefinder` skill is package data that `citefinder install`
+# reads at runtime, so it has to ship in the wheel and sdist alongside the .py
+# files. hatchling already picks it up (it lives inside the package and isn't
+# VCS-ignored); declaring it here — globally, so both targets — states the
+# dependency and forces inclusion even if the path later becomes ignored.
+# tests/test_install.py builds a real wheel to check the outcome, since an
+# editable install resolves the body from the repo either way.
 artifacts = ["citefinder/prompts/*.md"]
 
 [tool.hatch.build.targets.sdist]
@@ -46,6 +50,7 @@ only-include = [
 
 [dependency-groups]
 dev = [
+    "hatchling>=1.32.0",
     "pre-commit",
     "pyrefly",
     "pytest>=9.0.2",

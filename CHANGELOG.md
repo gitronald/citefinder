@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The `use-citefinder` Claude Code skill now ships inside the package, at
+  `citefinder/prompts/skill.md`. `citefinder install` materializes it into
+  `~/.claude/skills/` (or `--local`, into the current repo's `.claude/`),
+  stamped with the version it was rendered from.
+- `citefinder install --check` reports `ok` / `drifted` / `missing` and exits
+  non-zero unless `ok`, so a consuming repo's copy of the skill can no longer
+  fall behind the installed CLI unnoticed. `--force` re-materializes, and is
+  also required to overwrite a file at the target path that citefinder did not
+  generate.
+
 ## [0.4.3] - 2026-08-24
 
 ### Fixed
