@@ -8,8 +8,8 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "bibtexparser>=2.0.0b0",
-    "polars>=1.0.0",
-    "python-dotenv>=1.2.2",
+    "polars>=1.44.1",
+    "python-dotenv>=1.2.3",
     "requests>=2.34.2",
     "typer>=0.25.1",
 ]
@@ -55,7 +55,7 @@ dev = [
     "hatchling>=1.32.0",
     "pre-commit",
     "pyrefly",
-    "pytest>=9.0.2",
+    "pytest>=9.1.1",
     "pytest-cov",
     "ruff",
     "types-requests>=2.33.0.20260518",
