@@ -1,0 +1,3 @@
+# The bundled skill body ships inside the wheel byte-for-byte; pin LF so a
+# CRLF checkout (Windows autocrlf) cannot desync the wheel from load_body().
+citefinder/prompts/*.md text eol=lf

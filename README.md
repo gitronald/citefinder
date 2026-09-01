@@ -270,8 +270,9 @@ The stub carries a stamp naming the version and mode it was rendered for:
 ```
 
 The stub changes rarely, but it is still checkable — `--check` compares it
-against what the *currently installed* citefinder would render, and exits
-non-zero on `drifted` or `missing`:
+against what the *currently installed* citefinder would render (ignoring the
+stamped version itself, so a routine upgrade alone never reads as drift), and
+exits non-zero on `drifted` or `missing`:
 
 ```bash
 uv add -U citefinder          # or: uv tool upgrade citefinder

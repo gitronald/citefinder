@@ -24,7 +24,7 @@ If that command is not found, citefinder is not installed in this environment â€
 **If this stub looks out of date**, check it against the installed package:
 
 ```bash
-uv run citefinder install --check
+uv run citefinder install --local --check
 ```
 
 `drifted` or `missing` means this stub predates the installed CLI. Re-materialize

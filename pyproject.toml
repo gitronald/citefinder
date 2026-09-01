@@ -23,7 +23,9 @@ repository = "https://github.com/gitronald/citefinder"
 citefinder = "citefinder.cli:app"
 
 [build-system]
-requires = ["hatchling"]
+# Floor mirrored by the dev-group pin, so the wheel test exercises the same
+# backend family as an isolated release build.
+requires = ["hatchling>=1.32.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
