@@ -26,6 +26,12 @@ citefinder = "citefinder.cli:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+# The bundled `use-citefinder` skill is package data, not source. Forcing it in
+# here (global config, so both wheel and sdist) keeps `citefinder install` from
+# shipping a package whose only prompt body is missing.
+artifacts = ["citefinder/prompts/*.md"]
+
 [tool.hatch.build.targets.sdist]
 # Ship only what a PyPI consumer needs. Root-anchored (leading "/") so bare
 # filenames don't glob at every depth — this keeps internal plan files
