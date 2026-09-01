@@ -1,7 +1,7 @@
 ---
 id: 7
 slug: bundle-skill-in-package
-status: draft
+status: active
 branch: feature/bundle-skill-in-package
 created: 2026-08-24T08:20:14-07:00
 concluded:
