@@ -1,0 +1,309 @@
+---
+name: use-citefinder
+description: Look up DOIs, search Crossref or OpenAlex, resolve book chapters, and verify whole `.bib` files with `citefinder` — a small Crossref + OpenAlex client with a JSONL cache that survives sessions and remembers 404s. Use this whenever the user wants to verify a DOI, find a paper by author + title, check whether a citation is real, resolve a chapter DOI, look up an arXiv/preprint DOI Crossref doesn't index, generate canonical metadata for a reference list, or audit a `.bib` file end-to-end — even when they don't say "Crossref" or "DOI" explicitly. Phrases like "is this paper real?", "find the published version", "look up this citation", "the subagent gave me these papers — verify them", "audit refs.bib", or "what's the DOI for X?" should trigger it.
+---
+
+# Use citefinder
+
+`citefinder` (https://github.com/gitronald/citefinder) is a small Python library + CLI for Crossref **and OpenAlex** lookups, with a JSONL-backed cache. Use it instead of raw `curl https://api.crossref.org/...` because:
+
+- The cache survives sessions, so re-running verification is cheap.
+- 404s are cached, so known-missing DOIs don't get re-queried.
+- The cache is JSONL (one record per line) — `grep`-able, diffable, and crash-safe.
+- It exposes both a Python API (for batch work, scripts, notebooks) and a CLI (for ad-hoc lookups).
+
+## When to use this skill
+
+- Verifying that a DOI resolves to the paper the user expects (the most common need).
+- Finding the canonical / published DOI from an arxiv ID, SSRN URL, preprint title, or an `(Author Year)` inline citation.
+- Resolving a book chapter DOI when you only have the book's DOI and a chapter number.
+- Auditing a whole `.bib` file: which entries match, which have wrong DOIs, which can't be found.
+- Sanity-checking a list of references produced by a research subagent or extracted from a PDF.
+- Building or enriching a bibliography (`.bib`, CSV) from an outline.
+
+If the user describes a multi-step Zotero/bibliography workflow, also load the `resolve-zotero-references` skill — it composes citefinder with Zotero matching and a verification loop.
+
+## Install / availability check
+
+If citefinder isn't already a dependency:
+
+```bash
+uv add citefinder  # or: uv add git+https://github.com/gitronald/citefinder
+```
+
+Confirm it's wired:
+
+```bash
+uv run citefinder --help
+```
+
+## Where these instructions come from
+
+You are reading the output of `citefinder skill`, printed from inside the
+installed package — so it always matches the CLI you are about to run, and
+there is no copy of it anywhere to go stale. The file in
+`.claude/skills/use-citefinder/` is only a stub carrying the trigger metadata
+and pointing here.
+
+To change this content, edit `citefinder/prompts/skill.md` in the citefinder
+repo and release; there is nothing to re-copy. `citefinder install --check`
+verifies the *stub*, which changes rarely.
+
+## Four core operations
+
+### 1. Verify a single DOI
+
+```python
+from citefinder import CrossrefClient
+
+client = CrossrefClient(cache_path="~/.cache/citefinder/crossref.jsonl")
+work = client.lookup_doi("10.1126/science.aap9559")
+if work is None:
+    # 404 — the DOI doesn't resolve. May be fabricated, mistyped, or too new for Crossref's index.
+    ...
+else:
+    print(work["title"][0])
+```
+
+CLI (top-level commands default to OpenAlex; use the `crossref` subcommand for Crossref-specific shapes):
+
+```bash
+citefinder doi 10.1126/science.aap9559                  # OpenAlex
+citefinder crossref doi 10.1126/science.aap9559         # Crossref
+```
+
+**Always compare the returned title to the title you expected.** This is the single most important habit. Subagents and PDF extractors regularly produce DOIs that are *off by a few characters* in the suffix (e.g., `psrm.2025.14` vs `psrm.2025.10063`) — those wrong suffixes often resolve to a real-but-different paper in the same journal. The DOI lookup itself returns 200; only a title comparison catches it.
+
+### 2. Search bibliographically
+
+When you don't have a DOI (or the DOI you have is suspect), search by free-form text:
+
+```python
+hits = client.search_bibliographic(
+    f"{first_author_last_name} {distinctive_title_words}",
+    rows=3,
+)
+for hit in hits:
+    print(hit["DOI"], "-", hit["title"][0])
+```
+
+CLI:
+
+```bash
+citefinder search "Backstabber's Knife Collection"               # OpenAlex (title-only filter)
+citefinder crossref search "Wolfowicz hate speech meta-analysis" # Crossref (author + title + year)
+```
+
+Note: `citefinder search` (OpenAlex) runs a title-only filter — pass just title words. `citefinder crossref search` accepts free-form bibliographic queries (author + title + year) and is closer in behavior to a generic "find this paper" query.
+
+Tips for good queries:
+
+- First author's last name plus 2–4 distinctive title words is usually enough.
+- Avoid generic words ("study", "analysis", "the") — they dilute the relevance score.
+- For preprints, both an SSRN/arxiv DOI and a published DOI may come back. Prefer the published one unless the user wants the preprint.
+
+### 3. Look up a book chapter
+
+Many edited volumes follow the convention `{book_doi}.{NNN}` for chapter DOIs (e.g., `10.1017/9781108890960.005` for chapter 5).
+
+```python
+chapter = client.lookup_book_chapter("10.1017/9781108890960", 5)
+```
+
+CLI:
+
+```bash
+citefinder crossref chapter 10.1017/9781108890960 5
+```
+
+`lookup_book_chapter` zero-pads numeric chapters to 3 digits. Pass a string instead (`client.lookup_book_chapter(book_doi, "ch1a")`) for publishers using a different format.
+
+### 4. Verify a whole .bib file
+
+When the user has a `.bib` and asks "audit these references" / "check what's wrong" / "which entries don't resolve" — use the bib-verification pipeline rather than calling `lookup_doi` per entry by hand. It parses, resolves DOIs, falls back to bibliographic search, checks four signals (title, year, first-author surname, container), and buckets each entry by status.
+
+CLI:
+
+```bash
+citefinder verify refs.bib                       # OpenAlex (default)
+citefinder verify refs.bib --source crossref     # ...or Crossref
+citefinder verify refs.bib --out path/to/dir/    # custom output directory
+```
+
+Output lands in `data/citefinder/<bib-stem>/<source>/`:
+
+- `<source>.jsonl` — append-only response cache; re-running is cheap.
+- `results.json` — structured per-entry result (status, matched DOI, signals).
+
+Per-entry statuses: `matched`, `probable` (one signal disagreed — review), `mismatch` (≥2 signals disagreed — DOI to wrong work), `doi-not-found` (404 — common for arXiv/preprint DOIs in Crossref), `unmatched` (no plausible hit), `skip-source` (`@online`/`@misc` — verify via URL), `error`.
+
+Crossref and OpenAlex are complementary — Crossref has richer metadata for indexed records (full title + subtitle, multiple container aliases) but doesn't index arXiv/preprints; OpenAlex covers preprints but sometimes truncates titles or returns preprint years instead of publication years. For a thorough audit, run both and compare.
+
+For programmatic use:
+
+```python
+from citefinder import OpenAlexClient, Source, parse_entries, verify_entry
+
+source = Source(name="openalex", client=OpenAlexClient(cache_path="cache.jsonl"))
+for entry in parse_entries(open("refs.bib").read()):
+    r = verify_entry(entry, source)
+    print(r.key, r.status, r.matched_doi)
+```
+
+For a quick non-network preview of what's in a `.bib` (useful for sanity-checking parsing or dumping to CSV):
+
+```bash
+citefinder bib-to-table refs.bib                          # wide polars table to terminal
+citefinder bib-to-table refs.bib --csv > refs.csv         # ...or CSV to stdout
+citefinder bib-to-table refs.bib --fields title,year,doi  # subset of columns
+```
+
+`bib-to-table` ↔ `table-to-bib` round-trips, so the CSV is also an editing surface — fix entries in a spreadsheet, then regenerate the `.bib`:
+
+```bash
+citefinder bib-to-table refs.bib --csv > refs.csv         # edit refs.csv in a spreadsheet
+citefinder table-to-bib refs.csv --out refs.bib           # regenerate
+```
+
+Field order within each entry is not preserved (it follows the CSV's column order), but keys, entry types, and field values round-trip verbatim.
+
+## Key behaviors to know
+
+- **Cache path:** defaults to `~/.cache/citefinder/crossref.jsonl`. Use a project-local path (e.g., `data/crossref-cache.jsonl`) when you want results committed alongside an outline so collaborators don't re-query.
+- **Latest value wins on replay.** Re-querying after a fix transparently overwrites — no manual cache invalidation needed.
+- **`None` is a real cache value.** A cached `None` means "Crossref returned 404 for this DOI" — citefinder uses it to avoid re-hitting known-missing DOIs. If you suspect Crossref has now indexed a paper it didn't before, delete that line from the JSONL or use a fresh cache path.
+- **`lookup_doi` returns the `message` payload directly,** not the full Crossref envelope. So you access `work["title"][0]`, not `work["message"]["title"][0]`.
+- **`title` is a list, not a string.** Crossref returns titles as arrays. Use `work["title"][0]`.
+- **`search_bibliographic` returns the items list,** which may be empty. Always handle the empty case.
+
+## OpenAlex fallback for arXiv / preprint / thin-metadata DOIs
+
+Crossref doesn't index arXiv DOIs (`10.48550/arXiv.*`) and many repository deposits — those return 404 from `lookup_doi`. Crossref also frequently has thin metadata (missing abstract, abbreviated title, no affiliations) on records that exist. Use OpenAlex as the second source in those cases:
+
+```python
+from citefinder import CrossrefClient, OpenAlexClient, is_arxiv_doi
+
+crossref = CrossrefClient(cache_path="~/.cache/citefinder/crossref.jsonl")
+openalex = OpenAlexClient(
+    cache_path="~/.cache/citefinder/openalex.jsonl",
+    mailto="you@example.com",  # opts into OpenAlex's polite pool — faster, higher daily quota
+)
+
+doi = "10.48550/arXiv.2410.21554"
+if is_arxiv_doi(doi):
+    work = openalex.lookup_doi(doi)  # arXiv DOIs go straight to OpenAlex
+else:
+    work = crossref.lookup_doi(doi) or openalex.lookup_doi(
+        doi
+    )  # Crossref-first, OpenAlex fallback
+```
+
+CLI (top-level commands are OpenAlex by default):
+
+```bash
+citefinder doi 10.48550/arXiv.2410.21554
+citefinder search "fact-checking large language models"
+```
+
+OpenAlex's schema differs from Crossref — different keys for the same data:
+
+| Crossref | OpenAlex |
+|---|---|
+| `work["title"][0]` (+ `subtitle[0]`) | `work["display_name"]` |
+| `work["author"][0]["family"]` | `work["authorships"][0]["author"]["display_name"]` |
+| `work["container-title"][0]` | `work["primary_location"]["source"]["display_name"]` |
+| `work["published-print"]["date-parts"][0][0]` | `work["publication_year"]` |
+
+OpenAlex stores abstracts as an `abstract_inverted_index` (`{word: [positions]}`), not a string. Use the helper:
+
+```python
+from citefinder import reconstruct_abstract
+
+abstract = reconstruct_abstract(work)  # returns plain string or None
+```
+
+### Year mismatches between Crossref and OpenAlex — flag and prefer the final printed record
+
+Crossref and OpenAlex regularly disagree on a work's year because they index different events. Crossref's `published-print` tracks the issue/volume year; OpenAlex's `publication_year` often collapses to the online-first or precursor date. Treat any year mismatch as something to flag for review, then default to the **final printed record** — the journal volume year, or for books the publisher's first-published edition year.
+
+Two patterns to watch:
+
+- **Online-first vs volume year (journal articles).** A DOI minted in 2016-10 for online-first, printed later in a volume (2018-09). Crossref splits it cleanly (`published-print` 2018-09, `created` 2016-10); OpenAlex's `publication_year` is 2016. Cite the volume year (2018).
+- **Precursor work vs published edition (books).** A monograph DOI may surface in OpenAlex as a `dissertation` dated 2020, while Crossref returns the same DOI as a `monograph` issued 2022 — the dissertation became the book. Cite the publisher's first-published year (2022).
+
+Quick mismatch check:
+
+```python
+cr_year = (work_cr.get("published-print") or work_cr.get("issued") or {}).get(
+    "date-parts", [[None]]
+)[0][0]
+oa_year = work_oa.get("publication_year")
+if cr_year != oa_year:
+    # flag for human review; default to printed-volume / published-edition year
+    ...
+```
+
+If only OpenAlex has the record, sanity-check its `type` field — `dissertation` or `posted-content` next to a journal/monograph DOI is the giveaway that you're looking at a precursor, not the cite-target.
+
+### OpenAlex API key (optional, for higher rate limits)
+
+`OpenAlexClient` reads the API key in this order: explicit `api_key=...` arg → `OPENALEX_API_KEY` env var → (CLI only) project-local `.env` → (CLI only) `~/.config/citefinder/config.toml`. The key is sent as `Authorization: Bearer ...`, never in the URL or cache key.
+
+For ad-hoc lookups, no key is needed — common-pool requests work fine. To store the key once per machine, drop a TOML file at the XDG config path:
+
+```toml
+# ~/.config/citefinder/config.toml
+[openalex]
+api_key = "your-openalex-key"
+mailto = "you@example.com"
+
+[crossref]
+mailto = "you@example.com"
+```
+
+Each section is optional; omit anything you don't need. The file is plain-text — recommend `chmod 600` so it's only readable by the user.
+
+The CLI picks the config up automatically; project-local `.env` and shell env still override it. For programmatic library use, the config file is *not* auto-loaded — pass `api_key=...` and `mailto=...` explicitly or set the env vars before constructing the client.
+
+### Picking `mailto`
+
+Use a project alias (e.g. the `authors` email in `pyproject.toml`) or omit entirely. Don't drop the user's personal email into `mailto` without asking — it's an outbound identifier, and a project/noreply address is the right default.
+
+## Inspecting `bib_to_table` output side-by-side in the terminal
+
+`citefinder.bib_to_table` returns a polars DataFrame, one row per bib entry. polars's default text rendering wraps long values mid-string — fine for short columns, ugly for URLs and titles where the wrap point lands inside a token.
+
+For ad-hoc audits that show two or three fields side by side (e.g. `doi` vs. `url`, `title` vs. `journal`), use this dynamic-width plain-text helper instead. Each column expands to fit its longest value, so URLs and DOIs never break across lines:
+
+```python
+from citefinder import bib_to_table
+
+df = bib_to_table(open("refs.bib").read())
+fields = ["key", "doi", "url"]  # adjust to taste
+rows = [r for r in df.iter_rows(named=True) if all(r.get(f) for f in fields[1:])]
+
+widths = {f: max(len(str(r[f])) for r in rows + [{f: f}]) for f in fields}
+sep = "+" + "+".join("-" * (widths[f] + 2) for f in fields) + "+"
+hdr = "| " + " | ".join(f"{f:<{widths[f]}}" for f in fields) + " |"
+print(f"{len(rows)} rows\n")
+print(sep)
+print(hdr)
+print(sep)
+for r in rows:
+    print("| " + " | ".join(f"{str(r[f]):<{widths[f]}}" for f in fields) + " |")
+print(sep)
+```
+
+Edit `fields` and the row-filter predicate for the columns you want. Keep this as a one-off rendering helper — don't promote it into a script unless the same audit shows up across many papers.
+
+## When citefinder isn't enough
+
+For **generating formatted BibTeX strings** from a DOI or query, use [`fetchbib`](https://github.com/mr-devs/fetchbib) (`fbib`) instead — it handles doi.org content negotiation, arXiv routing, and BibTeX-flavored config (protect titles, exclude ISSN, etc.). citefinder returns raw JSON for verification; fetchbib emits paste-ready BibTeX for citation lists.
+
+Drop down to raw HTTP (`requests.get("https://api.crossref.org/...")`) only if you need:
+
+- Crossref or OpenAlex endpoints citefinder doesn't wrap (Crossref `/funders`, `/journals`, `/types`; OpenAlex `/authors`, `/institutions`, `/sources`).
+- A one-off query you specifically don't want cached.
+- Streaming through large result sets via `cursor` pagination.
+
+For everything else, prefer citefinder so the cache stays the single source of truth across sessions.

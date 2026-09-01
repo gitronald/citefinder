@@ -16,8 +16,19 @@ citefinder/
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, crossref subcommand
+├── install.py          # stub render/stamp/drift-check for the Claude Code skill
+├── prompts/skill.md    # canonical `use-citefinder` skill body (package data)
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, skill, install, crossref subcommand
 ```
+
+The `use-citefinder` skill follows the
+[planners](https://github.com/gitronald/planners) pattern: the body lives only
+in `citefinder/prompts/skill.md` and is printed by `citefinder skill`.
+`.claude/skills/use-citefinder/SKILL.md` is a **generated stub** — frontmatter
+triggers plus a pointer to that command — written by `citefinder install
+--local`. Edit the prompt body; the stub does not need regenerating unless the
+frontmatter or the stub template itself changes. `citefinder install --check`
+reports stub drift.
 
 The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan
