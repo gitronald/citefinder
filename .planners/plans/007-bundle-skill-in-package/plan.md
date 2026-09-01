@@ -109,3 +109,65 @@ materializes it into `.claude/skills/` and detects drift.
 3. `--check` drift reporting.
 4. Replace the repo's `.claude/` copy via `citefinder install --local`.
 5. Tests, README section, changelog entry.
+
+## Log
+
+**2026-08-31** — Implemented on `feature/bundle-skill-in-package`
+([PR #37](https://github.com/gitronald/citefinder/pull/37)).
+
+- `875d647` — `citefinder/prompts/skill.md` (the body, moved with `git mv` so
+  its history follows), `citefinder/install.py`, the `install` subcommand, the
+  hatchling include, and the dogfooded `.claude/` copy.
+- `17306da` — tests, README section, changelog entry, module-map update.
+
+### Decisions taken during implementation
+
+**The stamp's repair command is mode-correct.** The plan's example stamp reads
+`run: citefinder install --force`; that is right for global mode but actively
+wrong for a per-repo install, where following it writes to `~/.claude/` and
+leaves the repo copy exactly as stale as before. `install_command(mode,
+force=...)` is the single source for the string, so the stamp, the `--check`
+hint, and the docs never disagree. This is not the `{cli}` token rendering the
+non-goals rule out — the prompt body carries no placeholder; the command is
+assembled in `install.py` alongside the stamp it belongs to.
+
+**`--check` auto-resolves by default, `--local` narrows it.** Bare `--check`
+resolves whichever copy is installed (global first, matching Claude Code's own
+precedence) and recovers the stamped mode, so it needs no flags to match how
+the skill was installed. `resolve_mode` prefers the stamp over the location, so
+a copy that has been moved still names its own repair command.
+
+**The wheel test builds a real wheel.** The `importlib.resources` check the
+plan called for passes under an editable install whether or not the build
+config ships the body — an editable install resolves `citefinder.prompts`
+straight to the repo. Only building a wheel and looking inside it catches a
+package that would break for anyone installing from PyPI, so
+`test_built_wheel_ships_the_bundled_body` calls `hatchling.build.build_wheel`
+in-process (hatchling added to the dev group, ~0.1s). Verified it fails when
+the path is excluded and passes when it isn't.
+
+**`artifacts` is belt-and-suspenders, not load-bearing.** hatchling already
+ships `citefinder/prompts/skill.md` by default — it lives inside the package
+and isn't VCS-ignored — so removing the `artifacts` entry does not break the
+build today. It is kept to state the dependency and to force inclusion if the
+path ever becomes ignored; the wheel test is what actually guards the outcome.
+The `pyproject.toml` comment says so rather than implying the line is doing
+work it isn't.
+
+**The skill documents its own sync loop.** A `## Keeping this skill in sync
+with the installed version` section was added to the body, so an agent reading
+a generated copy learns from the file itself that it is generated, that edits
+belong upstream, and that `--check` gates whether the examples below can be
+trusted.
+
+### Verification
+
+- `uv run pytest` — 140 passed (28 new in `tests/test_install.py`), and again
+  on the 3.11 floor.
+- ruff format + lint, pyrefly strict — clean.
+- Generated `.claude/skills/use-citefinder/SKILL.md` diffs against
+  `citefinder/prompts/skill.md` as exactly one added stamp line, as the plan
+  required.
+- Exercised end-to-end outside the test suite: global install under a sandbox
+  `HOME`, `--check` reporting `ok`/`drifted`/`missing`, the unstamped-file
+  refusal, and `--force` proceeding.
