@@ -5,7 +5,7 @@ status: active
 branch: feature/handle-openalex-metadata-quirks
 created: 2026-05-01T10:30:45-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/46
 ---
 
 # Reduce false positives and false negatives in signal checks
@@ -145,3 +145,36 @@ quirk individually.
     6. **Fixtures.** Use the three live records above as the real-run
        fixtures the Notes call for; `cialdini2003influence` remains the
        fixture for #1.
+- **2026-09-02T21:14:26-07:00** — Implemented on `feature/handle-openalex-metadata-quirks`
+  (draft PR: https://github.com/gitronald/citefinder/pull/46).
+  - `signals.py`: `MIN_TITLE_TOKENS = 3`, `title_tokens`, `is_short_title`.
+    `check_title` downgrades a pass to `unknown` when the bib title has fewer
+    than three words, and a fail to `unknown` when one title's tokens are a
+    strict subset of the other's and the shorter side has at least three
+    words. Revision 3 named only source-side truncation; a bib that omits the
+    subtitle is the same phenomenon and failed the same way, so the rule is
+    symmetric. A one-word subset does not count as truncation, so `Influence`
+    vs `Influence: Science and Practice` still fails on the DOI path, which is
+    the right review flag for a deficient bib title. Downgrades carry a `note`
+    in the signal dict.
+  - `verify.py`: on the DOI path, a `probable` verdict from exactly one
+    non-title fail becomes `matched`, with the note prefixed `DOI resolved;`.
+    Title fails and double fails are untouched (the related-work guard from
+    revision 1). On the search path, a short bib title cannot select a
+    candidate; the result is `unmatched` (or `skip-source`) with a "title too
+    short" note and the hits left in `candidates`. Chose the gate over
+    signal-based candidate selection for short titles to keep the rule one
+    line at both sites; ranking short-title candidates by their other signals
+    is a possible follow-up.
+  - Year tolerance stays at ±1 (revision 4): the DOI override handles
+    messing2014 and keeps the disagreement in the note.
+  - Fixtures: Fang2022, Ohm2020, and messing2014 run their trimmed live
+    OpenAlex records through `openalex_to_work` and `verify_entry` in
+    `tests/test_verify.py`. Fang2022 is `matched` with no note (title
+    `unknown` by truncation, three passes); the other two are `matched` with
+    the disagreement noted. `cialdini2003influence` covers the short-title
+    gate; signal-level tests cover the min-token and truncation rules.
+  - Docs: the report-reading guide in the skill body and README splits
+    `method=doi` into `mismatch`, `probable` (title disagrees or too few
+    signals), and `matched` with a note, and adds the "title too short"
+    `unmatched` row. CHANGELOG `[Unreleased]` records the behavior changes.
