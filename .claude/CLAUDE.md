@@ -45,14 +45,19 @@ CLI users can store credentials once in `~/.config/citefinder/config.toml`
 [openalex]
 api_key = "..."
 mailto = "..."
+max_retries = 3    # optional retry/pacing knobs
+min_interval = 0.1
 
 [crossref]
 mailto = "..."
+max_retries = 3
+min_interval = 0
 ```
 
-Lookup precedence (CLI), highest first: `--api-key`/`--mailto` flag → shell
-env (`OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`) → project
-`.env` → `config.toml`. Library users pass values to the client constructors
+Lookup precedence (CLI), highest first: `--api-key`/`--mailto`/
+`--max-retries`/`--min-interval` flag → shell env (`OPENALEX_API_KEY`,
+`OPENALEX_MAILTO`, `CROSSREF_MAILTO`, `<SOURCE>_MAX_RETRIES`,
+`<SOURCE>_MIN_INTERVAL`) → project `.env` → `config.toml`. Library users pass values to the client constructors
 explicitly — config file is CLI-only.
 
 ## Development

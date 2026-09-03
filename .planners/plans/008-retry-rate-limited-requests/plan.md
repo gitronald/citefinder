@@ -1,11 +1,11 @@
 ---
 id: 8
 slug: retry-rate-limited-requests
-status: active
+status: done
 branch: feature/retry-rate-limited-requests
 created: 2026-09-02T16:51:43-07:00
-concluded:
-pr:
+concluded: 2026-09-02T17:53:19-07:00
+pr: https://github.com/gitronald/citefinder/pull/42
 ---
 
 # Retry rate-limited requests with backoff and pace the search fallback
@@ -71,3 +71,25 @@ What stays downstream: the downstream repo's cache-path convention (its `data/` 
 - Caching 429 or any error payload (explicitly rejected; the cache holds only records and 404s).
 - Managing the OpenAlex daily budget across runs; the run surfaces the 429 and stops retrying after `max_retries`.
 - Reading `X-Rate-Limit-*` headers to auto-tune pacing. Worth a follow-up if the fixed defaults still trip Crossref.
+
+## Log
+
+- 2026-09-02T17:20:38-07:00 — Activated on `dev` and implemented on `feature/retry-rate-limited-requests` (draft PR #42). Steps 1–5 of the implementation order shipped in three commits: the retry loop, pacing, knobs, logging, and `retries` counter with `tests/test_retry.py` (24 tests, all driven by a fake clock); the CLI flags and `config.toml` keys; and the docs (README "Rate limits and retries" section, the report-reading guide in the README and skill, the name-split note in the skill, and the changelog). Step 6 (minor release, then the downstream pin bump and stub swap) is left for the release.
+- Two small departures from the spec, both deliberate:
+  - The `config.toml` key is `max_retries`, not `retries`, so the config key, the `--max-retries` flag, and the constructor parameter share one name. The env fallbacks follow the same shape (`OPENALEX_MAX_RETRIES`, `OPENALEX_MIN_INTERVAL`, and the `CROSSREF_` pair).
+  - The injectable clock is three seams rather than two: `sleep` and `monotonic` as planned, plus `clock` (wall time, `time.time`) because the HTTP-date form of `Retry-After` has to be measured against wall time, not the monotonic clock. All three are keyword-only so they stay out of the way of the public knobs.
+- Fixed a latent bug while wiring the config keys: `_load_user_config` skipped falsy values, which would have dropped `max_retries = 0` (and `min_interval = 0`). It now checks `is not None`.
+- `verify` picks its source at runtime, so its `--max-retries` / `--min-interval` flags do not bind a single `envvar`; an unset flag reads `<SOURCE>_MAX_RETRIES` / `<SOURCE>_MIN_INTERVAL` for whichever source is chosen, so `verify --source crossref` honors the `[crossref]` section.
+- The `mock_response` fixture now takes `headers` and raises `requests.HTTPError` from `raise_for_status` for any 4xx/5xx, mirroring `requests`; existing tests only ever used 200 and 404, so nothing else changed.
+- 2026-09-02T17:50:03-07:00 — Review gate before merge: `/code-review` at medium on PR #42 (posted as a PR comment). Five findings confirmed, three candidates rejected as conventions the file already had. Fixes in commit `50246ca`; gate green (ruff, ruff format, pyrefly, 196 tests).
+  - **Review follow-up.** Raised: (1) the retry and pacing knobs were never validated — `--min-interval inf` passes click's `min=0.0` and crashed in `time.sleep` on the second uncached request, and a negative `max_wait` did the same on the first retry; (2) `verify`'s env fallback skipped the lower bound the flags enforce, so `OPENALEX_MAX_RETRIES=-5` was silently clamped; (3) a float `max_retries = 3.0` in `config.toml` was rejected as "not a number" without naming `config.toml`; (4) `verify`'s help strings retyped the shared templates by hand; (5) `_pace` read the monotonic clock twice on the no-sleep path. Actioned all five: the constructors reject a non-finite or negative knob with `ValueError` (replacing the silent `max(0, max_retries)` clamp); `_client_kwargs`, the funnel every CLI command already routes knobs through, exits 2 for the same inputs, which covers flags, env, and config at once; `_env_number` names the expected type and `config.toml`; `verify` formats the templates; `_pace` reuses its first read and re-reads only after a real sleep. Nine tests added (five knob cases, four CLI). Conscious no-ops: the `DEFAULT_MIN_INTERVAL` export, the per-source Option pairs, and the per-command client construction all match the module's existing pattern; a float `max_retries` is still rejected — only the message changed.
+- 2026-09-02T17:54:00-07:00 — CI failed on the new `verify --help` test after the fix commit: in CI, typer renders help through rich with ANSI codes and wraps at 80 columns, splitting the `<SOURCE>_MAX_RETRIES` token that the local run printed as plain text. Rewrote the test to read the help strings off the option objects (`typer.main.get_group`) instead of rendered output, commit `b6e1dfb`; CI green on all four Python versions.
+
+## Retrospective
+
+- The spec held. Retry loop, pacing, knobs, logging, tests, and docs shipped as designed; the only departures were the `max_retries` config key name and a third clock seam for the HTTP-date `Retry-After`, both logged when they happened.
+- Injectable clocks paid for themselves twice: the retry tests never sleep, and the review's verifiers reproduced the `inf` crash through the same seam in seconds.
+- The review caught a class the tests missed: boundary validation. The tests exercised the retry arithmetic thoroughly but never fed a knob a nonsensical value, and click's `min=0` gave false comfort — it rejects negatives but not `inf` or `nan`. When a value crosses from CLI or config into a library constructor, test the boundary with the values the parser lets through, not only the ones it rejects.
+- Look for the existing funnel before adding validation per call site. Every command already passed knobs through `_client_kwargs`, so one check there covered five commands and three input paths.
+- Documenting what the code does not do (a 429 is never cached, nothing paced requests) was as useful as the feature itself: it retired the downstream advice to purge cache lines after a rate limit.
+- Still open: the downstream pin bump and stub swap ride on the next minor release, and `X-Rate-Limit-*` auto-tuning stays a follow-up if Crossref keeps tripping the fixed defaults.
