@@ -1,6 +1,7 @@
 """Tests for citefinder.signals — signal checks and status reduction."""
 
 from citefinder.signals import (
+    MIN_TITLE_TOKENS,
     BibCitation,
     Status,
     Work,
@@ -10,6 +11,7 @@ from citefinder.signals import (
     check_year,
     compute_signals,
     container_similarity,
+    is_short_title,
     normalize_title,
     status_from_signals,
     title_similarity,
@@ -57,6 +59,64 @@ def test_check_title_partial_is_unknown() -> None:
 def test_check_title_missing_input_is_unknown() -> None:
     assert check_title(None, "Title")["verdict"] == "unknown"
     assert check_title("Title", None)["verdict"] == "unknown"
+
+
+def test_is_short_title_counts_normalized_words() -> None:
+    assert MIN_TITLE_TOKENS == 3
+    assert is_short_title("Influence")
+    assert is_short_title("Deep Learning")
+    assert is_short_title(None)
+    assert not is_short_title("A Study of Things")
+
+
+def test_check_title_short_bib_title_cannot_pass() -> None:
+    # cialdini2003influence: a one-word bib title scores 1.0 against any
+    # record that contains the word, so a perfect match proves nothing.
+    r = check_title("Influence", "Influence")
+    assert r["verdict"] == "unknown"
+    assert r["sim"] == 1.0
+    assert "need 3" in r["note"]
+
+
+def test_check_title_short_bib_title_still_fails_on_no_overlap() -> None:
+    assert check_title("Influence", "Bicycles Trucks Cars")["verdict"] == "fail"
+
+
+def test_check_title_short_bib_title_is_not_rescued_by_containment() -> None:
+    # A one-word title is a subset of every title containing the word, so
+    # containment is not evidence of truncation here — the low Jaccard stands
+    # and the DOI path reports the deficient bib title for review.
+    r = check_title("Influence", "Influence: Science and Practice")
+    assert r["verdict"] == "fail"
+
+
+def test_check_title_source_truncation_is_unknown() -> None:
+    # Fang2022 (10.1145/3510003.3510121): OpenAlex stores only the part
+    # before the colon in both `display_name` and `title`.
+    bib = (
+        '"This Is Damn Slick!": Estimating the Impact of Tweets on Open Source '
+        "Project Popularity and New Contributors"
+    )
+    r = check_title(bib, '"This is damn slick!"')
+    assert r["verdict"] == "unknown"
+    assert r["sim"] < 0.30
+    assert "truncation" in r["note"]
+
+
+def test_check_title_bib_truncation_is_unknown() -> None:
+    # The mirror case: the bib omits the subtitle the source carries.
+    r = check_title(
+        "Backstabber's Knife Collection",
+        "Backstabber's Knife Collection: A Review of Open Source Software "
+        "Supply Chain Attacks",
+    )
+    assert r["verdict"] == "unknown"
+
+
+def test_check_title_overlap_without_containment_still_fails() -> None:
+    # Sharing one word is not truncation; the sets are not nested.
+    r = check_title("A Study of Social Things", "Social Bots in the Wild")
+    assert r["verdict"] == "fail"
 
 
 def test_check_year_exact_match() -> None:
@@ -117,13 +177,13 @@ def test_check_container_picks_best_alias() -> None:
 
 def test_compute_signals_builds_all_four() -> None:
     cit = BibCitation(
-        title="Paper",
+        title="A Paper on Things",
         year="2020",
         first_author_surname="Smith",
         container="J",
     )
     work = Work(
-        title="Paper",
+        title="A Paper on Things",
         year=2020,
         first_author_surname="Smith",
         container_names=["J"],

@@ -85,6 +85,47 @@ def test_doi_lookup_signals_match() -> None:
     assert r.matched_doi == "10.1/test"
 
 
+def test_doi_single_non_title_disagreement_stays_matched() -> None:
+    # The bib's own DOI resolved, three signals confirm, one disagrees: the
+    # DOI is the identity claim, so the entry is matched and the
+    # disagreement rides along in the note for review.
+    text = """@article{x,
+      author = {Smith, Jane},
+      title = {A Study of Things},
+      year = {2020},
+      journal = {Journal of Things},
+      doi = {10.1/test}
+    }"""
+    entry = _make_entry(text)
+    work = _matching_work()
+    work.year = 2017
+    src = _fake_source(doi_record={"any": "shape"}, work_for_doi=work)
+    r = verify_entry(entry, src)
+    assert r.status == Status.MATCHED
+    assert r.note.startswith("DOI resolved; source disagrees on: year")
+    assert r.signals["year"]["verdict"] == "fail"
+
+
+def test_doi_title_disagreement_stays_probable() -> None:
+    # Guard: a typoed DOI can land on a *related* work — same author, year,
+    # and venue, different paper — which fails only on title. The override
+    # must not swallow that.
+    text = """@article{x,
+      author = {Smith, Jane},
+      title = {A Study of Things},
+      year = {2020},
+      journal = {Journal of Things},
+      doi = {10.1/sibling}
+    }"""
+    entry = _make_entry(text)
+    work = _matching_work()
+    work.title = "Measuring Other Stuff Entirely"
+    src = _fake_source(doi_record={"any": "shape"}, work_for_doi=work)
+    r = verify_entry(entry, src)
+    assert r.status == Status.PROBABLE
+    assert r.signals["title"]["verdict"] == "fail"
+
+
 def test_doi_lookup_signals_disagree_is_mismatch() -> None:
     # DOI resolves but the source record points at a totally different work.
     text = """@article{x,
@@ -120,6 +161,123 @@ def test_doi_lookup_exception_yields_error() -> None:
     assert "DOI lookup failed" in r.note
 
 
+# --- OpenAlex quirks: real records through the real adapter -----------------
+# Trimmed to the fields `openalex_to_work` reads, values as returned by the
+# OpenAlex API on 2026-09-02. Each is a bib entry whose own DOI resolved to
+# the right work and that `verify` nevertheless reported as `probable`.
+
+
+def _openalex_source(record: dict[str, Any]) -> Source:
+    class FakeClient:
+        def lookup_doi(self, doi: str) -> dict[str, Any]:
+            return record
+
+    return Source(name="openalex", client=FakeClient())  # type: ignore[arg-type]
+
+
+FANG2022_OPENALEX = {
+    "doi": "https://doi.org/10.1145/3510003.3510121",
+    # Both title fields stop at the colon; there is no subtitle field.
+    "display_name": '"This is damn slick!"',
+    "title": '"This is damn slick!"',
+    "publication_year": 2022,
+    "authorships": [{"author": {"display_name": "Hongbo Fang"}}],
+    "primary_location": {
+        "source": {
+            "display_name": (
+                "Proceedings of the 44th International Conference on "
+                "Software Engineering"
+            )
+        }
+    },
+}
+
+OHM2020_OPENALEX = {
+    "doi": "https://doi.org/10.1007/978-3-030-52683-2_2",
+    "display_name": (
+        "Backstabber\u2019s Knife Collection: A Review of Open Source Software "
+        "Supply Chain Attacks"
+    ),
+    "title": (
+        "Backstabber\u2019s Knife Collection: A Review of Open Source Software "
+        "Supply Chain Attacks"
+    ),
+    "publication_year": 2020,
+    "authorships": [{"author": {"display_name": "Marc Ohm"}}],
+    # The LNCS series name; none of the record's locations carries the
+    # booktitle (DIMVA 2020).
+    "primary_location": {
+        "source": {"display_name": "Lecture notes in computer science"}
+    },
+}
+
+MESSING2014_OPENALEX = {
+    "doi": "https://doi.org/10.1177/0093650212466406",
+    "display_name": "Selective Exposure in the Age of Social Media",
+    "title": "Selective Exposure in the Age of Social Media",
+    # Online-first date; `biblio` reports volume 41 issue 8, the 2014 print
+    # volume, but there is no second year field to fall back to.
+    "publication_year": 2012,
+    "publication_date": "2012-12-31",
+    "authorships": [{"author": {"display_name": "Solomon Messing"}}],
+    "primary_location": {"source": {"display_name": "Communication Research"}},
+}
+
+
+def test_openalex_truncated_title_with_doi_is_matched() -> None:
+    text = """@inproceedings{Fang2022,
+      author = {Fang, Hongbo and Lamba, Hemank and Herbsleb, James and Vasilescu, Bogdan},
+      title = {{"This Is Damn Slick!"}: Estimating the Impact of Tweets on Open Source Project Popularity and New Contributors},
+      booktitle = {Proceedings of the 44th International Conference on Software Engineering},
+      year = {2022},
+      doi = {10.1145/3510003.3510121}
+    }"""  # noqa: E501 -- real bib lines, kept verbatim
+    r = verify_entry(_make_entry(text), _openalex_source(FANG2022_OPENALEX))
+    assert r.method == "doi"
+    assert r.signals["title"]["verdict"] == "unknown"
+    assert "truncation" in r.signals["title"]["note"]
+    assert r.status == Status.MATCHED
+    assert r.note == ""
+
+
+def test_openalex_series_name_container_with_doi_is_matched() -> None:
+    text = """@inproceedings{Ohm2020,
+      author = {Ohm, Marc and Plate, Henrik and Sykosch, Arnold and Meier, Michael},
+      title = {Backstabber's Knife Collection: A Review of Open Source Software Supply Chain Attacks},
+      booktitle = {Detection of Intrusions and Malware, and Vulnerability Assessment},
+      year = {2020},
+      doi = {10.1007/978-3-030-52683-2_2}
+    }"""  # noqa: E501 -- real bib lines, kept verbatim
+    r = verify_entry(_make_entry(text), _openalex_source(OHM2020_OPENALEX))
+    assert r.signals["container"]["verdict"] == "fail"
+    assert r.status == Status.MATCHED
+    assert "DOI resolved; source disagrees on: container" in r.note
+
+
+def test_openalex_preprint_year_with_doi_is_matched_with_note() -> None:
+    text = """@article{messing2014selective,
+      author = {Messing, Solomon and Westwood, Sean J.},
+      title = {Selective Exposure in the Age of Social Media},
+      journal = {Communication Research},
+      year = {2014},
+      volume = {41},
+      number = {8},
+      doi = {10.1177/0093650212466406}
+    }"""
+    r = verify_entry(_make_entry(text), _openalex_source(MESSING2014_OPENALEX))
+    assert r.signals["year"] == {
+        "verdict": "fail",
+        "bib": "2014",
+        "crossref": "2012",
+        "diff": 2,
+    }
+    assert r.status == Status.MATCHED
+    assert (
+        r.note
+        == "DOI resolved; source disagrees on: year (bib '2014' vs source '2012')"
+    )
+
+
 # --- search path ------------------------------------------------------------
 
 
@@ -139,6 +297,31 @@ def test_search_finds_matching_hit() -> None:
     assert r.status == Status.MATCHED
     assert r.method == "search"
     assert r.matched_doi == "10.1/found"
+
+
+def test_search_short_title_cannot_select_a_candidate() -> None:
+    # cialdini2003influence: the one-word title "Influence" scores 1.0
+    # against an unrelated 1985 paper titled "Influence". Title similarity
+    # cannot pick a candidate here; leave the hit in `candidates` and report
+    # why.
+    text = """@book{cialdini2003influence,
+      author = {Cialdini, Robert B.},
+      title = {Influence},
+      year = {2003},
+      publisher = {Allyn and Bacon}
+    }"""
+    entry = _make_entry(text)
+    src = _fake_source(
+        search_items=[{"DOI": "10.1/unrelated", "title": ["Influence"]}],
+        work_for_search=_wrong_work(),
+    )
+    r = verify_entry(entry, src)
+    assert r.status == Status.UNMATCHED
+    assert r.matched_doi is None
+    assert r.note == (
+        "title too short to match by search (1 word(s), need 3); review candidates"
+    )
+    assert r.candidates[0]["similarity"] == "1.00"
 
 
 def test_search_no_plausible_hit_is_unmatched() -> None:
