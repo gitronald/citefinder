@@ -12,7 +12,7 @@ pr: https://github.com/gitronald/citefinder/pull/5
 
 ## Plan
 
-Crossref is the canonical source for verifying published metadata, but it has two recurring failure modes that hurt `verify-bib.py` in the `jots` repo:
+Crossref is the canonical source for verifying published metadata, but it has two recurring failure modes that hurt the downstream `verify-bib.py` script:
 
 1. **arXiv / preprint DOIs 404** in Crossref — verify-bib labels these `doi-not-found`. They are real DOIs, just not in Crossref's index.
 2. **Thin or partial metadata** in Crossref deposits — missing abstracts, abbreviated titles, capped author lists, missing affiliations. Verify-bib's `check_*` signal functions return `unknown` in those cases.
@@ -35,7 +35,7 @@ OpenAlex (`api.openalex.org`) merges Crossref + Unpaywall + ORCID + ROR + reposi
 
 3. **CLI parity** — add `citefinder openalex doi <DOI>` and `citefinder openalex search <QUERY>` subcommands paralleling the existing Crossref ones. Same `--cache` flag pattern, distinct default cache file.
 
-4. **`verify-bib.py` integration (in `jots` repo, separate PR)** — out of scope for this plan's commit but worth noting the consumer:
+4. **`verify-bib.py` integration (in the downstream repo, separate PR)** — out of scope for this plan's commit but worth noting the consumer:
    - On `doi-not-found` from Crossref → fall through to `OpenAlexClient.lookup_doi`. If hit, run the same 4-signal check against the OpenAlex record (with adapter functions for the different schema).
    - On Crossref signals returning `unknown` → optionally fetch OpenAlex and re-check that signal. Status reporting needs a provenance field so reports show which source confirmed each signal.
    - Adapt the signal functions: OpenAlex uses `display_name` (single string, no subtitle split), `authorships[].author.display_name`, `primary_location.source.display_name`, `publication_year`. The schema gap is significant enough that signal extraction should live behind a small adapter, not be inlined.
@@ -59,7 +59,7 @@ OpenAlex (`api.openalex.org`) merges Crossref + Unpaywall + ORCID + ROR + reposi
 4. CLI subcommands.
 5. Integration test (skipped by default).
 6. README update — note the new client, polite-pool email guidance, and link to OpenAlex docs.
-7. Follow-up plan in the `jots` repo for the verify-bib fallthrough wiring.
+7. Follow-up plan in the downstream repo for the verify-bib fallthrough wiring.
 
 ### Open questions
 
@@ -99,4 +99,4 @@ Decision against URL-param auth: cache keys would either leak the key or require
 - Scope grew during the close: API-key support was out of the original plan but was the natural follow-up the moment OpenAlex auth was on the table. Worth folding in rather than splitting because the constructor signature would otherwise have churned twice.
 - The user pushed back on demo calls using their personal email as the polite-pool `mailto`. Fixed locally and elevated to a global rule (`~/.claude/rules/privacy.md`) — don't auto-pull personal email from environment context for service identifiers.
 - Ruff/pyrefly hooks caught: a stale `urlunsplit` return-type annotation and missing line wrapping. Both were one-line fixes; the type one (`urlunsplit` overloads as `str | bytes`) is worth remembering for future `urllib.parse` usage.
-- Verify-bib in `jots` will need a small adapter for OpenAlex's schema (`display_name`, `authorships[].author.display_name`, etc.). Schemas were different enough to confirm the plan's "no unified `Reference` model" call — premature normalization would have been the wrong move.
+- The downstream verify-bib will need a small adapter for OpenAlex's schema (`display_name`, `authorships[].author.display_name`, etc.). Schemas were different enough to confirm the plan's "no unified `Reference` model" call — premature normalization would have been the wrong move.

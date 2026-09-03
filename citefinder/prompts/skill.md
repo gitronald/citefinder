@@ -128,6 +128,7 @@ CLI:
 citefinder verify refs.bib                       # OpenAlex (default)
 citefinder verify refs.bib --source crossref     # ...or Crossref
 citefinder verify refs.bib --out path/to/dir/    # custom output directory
+citefinder verify refs.bib --min-interval 0.5 --max-retries 5   # slow down for a strict rate limit
 ```
 
 Output lands in `data/citefinder/<bib-stem>/<source>/`:
@@ -136,6 +137,13 @@ Output lands in `data/citefinder/<bib-stem>/<source>/`:
 - `results.json` — structured per-entry result (status, matched DOI, signals).
 
 Per-entry statuses: `matched`, `probable` (one signal disagreed — review), `mismatch` (≥2 signals disagreed — DOI to wrong work), `doi-not-found` (404 — common for arXiv/preprint DOIs in Crossref), `unmatched` (no plausible hit), `skip-source` (`@online`/`@misc` — verify via URL), `error`.
+
+**Reading the report.** Read `results.json` by `method` × `status`:
+
+- `method=doi` with `mismatch` / `probable` — a real defect: the bib's own DOI resolves to a different work, or a field (year, first author, container) disagrees with the source record. Fix the entry.
+- `method=search` with `matched` and a non-empty `matched_doi` — a DOI candidate for an entry that lacked one. Confirm the title, then add it.
+- `method=search` with `mismatch` / `probable` — usually a wrong-work false positive: books, reports, and other sources the index carries poorly get matched to a similarly titled record. Not a reason to rewrite the entry.
+- `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type; then look for a systematic cause (a preprint server the source doesn't index, a publisher whose DOI convention the search misses).
 
 Crossref and OpenAlex are complementary — Crossref has richer metadata for indexed records (full title + subtitle, multiple container aliases) but doesn't index arXiv/preprints; OpenAlex covers preprints but sometimes truncates titles or returns preprint years instead of publication years. For a thorough audit, run both and compare.
 
@@ -175,6 +183,7 @@ Field order within each entry is not preserved (it follows the CSV's column orde
 - **`lookup_doi` returns the `message` payload directly,** not the full Crossref envelope. So you access `work["title"][0]`, not `work["message"]["title"][0]`.
 - **`title` is a list, not a string.** Crossref returns titles as arrays. Use `work["title"][0]`.
 - **`search_bibliographic` returns the items list,** which may be empty. Always handle the empty case.
+- **Rate limits retry themselves.** A `429` (and `502`/`503`/`504`) is retried up to 3 times, honoring `Retry-After` or backing off 1 s / 2 s / 4 s, and OpenAlex requests are paced to 10 per second by default. Only the final failure surfaces — in `verify` as a per-entry `error` whose note names the status, plus the retry count in the summary line. An error response is **never cached**, so there is nothing to purge after a rate limit: wait for it to clear and re-run, or slow the run down with `--min-interval 0.5` / `--max-retries 5` (also `max_retries` / `min_interval` in `config.toml`).
 
 ## OpenAlex fallback for arXiv / preprint / thin-metadata DOIs
 
@@ -213,6 +222,8 @@ OpenAlex's schema differs from Crossref — different keys for the same data:
 | `work["author"][0]["family"]` | `work["authorships"][0]["author"]["display_name"]` |
 | `work["container-title"][0]` | `work["primary_location"]["source"]["display_name"]` |
 | `work["published-print"]["date-parts"][0][0]` | `work["publication_year"]` |
+
+**Which fields carry the name split.** For a family/given boundary question — where the surname starts in a multi-part or non-Western name — compare against Crossref's `author[i].family` and `author[i].given`: that split is the one the publisher deposited. OpenAlex exposes only a flat, first-name-first `display_name` (and `raw_author_name` in byline order), which you would have to re-parse, so it cannot settle the question.
 
 OpenAlex stores abstracts as an `abstract_inverted_index` (`{word: [positions]}`), not a string. Use the helper:
 

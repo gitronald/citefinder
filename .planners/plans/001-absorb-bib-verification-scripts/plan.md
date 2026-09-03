@@ -137,7 +137,7 @@ OpenAlex was reaching into `client._get(url)` in the original script, but
 needed. Switched to that — `adapters.py` gets to stay client-import-free
 and `Source` becomes a thinner wrapper.
 
-Smoke-tested against `~/repos/jots/volume-3-issue-2/shen2026social/refs.bib`
+Smoke-tested against a downstream repo's `refs.bib`
 (54 entries). Crossref run: 41 matched, 5 skip-source, 3 unmatched, 2
 probable, 2 mismatch, 1 doi-not-found. Switched default source to
 `openalex` for consistency with the rest of the top-level CLI; OpenAlex
