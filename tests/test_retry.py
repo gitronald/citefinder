@@ -14,11 +14,12 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
+from typer.main import get_group
 from typer.testing import CliRunner
 
 from citefinder._base import retry_after_seconds
 from citefinder.cache import JsonlCache
-from citefinder.cli import _load_user_config, app
+from citefinder.cli import _MAX_RETRIES_HELP, _MIN_INTERVAL_HELP, _load_user_config, app
 from citefinder.client import CrossrefClient
 from citefinder.openalex import OpenAlexClient
 
@@ -417,7 +418,10 @@ def test_verify_names_the_type_for_a_float_max_retries(
 
 
 def test_verify_help_uses_the_shared_knob_templates() -> None:
-    result = runner.invoke(app, ["verify", "--help"])
-    assert result.exit_code == 0
-    assert "<SOURCE>_MAX_RETRIES" in result.output
-    assert "<SOURCE>_MIN_INTERVAL" in result.output
+    """Read off the option objects: rendered `--help` wraps and colors per terminal."""
+    verify = get_group(app).commands["verify"]
+    helps = {p.name: getattr(p, "help", None) for p in verify.params}
+    assert helps["max_retries"] == _MAX_RETRIES_HELP.format(env="<SOURCE>_MAX_RETRIES")
+    assert helps["min_interval"] == _MIN_INTERVAL_HELP.format(
+        default="0.1 for OpenAlex, 0 for Crossref", env="<SOURCE>_MIN_INTERVAL"
+    )
