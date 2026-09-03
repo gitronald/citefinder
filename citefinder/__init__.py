@@ -5,6 +5,7 @@ from citefinder.bib import Entry, parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.cache import JsonlCache
 from citefinder.client import CrossrefClient
+from citefinder.config import resolve_cache_path
 from citefinder.openalex import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
 from citefinder.signals import (
     BibCitation,
@@ -32,6 +33,7 @@ __all__ = [
     "openalex_to_work",
     "parse_entries",
     "reconstruct_abstract",
+    "resolve_cache_path",
     "status_from_signals",
     "table_to_bib",
     "verify_entry",

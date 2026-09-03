@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Project-level config: the CLI reads the nearest `citefinder.toml`, or a
+  `[tool.citefinder]` table in `pyproject.toml`, found by walking up from the
+  working directory. Same keys as the user config; precedence is flag > env
+  and `.env` > project config > user config > default. An `api_key` in a
+  project config is ignored with a warning, since the file is meant to be
+  committed.
+- `cache_dir` setting — a top-level key in either config file, the
+  `CITEFINDER_CACHE_DIR` env var, or `--cache-dir` on `doi`, `search`,
+  `verify`, and the `crossref` subcommands — as the one directory every
+  cache path derives from: lookups use `<cache_dir>/<source>.jsonl` and
+  `verify` writes under `<cache_dir>/<bib-stem>/<source>/`. A relative value
+  in a config file resolves against that file's directory; a relative flag
+  or env value against the working directory. `--cache` and `--out` still
+  win.
+- `citefinder config` prints each resolved setting with its source (`flag`,
+  `env`, `project`, `user`, or `default`) and the cache paths the lookups
+  and `verify` would use.
+- `resolve_cache_path(source, cache_dir=None)`, exported from the package,
+  for wrappers that build clients themselves.
+
+### Changed
+
+- `verify`'s default output directory derives from `cache_dir` when one is
+  set; without one it is `data/citefinder/<bib-stem>/<source>/` under the
+  working directory, as before.
+- `--cache` on the lookup commands defaults to `<cache_dir>/<source>.jsonl`
+  rather than a fixed home-directory path — the same
+  `~/.cache/citefinder/<source>.jsonl` when nothing sets `cache_dir`.
+- `verify --out` is anchored to the working directory and expands a leading
+  `~`, the same as `--cache-dir`, so `results.json` and the `<source>.jsonl`
+  cache always land in one directory.
+
 ## [0.6.0] - 2026-09-02
 
 ### Added

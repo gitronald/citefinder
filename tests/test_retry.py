@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 
 from citefinder._base import retry_after_seconds
 from citefinder.cache import JsonlCache
-from citefinder.cli import _MAX_RETRIES_HELP, _MIN_INTERVAL_HELP, _load_user_config, app
+from citefinder.cli import _MAX_RETRIES_HELP, _MIN_INTERVAL_HELP, _load_configs, app
 from citefinder.client import CrossrefClient
 from citefinder.openalex import OpenAlexClient
 
@@ -330,12 +330,14 @@ def test_config_retry_keys_reach_the_client(tmp_path: Path, monkeypatch) -> None
         "[openalex]\nmax_retries = 0\nmin_interval = 0.5\n", encoding="utf-8"
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    # `_load_user_config` writes os.environ directly; delenv records the
+    # Pin cwd so project-config discovery walks a sandbox, not the repo.
+    monkeypatch.chdir(tmp_path)
+    # `_load_configs` writes os.environ directly; delenv records the
     # prior (absent) state so monkeypatch removes the keys again at teardown.
     for name in ("OPENALEX_MAX_RETRIES", "OPENALEX_MIN_INTERVAL"):
         monkeypatch.delenv(name, raising=False)
 
-    _load_user_config()
+    _load_configs()
 
     # `max_retries = 0` is a real setting, not an unset one.
     assert os.environ["OPENALEX_MAX_RETRIES"] == "0"

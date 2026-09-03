@@ -20,16 +20,24 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
 from operator import itemgetter
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 from dotenv import find_dotenv, load_dotenv
 
 from citefinder import install as install_mod
+from citefinder._base import DEFAULT_MAX_RETRIES
 from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.client import CrossrefClient
-from citefinder.openalex import OpenAlexClient
+from citefinder.config import (
+    ENV_KEYS,
+    find_project_config,
+    load_config,
+    resolve_cache_path,
+    user_config_path,
+)
+from citefinder.openalex import DEFAULT_MIN_INTERVAL, OpenAlexClient
 from citefinder.verify import Result, Source, verify_entry
 
 # Load `.env` from the current working directory (or any parent) so users can
@@ -38,15 +46,34 @@ from citefinder.verify import Result, Source, verify_entry
 load_dotenv(find_dotenv(usecwd=True))
 
 
-def _load_user_config() -> None:
-    """Read `~/.config/citefinder/config.toml` (honors `$XDG_CONFIG_HOME`)
-    and populate env vars for any values not already set. Lowest-priority
-    fallback — `.env` and shell env still win — so users can store keys
-    once per machine while overriding per-shell or per-project.
+def _anchor(path: str | Path, base: Path) -> Path:
+    """`path` made absolute against `base`; a leading `~` expands first."""
+    return base / Path(path).expanduser()
 
-    Expected format:
+
+# Env name -> which config file `_load_configs` took its value from
+# ("project" or "user"). Names it did not set came from a flag, the shell
+# env, or `.env`. `citefinder config` reports these.
+_config_sources: dict[str, str] = {}
+
+
+def _load_configs() -> None:
+    """Populate env vars from the project config, then the user config, for
+    any names not already set.
+
+    The project config is the nearest `citefinder.toml` or `pyproject.toml`
+    with a `[tool.citefinder]` table at or above the working directory; the
+    user config is `~/.config/citefinder/config.toml` (honors
+    `$XDG_CONFIG_HOME`). Each fills only names still unset, so shell env and
+    `.env` win over both and the project file wins over the user file: a
+    setting that is a property of a repo (where its caches go) lives with
+    the repo, while credentials stay per machine.
+
+    Expected format, either file (under `[tool.citefinder]` in pyproject):
+        cache_dir = "data/citefinder"   # relative: to this file's dir
+
         [openalex]
-        api_key = "oa_pk_..."
+        api_key = "oa_pk_..."   # user config or .env only, never a project file
         mailto = "you@example.com"
         max_retries = 3
         min_interval = 0.1
@@ -56,37 +83,51 @@ def _load_user_config() -> None:
         max_retries = 3
         min_interval = 0
     """
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    config_dir = Path(xdg) if xdg else Path.home() / ".config"
-    config_path = config_dir / "citefinder" / "config.toml"
-    if not config_path.is_file():
-        return
+    _config_sources.clear()
+    project = find_project_config()
+    if project is not None:
+        _apply_config(project, "project")
+    user = user_config_path()
+    if user.is_file():
+        _apply_config(user, "user")
+
+
+def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
     try:
-        with open(config_path, "rb") as f:
-            config = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        # A broken credentials file must never take the whole CLI down —
+        config = load_config(path)
+    except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
+        # A broken config file must never take the whole CLI down —
         # `citefinder skill` is the only copy of the skill instructions on
-        # this machine. Warn and fall through to env vars and flags.
-        typer.echo(f"warning: ignoring {config_path}: {exc}", err=True)
+        # this machine. Warn and fall through to the next source.
+        typer.echo(f"warning: ignoring {path}: {exc}", err=True)
         return
-    mappings = {
-        "OPENALEX_API_KEY": ("openalex", "api_key"),
-        "OPENALEX_MAILTO": ("openalex", "mailto"),
-        "OPENALEX_MAX_RETRIES": ("openalex", "max_retries"),
-        "OPENALEX_MIN_INTERVAL": ("openalex", "min_interval"),
-        "CROSSREF_MAILTO": ("crossref", "mailto"),
-        "CROSSREF_MAX_RETRIES": ("crossref", "max_retries"),
-        "CROSSREF_MIN_INTERVAL": ("crossref", "min_interval"),
-    }
-    for env_name, (section, key) in mappings.items():
-        value = (config.get(section) or {}).get(key)
+    for env_name, (section, key) in ENV_KEYS.items():
+        table = config if section is None else config.get(section) or {}
+        value = table.get(key)
         # `is not None`, not truthiness: `max_retries = 0` is a real setting.
-        if value is not None and value != "" and env_name not in os.environ:
-            os.environ[env_name] = str(value)
+        if value is None or value == "":
+            continue
+        if kind == "project" and key == "api_key":
+            # A project config is meant to be committed, and a key in it
+            # would be too. Skipped even when the env already carries one,
+            # so the warning fires as long as the key is on disk.
+            typer.echo(
+                f"warning: ignoring {section}.{key} in {path}: keep API keys "
+                f"out of project config; use .env or {user_config_path()}",
+                err=True,
+            )
+            continue
+        if env_name in os.environ:
+            continue
+        if key == "cache_dir":
+            # Anchored to the file, not the working directory, so a relative
+            # `cache_dir` names the same place whatever the command's cwd.
+            value = _anchor(str(value), path.parent)
+        os.environ[env_name] = str(value)
+        _config_sources[env_name] = kind
 
 
-_load_user_config()
+_load_configs()
 
 app = typer.Typer(
     help="OpenAlex (default) + Crossref reference lookups with local JSONL caching."
@@ -96,11 +137,35 @@ crossref_app = typer.Typer(
 )
 app.add_typer(crossref_app, name="crossref")
 
-DEFAULT_OPENALEX_CACHE = Path.home() / ".cache" / "citefinder" / "openalex.jsonl"
-DEFAULT_CROSSREF_CACHE = Path.home() / ".cache" / "citefinder" / "crossref.jsonl"
-
-OpenAlexCacheOption = typer.Option(DEFAULT_OPENALEX_CACHE, help="JSONL cache path.")
-CrossrefCacheOption = typer.Option(DEFAULT_CROSSREF_CACHE, help="JSONL cache path.")
+_CACHE_HELP = (
+    "JSONL cache path (default: <cache-dir>/{source}.jsonl). Overrides --cache-dir."
+)
+_CACHE_DIR_HELP = (
+    "Directory the {what} derives from: <cache-dir>/{layout} (default {default}). "
+    "Also CITEFINDER_CACHE_DIR in the env or `cache_dir` in a config file."
+)
+OpenAlexCacheOption = typer.Option(
+    None, "--cache", help=_CACHE_HELP.format(source="openalex")
+)
+CrossrefCacheOption = typer.Option(
+    None, "--cache", help=_CACHE_HELP.format(source="crossref")
+)
+CacheDirOption = typer.Option(
+    None,
+    "--cache-dir",
+    help=_CACHE_DIR_HELP.format(
+        what="cache path", layout="<source>.jsonl", default="~/.cache/citefinder"
+    ),
+)
+VerifyCacheDirOption = typer.Option(
+    None,
+    "--cache-dir",
+    help=_CACHE_DIR_HELP.format(
+        what="output dir",
+        layout="<bib-stem>/<source>/",
+        default="data/citefinder under the working directory",
+    ),
+)
 RowsOption = typer.Option(3, help="Number of results to return.")
 OpenAlexMailtoOption = typer.Option(
     None,
@@ -223,6 +288,37 @@ def _env_number(name: str, cast: type[int] | type[float]) -> Any:
         raise typer.Exit(code=2) from None
 
 
+def _cache_dir(flag: Path | None) -> Path | None:
+    """The directory a command derives its cache paths from, or `None`
+    when nothing is set and the command's own default applies.
+
+    `--cache-dir` first, then `CITEFINDER_CACHE_DIR` (which config.toml
+    also feeds). A relative flag or env value is anchored to the working
+    directory, as `--cache` and `--out` are; a config-file value was
+    anchored to the file's directory when it was loaded.
+    """
+    if flag is not None:
+        return _anchor(flag, Path.cwd())
+    env = os.environ.get("CITEFINDER_CACHE_DIR")
+    if not env:
+        return None
+    return _anchor(env, Path.cwd())
+
+
+def _cache_path(source: str, cache: Path | None, cache_dir: Path | None) -> Path:
+    """`--cache` verbatim when given, else `<cache_dir>/<source>.jsonl`."""
+    if cache is not None:
+        return cache
+    return resolve_cache_path(source, _cache_dir(cache_dir))
+
+
+def _verify_root(cache_dir: Path | None) -> Path:
+    """The directory `verify` files its output under: `cache_dir` when one
+    is set, else `data/citefinder` under the working directory. Shared with
+    `citefinder config` so the path it prints is the one `verify` writes."""
+    return _cache_dir(cache_dir) or Path.cwd() / "data" / "citefinder"
+
+
 def _emit(result: object) -> None:
     typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -233,7 +329,8 @@ def _emit(result: object) -> None:
 @app.command()
 def doi(
     doi: str,
-    cache: Path = OpenAlexCacheOption,
+    cache: Path | None = OpenAlexCacheOption,
+    cache_dir: Path | None = CacheDirOption,
     mailto: str | None = OpenAlexMailtoOption,
     api_key: str | None = ApiKeyOption,
     max_retries: int | None = OpenAlexMaxRetriesOption,
@@ -241,7 +338,7 @@ def doi(
 ) -> None:
     """Look up a single DOI via OpenAlex."""
     client = OpenAlexClient(
-        cache_path=cache,
+        cache_path=_cache_path("openalex", cache, cache_dir),
         mailto=mailto,
         api_key=api_key,
         **_client_kwargs(max_retries, min_interval),
@@ -257,7 +354,8 @@ def doi(
 def search(
     title: str,
     rows: int = RowsOption,
-    cache: Path = OpenAlexCacheOption,
+    cache: Path | None = OpenAlexCacheOption,
+    cache_dir: Path | None = CacheDirOption,
     mailto: str | None = OpenAlexMailtoOption,
     api_key: str | None = ApiKeyOption,
     max_retries: int | None = OpenAlexMaxRetriesOption,
@@ -265,7 +363,7 @@ def search(
 ) -> None:
     """Search OpenAlex by title (title-only filter; tuned for citation lookup)."""
     client = OpenAlexClient(
-        cache_path=cache,
+        cache_path=_cache_path("openalex", cache, cache_dir),
         mailto=mailto,
         api_key=api_key,
         **_client_kwargs(max_retries, min_interval),
@@ -363,8 +461,10 @@ def verify(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="Output dir (default: data/citefinder/<bib-stem>/<source>/).",
+        help="Output dir (default: <cache-dir>/<bib-stem>/<source>/). "
+        "Overrides --cache-dir.",
     ),
+    cache_dir: Path | None = VerifyCacheDirOption,
     max_retries: int | None = typer.Option(
         None,
         "--max-retries",
@@ -393,16 +493,21 @@ def verify(
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
 
-    # Default output: cwd/data/citefinder/<bib-stem>/<source>/. Per-source
-    # subdir lets crossref and openalex outputs coexist for side-by-side
-    # comparison without collision.
+    # Default output: <cache_dir>/<bib-stem>/<source>/, with cache_dir
+    # falling back to cwd/data/citefinder. Per-source subdir lets crossref
+    # and openalex outputs coexist for side-by-side comparison without
+    # collision. `--out` is anchored to cwd like `--cache-dir`, so a quoted
+    # `~` expands and the cache below lands beside `results.json`.
     stem = bib_file.stem
     if stem == "refs":
         stem = bib_file.parent.name
-    out_dir = out or (Path.cwd() / "data" / "citefinder" / stem / source)
+    if out is not None:
+        out_dir = _anchor(out, Path.cwd())
+    else:
+        out_dir = _verify_root(cache_dir) / stem / source
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cache_path = out_dir / f"{source}.jsonl"
+    cache_path = resolve_cache_path(source, out_dir)
     knobs = _source_client_kwargs(source, max_retries, min_interval)
     if source == "crossref":
         src = Source(
@@ -574,20 +679,81 @@ def install(
     typer.echo(f"wrote {written} (citefinder {version}, mode={mode})")
 
 
+# --- config ------------------------------------------------------------------
+
+# What a setting is when nothing sets it: the clients' own defaults.
+_SETTING_DEFAULTS = {
+    "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
+    "OPENALEX_MIN_INTERVAL": str(DEFAULT_MIN_INTERVAL),
+    "CROSSREF_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
+    "CROSSREF_MIN_INTERVAL": "0",
+}
+
+
+@app.command("config")
+def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
+    """Show each setting, where it came from, and the paths lookups would use.
+
+    Read-only. Each value is tagged with its source: `flag`, `env` (shell or
+    `.env`), `project` or `user` (the config files named at the top), or
+    `default`. Run it from the directory a lookup ran in to see why it wrote
+    where it did; pass `--cache-dir` to preview a flag's effect.
+    """
+    project = find_project_config()
+    user = user_config_path()
+    typer.echo(f"project config: {project or '(none)'}")
+    typer.echo(f"user config:    {user if user.is_file() else f'(none: {user})'}")
+    typer.echo()
+
+    root = _cache_dir(cache_dir)
+    if cache_dir is not None:
+        source = "flag"
+    elif root is not None:
+        source = _config_sources.get("CITEFINDER_CACHE_DIR", "env")
+    else:
+        source = "default"
+    rows = [("cache_dir", source, str(root) if root else "(unset)")]
+    for env_name, (section, key) in ENV_KEYS.items():
+        if section is None:
+            continue
+        raw = os.environ.get(env_name)
+        if raw:
+            # Never print a credential; that it is set, and from where, is
+            # what the reader needs.
+            value = "(set)" if key == "api_key" else raw
+            source = _config_sources.get(env_name, "env")
+        else:
+            value = _SETTING_DEFAULTS.get(env_name, "(none)")
+            source = "default"
+        rows.append((f"{section}.{key}", source, value))
+    label_width = max(len(label) for label, _, _ in rows)
+    for label, source, value in rows:
+        typer.echo(f"{label:<{label_width}}  {source:<7}  {value}")
+
+    typer.echo()
+    typer.echo(f"openalex cache:  {resolve_cache_path('openalex', root)}")
+    typer.echo(f"crossref cache:  {resolve_cache_path('crossref', root)}")
+    verify_root = _verify_root(cache_dir)
+    typer.echo(f"verify output:   {verify_root / '<bib-stem>' / '<source>'}/")
+
+
 # --- crossref subcommand ----------------------------------------------------
 
 
 @crossref_app.command("doi")
 def crossref_doi(
     doi: str,
-    cache: Path = CrossrefCacheOption,
+    cache: Path | None = CrossrefCacheOption,
+    cache_dir: Path | None = CacheDirOption,
     mailto: str | None = CrossrefMailtoOption,
     max_retries: int | None = CrossrefMaxRetriesOption,
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Look up a single DOI via Crossref."""
     client = CrossrefClient(
-        cache_path=cache, mailto=mailto, **_client_kwargs(max_retries, min_interval)
+        cache_path=_cache_path("crossref", cache, cache_dir),
+        mailto=mailto,
+        **_client_kwargs(max_retries, min_interval),
     )
     result = client.lookup_doi(doi)
     if result is None:
@@ -600,14 +766,17 @@ def crossref_doi(
 def crossref_search(
     query: str,
     rows: int = RowsOption,
-    cache: Path = CrossrefCacheOption,
+    cache: Path | None = CrossrefCacheOption,
+    cache_dir: Path | None = CacheDirOption,
     mailto: str | None = CrossrefMailtoOption,
     max_retries: int | None = CrossrefMaxRetriesOption,
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Search Crossref by free-form bibliographic query (author + title + year)."""
     client = CrossrefClient(
-        cache_path=cache, mailto=mailto, **_client_kwargs(max_retries, min_interval)
+        cache_path=_cache_path("crossref", cache, cache_dir),
+        mailto=mailto,
+        **_client_kwargs(max_retries, min_interval),
     )
     items = client.search_bibliographic(query, rows=rows)
     _emit(items)
@@ -617,7 +786,8 @@ def crossref_search(
 def crossref_chapter(
     book_doi: str,
     chapter: str,
-    cache: Path = CrossrefCacheOption,
+    cache: Path | None = CrossrefCacheOption,
+    cache_dir: Path | None = CacheDirOption,
     mailto: str | None = CrossrefMailtoOption,
     max_retries: int | None = CrossrefMaxRetriesOption,
     min_interval: float | None = CrossrefMinIntervalOption,
@@ -625,7 +795,9 @@ def crossref_chapter(
     """Look up a book chapter by `{book_doi}.{NNN}` pattern."""
     chapter_arg: int | str = int(chapter) if chapter.isdigit() else chapter
     client = CrossrefClient(
-        cache_path=cache, mailto=mailto, **_client_kwargs(max_retries, min_interval)
+        cache_path=_cache_path("crossref", cache, cache_dir),
+        mailto=mailto,
+        **_client_kwargs(max_retries, min_interval),
     )
     result = client.lookup_book_chapter(book_doi, chapter_arg)
     if result is None:
