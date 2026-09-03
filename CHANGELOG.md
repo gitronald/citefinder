@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-02
+
 ### Added
 
 - Both clients retry a `429`, `502`, `503`, or `504` response, up to
