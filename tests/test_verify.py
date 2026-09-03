@@ -126,6 +126,30 @@ def test_doi_title_disagreement_stays_probable() -> None:
     assert r.signals["title"]["verdict"] == "fail"
 
 
+def test_doi_single_disagreement_without_confirmation_stays_probable() -> None:
+    # Guard: the override needs two confirming signals. A bib with only a
+    # title and year whose DOI resolves to an ambiguous title and a year
+    # thirty years off has nothing confirming identity.
+    text = """@article{x,
+      title = {Selective Exposure Effects Online},
+      year = {2020},
+      doi = {10.1/sparse}
+    }"""
+    entry = _make_entry(text)
+    work = Work(
+        title="Selective Exposure Effects",
+        year=1990,
+        first_author_surname=None,
+        container_names=[],
+    )
+    src = _fake_source(doi_record={"any": "shape"}, work_for_doi=work)
+    r = verify_entry(entry, src)
+    assert r.signals["title"]["verdict"] == "unknown"
+    assert r.signals["year"]["verdict"] == "fail"
+    assert r.status == Status.PROBABLE
+    assert r.note.startswith("Source disagrees on: year")
+
+
 def test_doi_lookup_signals_disagree_is_mismatch() -> None:
     # DOI resolves but the source record points at a totally different work.
     text = """@article{x,
@@ -380,3 +404,25 @@ def test_online_with_disagreeing_match_routes_to_skip_source() -> None:
     r = verify_entry(entry, src)
     assert r.status == Status.SKIP_SOURCE
     assert r.matched_doi is None
+
+
+def test_online_short_title_hit_is_skip_source_with_url_note() -> None:
+    # A short title blocks candidate selection for @online / @misc too, and
+    # the note keeps the skip-source framing: the canonical source is the URL.
+    text = """@misc{x,
+      author = {Org},
+      title = {Data},
+      year = {2020}
+    }"""
+    entry = _make_entry(text)
+    src = _fake_source(
+        search_items=[{"DOI": "10.1/unrelated", "title": ["Data"]}],
+        work_for_search=_wrong_work(),
+    )
+    r = verify_entry(entry, src)
+    assert r.status == Status.SKIP_SOURCE
+    assert r.matched_doi is None
+    assert r.note == (
+        "@misc: title too short to match by search (1 word(s), need 3); verify via URL"
+    )
+    assert r.candidates[0]["similarity"] == "1.00"

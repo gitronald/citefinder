@@ -31,7 +31,6 @@ from citefinder.signals import (
     Status,
     Work,
     compute_signals,
-    is_short_title,
     status_from_signals,
     title_similarity,
     title_tokens,
@@ -116,12 +115,6 @@ class Source:
         return len(cache) if cache is not None else 0
 
 
-def _single_non_title_fail(signals: dict[str, dict[str, Any]]) -> bool:
-    """Exactly one signal fails, and it is not the title."""
-    fails = [k for k, v in signals.items() if v["verdict"] == "fail"]
-    return len(fails) == 1 and fails[0] != "title"
-
-
 def verify_entry(entry: Entry, source: Source) -> Result:
     title = strip_braces(entry.fields.get("title", ""))
     year = strip_braces(entry.fields.get("year", ""))
@@ -158,19 +151,10 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = base.signals["title"].get("sim")
-        base.status, base.note = status_from_signals(base.signals)
-        # The bib's own DOI resolved to this record, so identity is settled
-        # by construction; the signals exist to catch a typoed DOI that lands
-        # on a *different* work. That case fails on ≥2 signals, or on the
-        # title alone for a related work by the same author in the same
-        # venue. A single non-title disagreement is source-side metadata
-        # loss — OpenAlex truncates titles at the colon, stores the LNCS
-        # series name instead of the booktitle, and reports preprint years —
-        # so keep the entry `matched` and carry the disagreement in the note
-        # for review.
-        if base.status == Status.PROBABLE and _single_non_title_fail(base.signals):
-            base.status = Status.MATCHED
-            base.note = f"DOI resolved; {base.note[:1].lower()}{base.note[1:]}"
+        # The bib's own DOI resolved to this record, so one non-title
+        # disagreement is metadata loss, not a different work (see
+        # `status_from_signals`).
+        base.status, base.note = status_from_signals(base.signals, doi_resolved=True)
         return base
 
     # No DOI — bibliographic search. Skip-source types still get tried but
@@ -217,11 +201,13 @@ def verify_entry(entry: Entry, source: Source) -> Result:
     # A one- or two-word bib title scores a perfect similarity against any
     # hit that contains those words, so it cannot pick a candidate on its own.
     # Fall through to unmatched and leave the candidates for a human.
-    short_title = is_short_title(title)
-    if best_item is not None and best_sim >= TITLE_MATCH_THRESHOLD and not short_title:
-        work = source.to_work(best_item)
-        assert work is not None  # best_item is a real record
-        base.matched_doi = source.candidate_doi(best_item)
+    n_words = len(title_tokens(title))
+    short_title = n_words < MIN_TITLE_TOKENS
+    hit = best_item if best_sim >= TITLE_MATCH_THRESHOLD else None
+    if hit is not None and not short_title:
+        work = source.to_work(hit)
+        assert work is not None  # hit is a real record
+        base.matched_doi = source.candidate_doi(hit)
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = best_sim
@@ -241,15 +227,19 @@ def verify_entry(entry: Entry, source: Source) -> Result:
             base.matched_title = None
         return base
 
+    # Reaching here with a hit means the short title blocked it; say so and
+    # keep the skip-source framing for @online / @misc, whose canonical
+    # source is the URL either way.
+    why = (
+        f"title too short to match by search ({n_words} word(s), "
+        f"need {MIN_TITLE_TOKENS})"
+        if hit is not None
+        else "no plausible source hit"
+    )
     if entry.etype in SKIP_SOURCE_TYPES:
         base.status = Status.SKIP_SOURCE
-        base.note = f"@{entry.etype}: no plausible hit; verify via URL"
+        base.note = f"@{entry.etype}: {why}; verify via URL"
     else:
         base.status = Status.UNMATCHED
-        base.note = "no plausible source hit"
-    if short_title and best_item is not None and best_sim >= TITLE_MATCH_THRESHOLD:
-        base.note = (
-            f"title too short to match by search ({len(title_tokens(title))} "
-            f"word(s), need {MIN_TITLE_TOKENS}); review candidates"
-        )
+        base.note = f"{why}; review candidates" if hit is not None else why
     return base

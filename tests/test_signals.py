@@ -11,10 +11,10 @@ from citefinder.signals import (
     check_year,
     compute_signals,
     container_similarity,
-    is_short_title,
     normalize_title,
     status_from_signals,
     title_similarity,
+    title_tokens,
 )
 
 
@@ -61,12 +61,11 @@ def test_check_title_missing_input_is_unknown() -> None:
     assert check_title("Title", None)["verdict"] == "unknown"
 
 
-def test_is_short_title_counts_normalized_words() -> None:
+def test_title_tokens_counts_normalized_words() -> None:
     assert MIN_TITLE_TOKENS == 3
-    assert is_short_title("Influence")
-    assert is_short_title("Deep Learning")
-    assert is_short_title(None)
-    assert not is_short_title("A Study of Things")
+    assert title_tokens("Influence") == {"influence"}
+    assert len(title_tokens("Deep Learning")) < MIN_TITLE_TOKENS
+    assert len(title_tokens("A Study of Things")) >= MIN_TITLE_TOKENS
 
 
 def test_check_title_short_bib_title_cannot_pass() -> None:
@@ -237,6 +236,45 @@ def test_status_from_signals_all_unknown_is_probable() -> None:
         _signals(dict.fromkeys(["title", "year", "author", "container"], "unknown"))
     )
     assert s == Status.PROBABLE
+
+
+def test_status_from_signals_doi_resolved_single_non_title_fail_is_matched() -> None:
+    # Ohm2020 / messing2014: the bib's own DOI resolved, three signals
+    # confirm, one disagrees. Source-side metadata loss, not a different work.
+    signals = _signals(
+        {"title": "pass", "year": "fail", "author": "pass", "container": "pass"}
+    )
+    signals["year"].update({"bib": "2014", "crossref": "2012"})
+    s, note = status_from_signals(signals, doi_resolved=True)
+    assert s == Status.MATCHED
+    assert note == (
+        "DOI resolved; source disagrees on: year (bib '2014' vs source '2012')"
+    )
+    # The same signals without the DOI claim stay probable.
+    assert status_from_signals(signals)[0] == Status.PROBABLE
+
+
+def test_status_from_signals_doi_resolved_title_fail_stays_probable() -> None:
+    # A typoed DOI that lands on a related work fails only on title.
+    s, _ = status_from_signals(
+        _signals(
+            {"title": "fail", "year": "pass", "author": "pass", "container": "pass"}
+        ),
+        doi_resolved=True,
+    )
+    assert s == Status.PROBABLE
+
+
+def test_status_from_signals_doi_resolved_needs_two_passes() -> None:
+    # One disagreement with nothing confirming is not a match, DOI or not;
+    # it must not rank above the zero-fail case, which stays probable.
+    for passing in ([], ["author"]):
+        verdicts = dict.fromkeys(["title", "author", "container"], "unknown")
+        verdicts.update(dict.fromkeys(passing, "pass"))
+        verdicts["year"] = "fail"
+        s, note = status_from_signals(_signals(verdicts), doi_resolved=True)
+        assert s == Status.PROBABLE
+        assert note.startswith("Source disagrees on: year")
 
 
 def test_status_keeps_str_compatibility() -> None:

@@ -116,20 +116,16 @@ def title_tokens(s: str) -> set[str]:
     return set(normalize_title(s).split())
 
 
-def is_short_title(title: str | None) -> bool:
-    """True when `title` has fewer than `MIN_TITLE_TOKENS` words — too few
-    for a title match to say anything about identity."""
-    return len(title_tokens(title or "")) < MIN_TITLE_TOKENS
+def _jaccard(sa: set[str], sb: set[str]) -> float:
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
 
 
 def title_similarity(a: str, b: str) -> float:
     """Cheap Jaccard over normalized word sets — robust to small punctuation
     or capitalization differences without pulling in a fuzzy-match dep."""
-    sa = title_tokens(a)
-    sb = title_tokens(b)
-    if not sa or not sb:
-        return 0.0
-    return len(sa & sb) / len(sa | sb)
+    return _jaccard(title_tokens(a), title_tokens(b))
 
 
 def _is_truncation(sa: set[str], sb: set[str]) -> bool:
@@ -166,7 +162,7 @@ def check_title(bib_title: str | None, work_title: str | None) -> dict[str, Any]
         }
     sa = title_tokens(bib_title)
     sb = title_tokens(work_title)
-    s = len(sa & sb) / len(sa | sb) if sa and sb else 0.0
+    s = _jaccard(sa, sb)
     if s >= 0.85:
         v = "pass"
     elif s < 0.30:
@@ -302,13 +298,26 @@ def compute_signals(citation: BibCitation, work: Work) -> dict[str, dict[str, An
     }
 
 
-def status_from_signals(signals: dict[str, dict[str, Any]]) -> tuple[Status, str]:
+def status_from_signals(
+    signals: dict[str, dict[str, Any]], *, doi_resolved: bool = False
+) -> tuple[Status, str]:
     """Reduce four signals to a status + human-readable note.
 
     A single signal disagreeing is often a metadata data quality issue
     (title truncation, journal abbreviation, NBER preprint year vs published
     year), not a genuinely wrong record — so we only call it `mismatch` when
     ≥2 signals fail. Single failures land in `probable` for human eyeball.
+
+    With `doi_resolved`, the record was reached through the bib's own DOI, so
+    identity is settled by construction and the signals exist to catch a
+    typoed DOI that lands on a *different* work. That case fails on ≥2
+    signals, or on the title alone for a related work by the same author in
+    the same venue. A single non-title disagreement next to ≥2 passes is
+    source-side metadata loss — OpenAlex truncates titles at the colon,
+    stores the LNCS series name instead of the booktitle, and reports
+    preprint years — so the entry stays `matched` and the disagreement rides
+    along in the note for review. With fewer than two passes nothing confirms
+    the record, DOI or not, and it stays `probable`.
     """
     fails = [k for k, v in signals.items() if v["verdict"] == "fail"]
     passes = [k for k, v in signals.items() if v["verdict"] == "pass"]
@@ -323,6 +332,9 @@ def status_from_signals(signals: dict[str, dict[str, Any]]) -> tuple[Status, str
     if len(fails) >= 2:
         return Status.MISMATCH, fail_note()
     if len(fails) == 1:
+        if doi_resolved and fails[0] != "title" and len(passes) >= 2:
+            note = fail_note()
+            return Status.MATCHED, f"DOI resolved; {note[:1].lower()}{note[1:]}"
         return Status.PROBABLE, fail_note()
     if len(passes) >= 2:
         return Status.MATCHED, ""
