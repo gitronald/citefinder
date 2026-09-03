@@ -7,8 +7,14 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from citefinder.cli import _load_user_config, app
-from citefinder.config import DEFAULT_CACHE_DIR, resolve_cache_path
+from citefinder.cli import _load_configs, app
+from citefinder.config import (
+    DEFAULT_CACHE_DIR,
+    PROJECT_CONFIG_NAME,
+    find_project_config,
+    load_config,
+    resolve_cache_path,
+)
 
 runner = CliRunner()
 
@@ -121,7 +127,7 @@ def test_env_cache_dir_beats_user_config(tmp_path: Path, monkeypatch, captured) 
     write_user_config(tmp_path, f'cache_dir = "{tmp_path / "user"}"\n')
     monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "env"))
 
-    _load_user_config()
+    _load_configs()
     result = runner.invoke(app, ["doi", "10.1/x"])
 
     assert result.exit_code == 0, result.output
@@ -131,7 +137,7 @@ def test_env_cache_dir_beats_user_config(tmp_path: Path, monkeypatch, captured) 
 def test_user_config_cache_dir_beats_default(tmp_path: Path, captured) -> None:
     write_user_config(tmp_path, f'cache_dir = "{tmp_path / "user"}"\n')
 
-    _load_user_config()
+    _load_configs()
 
     result = runner.invoke(app, ["doi", "10.1/x"])
     assert result.exit_code == 0, result.output
@@ -166,7 +172,7 @@ def test_relative_user_config_cache_dir_anchors_to_the_config_file(
     (tmp_path / "elsewhere").mkdir()
     monkeypatch.chdir(tmp_path / "elsewhere")
 
-    _load_user_config()
+    _load_configs()
 
     assert os.environ["CITEFINDER_CACHE_DIR"] == str(cfg.parent / "caches")
     result = runner.invoke(app, ["doi", "10.1/x"])
@@ -231,20 +237,187 @@ def test_verify_out_beats_cache_dir(tmp_path: Path, captured) -> None:
 # --- user config file ---------------------------------------------------------
 
 
-def test_load_user_config_populates_env(tmp_path: Path) -> None:
+def test_load_configs_populates_env(tmp_path: Path) -> None:
     write_user_config(tmp_path, '[openalex]\nmailto = "you@example.com"\n')
 
-    _load_user_config()
+    _load_configs()
 
     assert os.environ.get("OPENALEX_MAILTO") == "you@example.com"
 
 
-def test_load_user_config_ignores_a_malformed_toml(tmp_path: Path, capsys) -> None:
+def test_load_configs_ignores_a_malformed_toml(tmp_path: Path, capsys) -> None:
     """A credentials-file typo must not crash the whole CLI at import — with
     the skill body served by `citefinder skill`, that would zero out the
     skill's only delivery path on the machine."""
     write_user_config(tmp_path, "this is not valid toml [[[")
 
-    _load_user_config()  # must not raise
+    _load_configs()  # must not raise
 
     assert "warning: ignoring" in capsys.readouterr().err
+
+
+# --- project config discovery -------------------------------------------------
+
+
+def write_project_config(directory: Path, body: str, pyproject: bool = False) -> Path:
+    """`citefinder.toml`, or the same keys under `[tool.citefinder]`."""
+    directory.mkdir(parents=True, exist_ok=True)
+    if pyproject:
+        path = directory / "pyproject.toml"
+        body = "[tool.citefinder]\n" + body.replace("[", "[tool.citefinder.")
+    else:
+        path = directory / PROJECT_CONFIG_NAME
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_find_project_config_walks_up_to_citefinder_toml(tmp_path: Path) -> None:
+    cfg = write_project_config(tmp_path, 'cache_dir = "data"\n')
+    deep = tmp_path / "a" / "b"
+    deep.mkdir(parents=True)
+    assert find_project_config(deep) == cfg
+
+
+def test_find_project_config_accepts_a_pyproject_tool_table(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
+    assert find_project_config(tmp_path) is None
+
+    cfg = write_project_config(tmp_path, 'cache_dir = "data"\n', pyproject=True)
+    assert find_project_config(tmp_path) == cfg
+
+
+def test_find_project_config_prefers_the_nearer_then_the_dedicated_file(
+    tmp_path: Path,
+) -> None:
+    outer = write_project_config(tmp_path, 'cache_dir = "outer"\n')
+    inner = write_project_config(
+        tmp_path / "inner", 'cache_dir = "inner"\n', pyproject=True
+    )
+    assert find_project_config(tmp_path / "inner") == inner
+    assert find_project_config(tmp_path) == outer
+
+    dedicated = write_project_config(tmp_path / "inner", 'cache_dir = "d"\n')
+    assert find_project_config(tmp_path / "inner") == dedicated
+
+
+def test_load_config_reads_the_tool_table_from_pyproject(tmp_path: Path) -> None:
+    body = 'cache_dir = "data"\n[openalex]\nmailto = "p@example.com"\n'
+    cfg = write_project_config(tmp_path, body, pyproject=True)
+    assert load_config(cfg) == {
+        "cache_dir": "data",
+        "openalex": {"mailto": "p@example.com"},
+    }
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
+    assert load_config(tmp_path / "pyproject.toml") == {}
+
+
+def test_no_project_config_leaves_the_defaults(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    _load_configs()
+
+    assert "CITEFINDER_CACHE_DIR" not in os.environ
+    result = runner.invoke(app, ["doi", "10.1/x"])
+    assert result.exit_code == 0, result.output
+    assert captured["cache_path"] == DEFAULT_CACHE_DIR / "openalex.jsonl"
+
+
+LEVELS = ("flag", "env", "project", "user", "default")
+
+
+@pytest.mark.parametrize("winner", LEVELS)
+def test_precedence_matrix(winner: str, tmp_path: Path, monkeypatch, captured) -> None:
+    """With every source at or below `winner` set, `winner`'s value reaches
+    the client — for `cache_dir` and `mailto` alike."""
+    active = LEVELS[LEVELS.index(winner) :]
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    monkeypatch.chdir(project_dir)
+
+    def body(level: str) -> str:
+        where = (tmp_path / level).as_posix()
+        return f'cache_dir = "{where}"\n[openalex]\nmailto = "{level}@example.com"\n'
+
+    if "user" in active:
+        write_user_config(tmp_path, body("user"))
+    if "project" in active:
+        write_project_config(project_dir, body("project"))
+    if "env" in active:
+        monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "env"))
+        monkeypatch.setenv("OPENALEX_MAILTO", "env@example.com")
+    args = ["doi", "10.1/x"]
+    if "flag" in active:
+        args += ["--cache-dir", str(tmp_path / "flag"), "--mailto", "flag@example.com"]
+
+    _load_configs()
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    if winner == "default":
+        assert captured["cache_path"] == DEFAULT_CACHE_DIR / "openalex.jsonl"
+        assert captured["mailto"] is None
+    else:
+        assert captured["cache_path"] == tmp_path / winner / "openalex.jsonl"
+        assert captured["mailto"] == f"{winner}@example.com"
+
+
+def test_relative_project_cache_dir_anchors_to_the_config_dir(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    """`cache_dir = "data/citefinder"` means the repo's `data/citefinder`
+    from any working directory inside it, for lookups and `verify` alike."""
+    project_dir = tmp_path / "proj"
+    write_project_config(project_dir, 'cache_dir = "data/citefinder"\n')
+    deep = project_dir / "src" / "pkg"
+    deep.mkdir(parents=True)
+    monkeypatch.chdir(deep)
+
+    _load_configs()
+
+    root = project_dir / "data" / "citefinder"
+    assert os.environ["CITEFINDER_CACHE_DIR"] == str(root)
+    result = runner.invoke(app, ["doi", "10.1/x"])
+    assert result.exit_code == 0, result.output
+    assert captured["cache_path"] == root / "openalex.jsonl"
+
+    bib = write_bib(deep)
+    result = runner.invoke(app, ["verify", str(bib)])
+    assert result.exit_code == 0, result.output
+    assert (root / "pkg" / "openalex" / "results.json").is_file()
+
+
+def test_project_api_key_is_ignored_with_a_warning(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project_dir = tmp_path / "proj"
+    write_project_config(
+        project_dir, '[openalex]\napi_key = "leaked"\nmailto = "p@example.com"\n'
+    )
+    write_user_config(tmp_path, '[openalex]\napi_key = "mine"\n')
+    monkeypatch.chdir(project_dir)
+
+    _load_configs()
+
+    err = capsys.readouterr().err
+    assert "warning: ignoring openalex.api_key in" in err
+    assert str(project_dir / PROJECT_CONFIG_NAME) in err
+    assert os.environ["OPENALEX_API_KEY"] == "mine"
+    assert os.environ["OPENALEX_MAILTO"] == "p@example.com"
+
+
+@pytest.mark.parametrize("pyproject", [False, True])
+def test_malformed_project_config_warns_and_falls_through(
+    tmp_path: Path, monkeypatch, capsys, pyproject: bool
+) -> None:
+    project_dir = tmp_path / "proj"
+    write_project_config(project_dir, "this is not valid toml [[[", pyproject)
+    write_user_config(tmp_path, f'cache_dir = "{(tmp_path / "user").as_posix()}"\n')
+    monkeypatch.chdir(project_dir)
+
+    _load_configs()  # must not raise
+
+    assert "warning: ignoring" in capsys.readouterr().err
+    assert os.environ["CITEFINDER_CACHE_DIR"] == str(tmp_path / "user")

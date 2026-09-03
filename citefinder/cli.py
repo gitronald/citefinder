@@ -20,7 +20,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
 from operator import itemgetter
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 from dotenv import find_dotenv, load_dotenv
@@ -29,7 +29,13 @@ from citefinder import install as install_mod
 from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.client import CrossrefClient
-from citefinder.config import resolve_cache_path
+from citefinder.config import (
+    ENV_KEYS,
+    find_project_config,
+    load_config,
+    resolve_cache_path,
+    user_config_path,
+)
 from citefinder.openalex import OpenAlexClient
 from citefinder.verify import Result, Source, verify_entry
 
@@ -44,17 +50,29 @@ def _anchor(path: str | Path, base: Path) -> Path:
     return base / Path(path).expanduser()
 
 
-def _load_user_config() -> None:
-    """Read `~/.config/citefinder/config.toml` (honors `$XDG_CONFIG_HOME`)
-    and populate env vars for any values not already set. Lowest-priority
-    fallback — `.env` and shell env still win — so users can store keys
-    once per machine while overriding per-shell or per-project.
+# Env name -> where `_load_configs` took its value from ("project <path>" or
+# "user <path>"). Names it did not set came from a flag, the shell env, or
+# `.env`. `citefinder config` reports these.
+_config_sources: dict[str, str] = {}
 
-    Expected format:
-        cache_dir = "~/.cache/citefinder"   # relative: to this file's dir
+
+def _load_configs() -> None:
+    """Populate env vars from the project config, then the user config, for
+    any names not already set.
+
+    The project config is the nearest `citefinder.toml` or `pyproject.toml`
+    with a `[tool.citefinder]` table at or above the working directory; the
+    user config is `~/.config/citefinder/config.toml` (honors
+    `$XDG_CONFIG_HOME`). Each fills only names still unset, so shell env and
+    `.env` win over both and the project file wins over the user file: a
+    setting that is a property of a repo (where its caches go) lives with
+    the repo, while credentials stay per machine.
+
+    Expected format, either file (under `[tool.citefinder]` in pyproject):
+        cache_dir = "data/citefinder"   # relative: to this file's dir
 
         [openalex]
-        api_key = "oa_pk_..."
+        api_key = "oa_pk_..."   # user config or .env only, never a project file
         mailto = "you@example.com"
         max_retries = 3
         min_interval = 0.1
@@ -64,44 +82,51 @@ def _load_user_config() -> None:
         max_retries = 3
         min_interval = 0
     """
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    config_dir = Path(xdg) if xdg else Path.home() / ".config"
-    config_path = config_dir / "citefinder" / "config.toml"
-    if not config_path.is_file():
-        return
+    _config_sources.clear()
+    project = find_project_config()
+    if project is not None:
+        _apply_config(project, "project")
+    user = user_config_path()
+    if user.is_file():
+        _apply_config(user, "user")
+
+
+def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
     try:
-        with open(config_path, "rb") as f:
-            config = tomllib.load(f)
+        config = load_config(path)
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        # A broken credentials file must never take the whole CLI down —
+        # A broken config file must never take the whole CLI down —
         # `citefinder skill` is the only copy of the skill instructions on
-        # this machine. Warn and fall through to env vars and flags.
-        typer.echo(f"warning: ignoring {config_path}: {exc}", err=True)
+        # this machine. Warn and fall through to the next source.
+        typer.echo(f"warning: ignoring {path}: {exc}", err=True)
         return
-    mappings: dict[str, tuple[str | None, str]] = {
-        "CITEFINDER_CACHE_DIR": (None, "cache_dir"),
-        "OPENALEX_API_KEY": ("openalex", "api_key"),
-        "OPENALEX_MAILTO": ("openalex", "mailto"),
-        "OPENALEX_MAX_RETRIES": ("openalex", "max_retries"),
-        "OPENALEX_MIN_INTERVAL": ("openalex", "min_interval"),
-        "CROSSREF_MAILTO": ("crossref", "mailto"),
-        "CROSSREF_MAX_RETRIES": ("crossref", "max_retries"),
-        "CROSSREF_MIN_INTERVAL": ("crossref", "min_interval"),
-    }
-    for env_name, (section, key) in mappings.items():
+    for env_name, (section, key) in ENV_KEYS.items():
         table = config if section is None else config.get(section) or {}
         value = table.get(key)
         # `is not None`, not truthiness: `max_retries = 0` is a real setting.
-        if value is None or value == "" or env_name in os.environ:
+        if value is None or value == "":
+            continue
+        if kind == "project" and key == "api_key":
+            # A project config is meant to be committed, and a key in it
+            # would be too. Skipped even when the env already carries one,
+            # so the warning fires as long as the key is on disk.
+            typer.echo(
+                f"warning: ignoring {section}.{key} in {path}: keep API keys "
+                f"out of project config; use .env or {user_config_path()}",
+                err=True,
+            )
+            continue
+        if env_name in os.environ:
             continue
         if key == "cache_dir":
             # Anchored to the file, not the working directory, so a relative
             # `cache_dir` names the same place whatever the command's cwd.
-            value = _anchor(str(value), config_path.parent)
+            value = _anchor(str(value), path.parent)
         os.environ[env_name] = str(value)
+        _config_sources[env_name] = f"{kind} {path}"
 
 
-_load_user_config()
+_load_configs()
 
 app = typer.Typer(
     help="OpenAlex (default) + Crossref reference lookups with local JSONL caching."
