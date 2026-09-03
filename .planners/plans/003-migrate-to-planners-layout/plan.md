@@ -14,7 +14,7 @@ pr: https://github.com/gitronald/citefinder/pull/26
 
 Migrate this repo from the legacy `docs/plans/` + `TODO.md` layout to the
 `planners` package's `.planners/` layout, following the fleet rollout runbook
-(quipus plan 033, `planners-migration` skill).
+(the `planners-migration` skill).
 
 Scope:
 
