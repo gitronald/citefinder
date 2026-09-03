@@ -131,7 +131,7 @@ citefinder verify refs.bib --out path/to/dir/    # custom output directory
 citefinder verify refs.bib --min-interval 0.5 --max-retries 5   # slow down for a strict rate limit
 ```
 
-Output lands in `data/citefinder/<bib-stem>/<source>/`:
+Output lands in `<cache_dir>/<bib-stem>/<source>/` — `data/citefinder/` under the working directory when no `cache_dir` is configured (`citefinder config` shows which):
 
 - `<source>.jsonl` — append-only response cache; re-running is cheap.
 - `results.json` — structured per-entry result (status, matched DOI, signals).
@@ -177,7 +177,7 @@ Field order within each entry is not preserved (it follows the CSV's column orde
 
 ## Key behaviors to know
 
-- **Cache path:** defaults to `~/.cache/citefinder/crossref.jsonl`. Use a project-local path (e.g., `data/crossref-cache.jsonl`) when you want results committed alongside an outline so collaborators don't re-query.
+- **Cache path:** check for a project config before passing `--cache`. A repo that sets `cache_dir` in `citefinder.toml` (or `[tool.citefinder]` in `pyproject.toml`) already routes every command's cache there — lookups to `<cache_dir>/<source>.jsonl`, `verify` to `<cache_dir>/<bib-stem>/<source>/` — from any working directory inside it. `citefinder config` prints where a lookup will write and why (`flag`, `env`, `project`, `user`, or `default`). Without a config the default is `~/.cache/citefinder/<source>.jsonl`; pass `--cache-dir` (or `--cache` for one file) only when there is no project config and you want results committed alongside an outline so collaborators don't re-query.
 - **Latest value wins on replay.** Re-querying after a fix transparently overwrites — no manual cache invalidation needed.
 - **`None` is a real cache value.** A cached `None` means "Crossref returned 404 for this DOI" — citefinder uses it to avoid re-hitting known-missing DOIs. If you suspect Crossref has now indexed a paper it didn't before, delete that line from the JSONL or use a fresh cache path.
 - **`lookup_doi` returns the `message` payload directly,** not the full Crossref envelope. So you access `work["title"][0]`, not `work["message"]["title"][0]`.
@@ -274,7 +274,7 @@ mailto = "you@example.com"
 
 Each section is optional; omit anything you don't need. The file is plain-text — recommend `chmod 600` so it's only readable by the user.
 
-The CLI picks the config up automatically; project-local `.env` and shell env still override it. For programmatic library use, the config file is *not* auto-loaded — pass `api_key=...` and `mailto=...` explicitly or set the env vars before constructing the client.
+The CLI picks the config up automatically; project-local `.env` and shell env still override it. A repo can also commit a **project config** — `citefinder.toml`, or `[tool.citefinder]` in `pyproject.toml`, found by walking up from the working directory — with the same keys minus `api_key` (a key there is ignored with a warning, since the file is meant to be committed). Typically it carries `cache_dir` and `mailto`; it sits between the env and the user config in precedence (flag > env and `.env` > project > user > default). `citefinder config` prints the resolved result with each value's source. For programmatic library use, neither file is auto-loaded — pass `api_key=...` and `mailto=...` explicitly or set the env vars before constructing the client.
 
 ### Picking `mailto`
 

@@ -16,7 +16,7 @@ for records that exist in both. Crossref is still available via the
 `crossref` subcommand for its own workflows (book-chapter lookup, the
 canonical published-deposit metadata).
 
-### Configuration: API key and mailto
+## Configuration
 
 OpenAlex works without authentication, but a free API key gives you higher
 limits and tier-specific endpoints. Both Crossref and OpenAlex honor a
@@ -25,22 +25,25 @@ limits and tier-specific endpoints. Both Crossref and OpenAlex honor a
 - OpenAlex docs: https://developers.openalex.org/
 - Sign up / generate an OpenAlex key: https://openalex.org/login?redirect=/settings/api-key
 
-Lookup order (CLI), highest priority first:
+The CLI reads its settings from two TOML files plus the environment:
 
-1. CLI flag: `--api-key`, `--mailto`.
-2. Shell environment: `OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`
-   (plus the retry and pacing variables under
-   [Rate limits and retries](#rate-limits-and-retries)).
-3. Project-local `.env` in the current working directory or any parent.
-4. **`~/.config/citefinder/config.toml`** (honors `$XDG_CONFIG_HOME`) — store
-   it once on this machine.
+- **Project config** — `citefinder.toml`, or a `[tool.citefinder]` table in
+  `pyproject.toml`, found by walking up from the working directory. The
+  nearest one wins; in one directory `citefinder.toml` beats
+  `pyproject.toml`. Meant to be committed: where a repo's caches go, which
+  polite-pool address it uses.
+- **User config** — `~/.config/citefinder/config.toml` (honors
+  `$XDG_CONFIG_HOME`). Per machine: credentials and personal defaults.
+
+Both take the same keys; every one is optional:
 
 ```toml
-# ~/.config/citefinder/config.toml
+cache_dir = "data/citefinder"   # relative: to this file's directory
+
 [openalex]
-api_key = "your-openalex-key"
+api_key = "your-openalex-key"   # user config or .env only — see below
 mailto = "you@example.com"
-max_retries = 3    # optional — see "Rate limits and retries"
+max_retries = 3                 # optional — see "Rate limits and retries"
 min_interval = 0.1
 
 [crossref]
@@ -49,13 +52,45 @@ max_retries = 3
 min_interval = 0
 ```
 
-The file is plain-text — if your environment is shared, `chmod 600
-~/.config/citefinder/config.toml` so it's only readable by you. Each section
-is optional; omit anything you don't need.
+In `pyproject.toml` the same keys sit under `[tool.citefinder]`,
+`[tool.citefinder.openalex]`, and `[tool.citefinder.crossref]`.
 
-Library users: pass `api_key=...` and `mailto=...` to the client constructors
-explicitly. The config-file fallback is CLI-only (it shouldn't be a surprise
-side effect of importing the library).
+Precedence, highest first:
+
+| Source | Names |
+|---|---|
+| CLI flag | `--cache`, `--out`, `--cache-dir`, `--api-key`, `--mailto`, `--max-retries`, `--min-interval` |
+| Shell environment, then a project-local `.env` (cwd or any parent) | `CITEFINDER_CACHE_DIR`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`, `OPENALEX_MAX_RETRIES`, `OPENALEX_MIN_INTERVAL`, `CROSSREF_MAX_RETRIES`, `CROSSREF_MIN_INTERVAL` |
+| Project config | `citefinder.toml` or `[tool.citefinder]` in `pyproject.toml` |
+| User config | `~/.config/citefinder/config.toml` |
+| Built-in default | `~/.cache/citefinder/` for lookups, `data/citefinder/` under cwd for `verify`, 3 retries, `0.1` s / `0` s pacing |
+
+**`cache_dir`** is the one directory every cache path derives from. `doi`,
+`search`, and the `crossref` subcommands write `<cache_dir>/<source>.jsonl`;
+`verify` writes its output under `<cache_dir>/<bib-stem>/<source>/`. When
+nothing sets it, lookups use `~/.cache/citefinder/` and `verify` uses
+`data/citefinder/` under the working directory. A relative `cache_dir` in a
+config file resolves against that file's directory, so `data/citefinder` in a
+repo's `citefinder.toml` means the repo's `data/citefinder` from any working
+directory inside it; a relative `--cache-dir` or `CITEFINDER_CACHE_DIR`
+resolves against the working directory, as flags do. An explicit `--cache`
+(lookups) or `--out` (`verify`) always wins.
+
+**Keep secrets out of the project config.** It is meant to be committed, so
+an `api_key` there is ignored with a warning — put it in `.env` or the user
+config. `mailto` is fine to commit. The user config is plain text; if your
+environment is shared, `chmod 600 ~/.config/citefinder/config.toml` so it's
+only readable by you.
+
+**`citefinder config`** prints each resolved setting with its source
+(`flag`, `env`, `project`, `user`, or `default`) and the paths the lookups
+and `verify` would write to — the place to look when a cache landed
+somewhere unexpected.
+
+Library users: pass `cache_path=...`, `api_key=...`, and `mailto=...` to the
+client constructors explicitly; `resolve_cache_path(source, cache_dir)`
+returns the same `<cache_dir>/<source>.jsonl` the CLI uses. Config files are
+CLI-only (they shouldn't be a surprise side effect of importing the library).
 
 The API key is sent as `Authorization: Bearer ...`, never as a URL parameter,
 so it doesn't land in cache keys, logs, or referer headers.
@@ -257,6 +292,9 @@ citefinder bib-to-table refs.bib --fields title,year,doi    # subset of columns
 citefinder table-to-bib refs.csv                            # CSV back to .bib on stdout
 citefinder table-to-bib refs.csv --out refs.regen.bib       # ...or to a file
 
+# Configuration (see "Configuration" above)
+citefinder config                                           # resolved settings, their sources, and cache paths
+
 # Claude Code skill (see "Claude Code skill" below)
 citefinder skill                                            # print the skill body
 citefinder install                                          # stub into ~/.claude/
@@ -264,7 +302,7 @@ citefinder install --local                                  # ...or the current 
 citefinder install --check                                  # ok | drifted | missing
 ```
 
-`verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `data/citefinder/<bib-stem>/<source>/`: a `<source>.jsonl` cache and a structured `results.json`. Re-running is cheap — every cache hit is served from disk.
+`verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `<cache_dir>/<bib-stem>/<source>/` — `data/citefinder/` under the working directory when no `cache_dir` is set (see [Configuration](#configuration)): a `<source>.jsonl` cache and a structured `results.json`. Re-running is cheap — every cache hit is served from disk.
 
 Read `results.json` by `method` × `status`:
 
@@ -277,11 +315,16 @@ Read `results.json` by `method` × `status`:
 
 ### CLI arguments
 
-- `--cache PATH` — JSONL cache path. Defaults to
-  `~/.cache/citefinder/openalex.jsonl` for top-level commands and
-  `~/.cache/citefinder/crossref.jsonl` for `crossref` subcommands. Separate
-  files so sources don't mix; override per command if you want
-  per-project caches (e.g., `--cache ./data/refs.jsonl`).
+- `--cache PATH` — JSONL cache path. Defaults to `<cache_dir>/openalex.jsonl`
+  for top-level commands and `<cache_dir>/crossref.jsonl` for `crossref`
+  subcommands, with `cache_dir` falling back to `~/.cache/citefinder/`.
+  Separate files so sources don't mix. Overrides `--cache-dir`.
+- `--cache-dir DIR` — Directory the cache path derives from; for `verify`,
+  the directory its `<bib-stem>/<source>/` output goes under. Also
+  `CITEFINDER_CACHE_DIR` in the env or `cache_dir` in a project or user
+  config. For per-project caches, set it once in the project config rather
+  than passing a flag on every command — see
+  [Configuration](#configuration).
 - `--rows N` *(search only)* — Number of results to return. Default `3`.
 - `--mailto EMAIL` — Opts the request into the source's polite pool (both
   OpenAlex and Crossref honor it): faster responses and a higher quota.

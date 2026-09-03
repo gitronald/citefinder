@@ -10,6 +10,7 @@ citefinder/
 ├── _base.py            # CachedJsonClient base for the HTTP clients
 ├── cache.py            # JsonlCache (append-only JSONL key-value store)
 ├── client.py           # CrossrefClient
+├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
 ├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
 ├── bib.py              # Entry, parse_entries, bib-side query helpers
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
@@ -18,7 +19,7 @@ citefinder/
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
 ├── install.py          # stub render/stamp/drift-check for the Claude Code skill
 ├── prompts/skill.md    # canonical `use-citefinder` skill body (package data)
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, skill, install, crossref subcommand
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, config, skill, install, crossref subcommand
 ```
 
 The `use-citefinder` skill follows the
@@ -38,12 +39,16 @@ boundary, `verify.py` orchestrates lookups against a `Source`.
 
 ## Configuration
 
-CLI users can store credentials once in `~/.config/citefinder/config.toml`
-(honors `$XDG_CONFIG_HOME`):
+The CLI reads two TOML files with the same keys: a committed **project
+config** (`citefinder.toml`, or `[tool.citefinder]` in `pyproject.toml`, found
+by walking up from the working directory) and the **user config**
+`~/.config/citefinder/config.toml` (honors `$XDG_CONFIG_HOME`):
 
 ```toml
+cache_dir = "data/citefinder"   # one root for every cache path; relative to this file
+
 [openalex]
-api_key = "..."
+api_key = "..."    # user config or .env only — a project config ignores it with a warning
 mailto = "..."
 max_retries = 3    # optional retry/pacing knobs
 min_interval = 0.1
@@ -54,11 +59,17 @@ max_retries = 3
 min_interval = 0
 ```
 
-Lookup precedence (CLI), highest first: `--api-key`/`--mailto`/
-`--max-retries`/`--min-interval` flag → shell env (`OPENALEX_API_KEY`,
+Lookup precedence (CLI), highest first: flag (`--cache`/`--out` beat
+`--cache-dir`; `--api-key`/`--mailto`/`--max-retries`/`--min-interval`) →
+shell env, then project `.env` (`CITEFINDER_CACHE_DIR`, `OPENALEX_API_KEY`,
 `OPENALEX_MAILTO`, `CROSSREF_MAILTO`, `<SOURCE>_MAX_RETRIES`,
-`<SOURCE>_MIN_INTERVAL`) → project `.env` → `config.toml`. Library users pass values to the client constructors
-explicitly — config file is CLI-only.
+`<SOURCE>_MIN_INTERVAL`) → project config → user config → default
+(`~/.cache/citefinder/<source>.jsonl` for lookups,
+`data/citefinder/<bib-stem>/<source>/` under cwd for `verify`). Config files
+populate the env names at CLI import (`_load_configs` in `cli.py`), so the
+commands read one source; `citefinder config` prints the resolved values with
+their sources. Library users pass values to the client constructors
+explicitly — config files are CLI-only.
 
 ## Development
 
