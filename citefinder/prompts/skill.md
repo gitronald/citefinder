@@ -136,13 +136,16 @@ Output lands in `<cache_dir>/<bib-stem>/<source>/` — `data/citefinder/` under 
 - `<source>.jsonl` — append-only response cache; re-running is cheap.
 - `results.json` — structured per-entry result (status, matched DOI, signals).
 
-Per-entry statuses: `matched`, `probable` (one signal disagreed — review), `mismatch` (≥2 signals disagreed — DOI to wrong work), `doi-not-found` (404 — common for arXiv/preprint DOIs in Crossref), `unmatched` (no plausible hit), `skip-source` (`@online`/`@misc` — verify via URL), `error`.
+Per-entry statuses: `matched` (signals confirm the work; for a DOI hit, `note` may record one disagreeing field), `probable` (one signal disagreed, or too few could be checked — review), `mismatch` (≥2 signals disagreed — DOI to wrong work), `doi-not-found` (404 — common for arXiv/preprint DOIs in Crossref), `unmatched` (no plausible hit), `skip-source` (`@online`/`@misc` — verify via URL), `error`.
 
 **Reading the report.** Read `results.json` by `method` × `status`:
 
-- `method=doi` with `mismatch` / `probable` — a real defect: the bib's own DOI resolves to a different work, or a field (year, first author, container) disagrees with the source record. Fix the entry.
+- `method=doi` with `mismatch` — a real defect: the bib's own DOI resolves to a different work. Fix the entry.
+- `method=doi` with `probable` — the DOI resolved but the title disagrees, or too few fields could be checked. A title-only disagreement is usually a deficient bib title (one or two words, or copied from the wrong paper), but can be a typoed DOI that lands on a related paper by the same author — compare the two titles in `signals`. When the note says too few signals confirm, fill in the missing author, year, or journal/booktitle and re-run.
+- `method=doi` with `matched` and a non-empty `note` — the DOI resolved and the other signals confirm the work, but one field disagrees. With OpenAlex this is usually the source's metadata, not the bib's: it truncates titles at the colon, stores the series name ("Lecture notes in computer science") instead of the booktitle, and reports the online-first or preprint year. Do not rewrite the entry to match the source; for a year disagreement follow the year guidance below.
 - `method=search` with `matched` and a non-empty `matched_doi` — a DOI candidate for an entry that lacked one. Confirm the title, then add it.
 - `method=search` with `mismatch` / `probable` — usually a wrong-work false positive: books, reports, and other sources the index carries poorly get matched to a similarly titled record. Not a reason to rewrite the entry.
+- `unmatched` with a "title too short" note — the bib title has fewer than three words, so search cannot tell hits apart. Pick from `candidates` by hand, or complete the title and re-run.
 - `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type; then look for a systematic cause (a preprint server the source doesn't index, a publisher whose DOI convention the search misses).
 
 Crossref and OpenAlex are complementary — Crossref has richer metadata for indexed records (full title + subtitle, multiple container aliases) but doesn't index arXiv/preprints; OpenAlex covers preprints but sometimes truncates titles or returns preprint years instead of publication years. For a thorough audit, run both and compare.

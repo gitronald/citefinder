@@ -306,9 +306,12 @@ citefinder install --check                                  # ok | drifted | mis
 
 Read `results.json` by `method` × `status`:
 
-- `method=doi` with `mismatch` or `probable` — a real defect: the bib's own DOI resolves to a different work, or a field (year, first author, container) disagrees with the source record.
+- `method=doi` with `mismatch` — a real defect: the bib's own DOI resolves to a different work.
+- `method=doi` with `probable` — the DOI resolved but the title disagrees, or too few fields could be checked; usually a deficient bib title or missing fields, occasionally a typoed DOI that lands on a related paper.
+- `method=doi` with `matched` and a non-empty `note` — the DOI resolved and the other signals confirm the work, but one field disagrees. With OpenAlex that is usually the source's metadata (a title truncated at the colon, a series name instead of the booktitle, a preprint year), not a reason to rewrite the entry.
 - `method=search` with `matched` and a non-empty `matched_doi` — a DOI candidate for an entry that lacked one.
 - `method=search` with `mismatch` or `probable` — usually a wrong-work false positive (books, reports, and other sources the index carries poorly), not a reason to rewrite the entry.
+- `unmatched` with a "title too short" note — a bib title of fewer than three words cannot select a search hit; pick from `candidates` by hand.
 - `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type.
 
 `bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved.
