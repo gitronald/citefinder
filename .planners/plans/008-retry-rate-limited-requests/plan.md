@@ -14,7 +14,7 @@ pr:
 
 ### Problem
 
-`CachedJsonClient._get` (`citefinder/_base.py`) is the single HTTP path for both clients. It sends one request per call with no pacing, and on any status other than 200 or 404 it calls `raise_for_status()` and raises. A 429 therefore surfaces as an `HTTPError` on the first attempt, and every caller that walks a list — `verify_entry` over a `.bib`, and the downstream `verify-bib.py` wrapper in the journal repo — catches it per entry and records `error`. Once a source starts rate-limiting, every remaining entry in the run fails the same way: one paper's Crossref search pass recorded 30 of 30 no-DOI entries as `search failed: 429`, and its OpenAlex pass 39.
+`CachedJsonClient._get` (`citefinder/_base.py`) is the single HTTP path for both clients. It sends one request per call with no pacing, and on any status other than 200 or 404 it calls `raise_for_status()` and raises. A 429 therefore surfaces as an `HTTPError` on the first attempt, and every caller that walks a list — `verify_entry` over a `.bib`, and a downstream `verify-bib.py` wrapper — catches it per entry and records `error`. Once a source starts rate-limiting, every remaining entry in the run fails the same way: one paper's Crossref search pass recorded 30 of 30 no-DOI entries as `search failed: 429`, and its OpenAlex pass 39.
 
 Two things follow from reading the code, and both belong in the docs because a downstream skill guessed wrong about them:
 
@@ -47,14 +47,14 @@ New `tests/test_retry.py`, with the existing `mock_response` fixture and a scrip
 - `citefinder/prompts/skill.md`: a "Key behaviors" bullet on 429 handling, replacing any advice to purge the cache after a rate limit.
 - CHANGELOG `[Unreleased]`: Added (retry, pacing, knobs) and Changed (OpenAlex default pacing).
 
-### Upstream the report-reading guide from the journal repo's skill copy
+### Upstream the report-reading guide from a downstream skill copy
 
-The journal repo carries a full copy of the bundled skill rather than the stub, and over time it grew content that belongs here. Diffing the two copies (0.5.0 against the repo copy) shows the copy is identical except for three additions and the paths. Two of the additions document the tool, not the journal's editorial policy, so they move into `citefinder/prompts/skill.md` in the "Verify a whole .bib file" section:
+A downstream repo carries a full copy of the bundled skill rather than the stub, and over time it grew content that belongs here. Diffing the two copies (0.5.0 against the repo copy) shows the copy is identical except for three additions and the paths. Two of the additions document the tool, not the downstream repo's editing policy, so they move into `citefinder/prompts/skill.md` in the "Verify a whole .bib file" section:
 
 - **Reading the report.** A short guide keyed on the `method` × `status` combinations the verifier emits, placed right after the status list. `method=doi` with `mismatch` / `probable` is a real defect in the bib's own DOI or a disagreeing field. `method=search` with `matched` and a non-empty `matched_doi` is a DOI candidate for an entry that lacks one. `method=search` with `mismatch` / `probable` is usually a wrong-work false positive (books, reports, and other sources the index carries poorly) and is not a reason to rewrite the entry. `unmatched`, `skip-source`, and `doi-not-found` are noise unless they cluster around one publisher or type. The same guide, condensed, goes in the README's verify section.
-- **Which fields carry the name split.** For family/given boundary questions, Crossref's `author[i].family` and `author[i].given` are the publisher-deposited split and the fields to compare against; OpenAlex exposes only a flat first-name-first `display_name` (and `raw_author_name` in byline order), which would have to be re-parsed. Goes under the OpenAlex fallback section. The journal repo's pointer to its own surname-audit script stays out; that is a downstream concern.
+- **Which fields carry the name split.** For family/given boundary questions, Crossref's `author[i].family` and `author[i].given` are the publisher-deposited split and the fields to compare against; OpenAlex exposes only a flat first-name-first `display_name` (and `raw_author_name` in byline order), which would have to be re-parsed. Goes under the OpenAlex fallback section. The downstream repo's pointer to its own surname-audit script stays out; that is a downstream concern.
 
-What stays downstream: the journal repo's cache-path convention (its `data/` symlink and per-paper output layout), which is repo policy and becomes a project rule there. Once this ships, the journal repo can replace its full copy with `citefinder install --local --force` and use `citefinder install --local --check` as the drift check; its edit-bib skill already defers to this section for report reading, so the guide must land upstream before the copy is replaced.
+What stays downstream: the downstream repo's cache-path convention (its `data/` symlink and per-paper output layout), which is repo policy and becomes a project rule there. Once this ships, the downstream repo can replace its full copy with `citefinder install --local --force` and use `citefinder install --local --check` as the drift check; its bib-editing skill already defers to this section for report reading, so the guide must land upstream before the copy is replaced.
 
 ### Implementation order
 
@@ -63,7 +63,7 @@ What stays downstream: the journal repo's cache-path convention (its `data/` sym
 3. Constructor knobs on both clients; CLI options; config keys.
 4. Logging and the `retries` counter in the `verify` summary.
 5. README, skill text, changelog — including the report-reading guide and the name-split note from the section above (they can also ship ahead of the retry work as a docs-only patch release, since nothing else depends on them).
-6. Release as a minor version (new behavior, backward compatible). Then in the journal repo: bump the pin, replace the edit-bib "429 rate-limit guardrail" paragraph with a one-line note that retries are automatic, add the cache-path project rule, and swap the full skill copy for the installed stub.
+6. Release as a minor version (new behavior, backward compatible). Then in the downstream repo: bump the pin, replace its "429 rate-limit guardrail" note with a one-line note that retries are automatic, add the cache-path project rule, and swap the full skill copy for the installed stub.
 
 ### Out of scope
 
