@@ -1,10 +1,10 @@
 ---
 id: 2
 slug: handle-openalex-metadata-quirks
-status: active
+status: done
 branch: feature/handle-openalex-metadata-quirks
 created: 2026-05-01T10:30:45-07:00
-concluded:
+concluded: 2026-09-02T22:53:22-07:00
 pr: https://github.com/gitronald/citefinder/pull/46
 ---
 
@@ -178,3 +178,49 @@ quirk individually.
     `method=doi` into `mismatch`, `probable` (title disagrees or too few
     signals), and `matched` with a note, and adds the "title too short"
     `unmatched` row. CHANGELOG `[Unreleased]` records the behavior changes.
+- **2026-09-02T22:53:46-07:00** — Review gate on PR #46 (medium): 7 confirmed,
+  1 plausible; fixes in `1e0aaa8`.
+  - **Review follow-up.**
+    - Actioned: the DOI override required no confirming signal, so one fail
+      plus three unknowns became `matched` while zero fails plus one pass
+      stayed `probable`. Moved the rule into
+      `status_from_signals(doi_resolved=True)` with a two-passes guard, and
+      added tests at the reducer and `verify_entry` levels. The skip-source
+      short-title note lost its `@etype:` and verify-via-URL framing;
+      restructured the search-path tail so it keeps them, documented the
+      `skip-source` variant in the README, skill body, and CHANGELOG, and
+      added a test. Cleanups: one shared `_jaccard`, one `hit` binding, one
+      tokenization; `is_short_title` was left without a consumer and removed
+      (CHANGELOG updated).
+    - Conscious no-ops: (1) a short title's `unknown` verdict lets a DOI
+      record by a different author with matching year and venue stay
+      `matched` with an author note. With the two-passes guard the override
+      never beats the status the same signals would get with the
+      disagreeing one unknown, and the note carries the disagreement.
+      (2) Possessive apostrophes inflate the token count ("Kant's Ethics" is
+      three tokens). That is pre-existing `normalize_title` behavior shared
+      with every similarity score, so it stays.
+  - Gate: `ruff check`, `ruff format --check`, `pyrefly check`, `pytest`
+    (250 passed).
+
+## Retrospective
+
+- The cross-cutting DOI override was the right primary fix. One rule in the
+  reducer resolved three of the four quirks and kept the year-review flag in
+  the note, where the per-quirk threshold tweaks in the original spec would
+  have loosened every source at once.
+- The override started in `verify.py` and moved into `status_from_signals`
+  at review, which is where it belonged: the fails and passes lists the
+  reducer already builds are exactly what the guard needs, and the
+  two-passes guard fell out of reading the existing "two passes is matched"
+  rule next to it.
+- A new "downgrade to unknown" rule interacts with every consumer of
+  `unknown`; the short-title rule quietly weakened the override's title
+  guard. Check each new verdict path against the status reduction table
+  before shipping, not after.
+- Real, trimmed API records as fixtures caught the truncation and
+  series-name cases directly and read well in the tests. The fetch date on
+  each record matters, since OpenAlex may fix the metadata later and the
+  fixture then documents a historical quirk.
+- Next time, run the review gate before opening the draft PR so the
+  follow-up lands in the initial diff rather than as an addendum.
