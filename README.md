@@ -28,7 +28,9 @@ limits and tier-specific endpoints. Both Crossref and OpenAlex honor a
 Lookup order (CLI), highest priority first:
 
 1. CLI flag: `--api-key`, `--mailto`.
-2. Shell environment: `OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`.
+2. Shell environment: `OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`
+   (plus the retry and pacing variables under
+   [Rate limits and retries](#rate-limits-and-retries)).
 3. Project-local `.env` in the current working directory or any parent.
 4. **`~/.config/citefinder/config.toml`** (honors `$XDG_CONFIG_HOME`) — store
    it once on this machine.
@@ -38,9 +40,13 @@ Lookup order (CLI), highest priority first:
 [openalex]
 api_key = "your-openalex-key"
 mailto = "you@example.com"
+max_retries = 3    # optional — see "Rate limits and retries"
+min_interval = 0.1
 
 [crossref]
 mailto = "you@example.com"
+max_retries = 3
+min_interval = 0
 ```
 
 The file is plain-text — if your environment is shared, `chmod 600
@@ -149,6 +155,49 @@ year mismatch as a flag for review, and default to the final printed
 record: the journal volume year, or the publisher's first-published edition
 year for books.
 
+### Rate limits and retries
+
+Both clients retry a request that comes back `429` (rate limited) or
+`502`/`503`/`504` (gateway errors), up to `max_retries` times (default 3),
+before raising the original `HTTPError`. The wait honors the response's
+`Retry-After` header when present — both the delta-seconds and the HTTP-date
+form — and otherwise backs off exponentially from `backoff_base` (default
+1 s: 1 s, 2 s, 4 s, each plus up to half a step of jitter). Any single wait
+is capped at `max_wait` (default 60 s). Other 4xx responses raise
+immediately, and 404 is still cached as `None`.
+
+Requests can also be paced: `min_interval` is the minimum number of seconds
+between the start of consecutive requests from one client instance. It
+defaults to `0.1` for `OpenAlexClient`, matching OpenAlex's documented 10
+requests per second, and `0` for `CrossrefClient`. Cache hits are not
+requests and are never paced.
+
+```python
+openalex = OpenAlexClient(
+    cache_path="~/.cache/citefinder/openalex.jsonl",
+    max_retries=5,  # extra attempts after the first; 0 disables retrying
+    backoff_base=1.0,  # first backoff step when there is no Retry-After
+    max_wait=60.0,  # ceiling on any single wait
+    min_interval=0.2,  # seconds between requests
+)
+openalex.lookup_doi("10.48550/arXiv.2410.21554")
+print(openalex.retries)  # retries so far on this instance
+```
+
+Each retry logs one warning on the `citefinder` logger naming the status,
+the attempt, and the wait. The `retries` counter on the client tallies them
+for the run, and `citefinder verify` prints it in its summary line.
+
+Error responses are never cached: nothing is written until a 2xx or 404
+arrives, so a run that hit the rate limit can simply be re-run once the
+limit clears. There is no cache line to purge.
+
+On the CLI, `--max-retries` and `--min-interval` are accepted by `doi`,
+`search`, `verify`, and the `crossref` subcommands. `OPENALEX_MAX_RETRIES` /
+`OPENALEX_MIN_INTERVAL` and `CROSSREF_MAX_RETRIES` / `CROSSREF_MIN_INTERVAL`
+are the environment fallbacks, and `max_retries` / `min_interval` under
+`[openalex]` / `[crossref]` in `config.toml` the lowest-priority ones.
+
 ### Bib verification
 
 A `.bib` file can be parsed and verified against either source end-to-end:
@@ -216,6 +265,13 @@ citefinder install --check                                  # ok | drifted | mis
 
 `verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `data/citefinder/<bib-stem>/<source>/`: a `<source>.jsonl` cache and a structured `results.json`. Re-running is cheap — every cache hit is served from disk.
 
+Read `results.json` by `method` × `status`:
+
+- `method=doi` with `mismatch` or `probable` — a real defect: the bib's own DOI resolves to a different work, or a field (year, first author, container) disagrees with the source record.
+- `method=search` with `matched` and a non-empty `matched_doi` — a DOI candidate for an entry that lacked one.
+- `method=search` with `mismatch` or `probable` — usually a wrong-work false positive (books, reports, and other sources the index carries poorly), not a reason to rewrite the entry.
+- `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type.
+
 `bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved.
 
 ### CLI arguments
@@ -235,6 +291,13 @@ citefinder install --check                                  # ok | drifted | mis
   in the env or a `.env` file (loaded from cwd or any parent). Sent as
   `Authorization: Bearer <key>` so it never lands in cache keys, URL logs,
   or referer headers.
+- `--max-retries N` — Retries after a `429`/`502`/`503`/`504` response;
+  `0` disables. Default `3`. Also `OPENALEX_MAX_RETRIES` /
+  `CROSSREF_MAX_RETRIES` in the env or `max_retries` in `config.toml`.
+- `--min-interval SECONDS` — Minimum gap between consecutive requests.
+  Default `0.1` for OpenAlex, `0` for Crossref. Also `OPENALEX_MIN_INTERVAL`
+  / `CROSSREF_MIN_INTERVAL` in the env or `min_interval` in `config.toml`.
+  `verify` reads the variables for whichever `--source` it runs against.
 
 ## Claude Code skill
 

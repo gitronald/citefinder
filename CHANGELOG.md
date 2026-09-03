@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Both clients retry a `429`, `502`, `503`, or `504` response, up to
+  `max_retries` times (default 3), honoring `Retry-After` (delta-seconds or
+  HTTP-date, capped at `max_wait`, default 60 s) and otherwise backing off
+  exponentially from `backoff_base` (default 1 s) with jitter. Other 4xx
+  responses still raise immediately, 404 is still cached as `None`, and an
+  error response is never written to the cache.
+- `min_interval` paces consecutive requests from one client instance; cache
+  hits are not paced.
+- Constructor knobs `max_retries`, `backoff_base`, `max_wait`, and
+  `min_interval` on `CrossrefClient` and `OpenAlexClient`; `--max-retries`
+  and `--min-interval` on `doi`, `search`, `verify`, and the `crossref`
+  subcommands; `max_retries` / `min_interval` keys under `[openalex]` and
+  `[crossref]` in `config.toml` (env: `OPENALEX_MAX_RETRIES`,
+  `OPENALEX_MIN_INTERVAL`, `CROSSREF_MAX_RETRIES`, `CROSSREF_MIN_INTERVAL`).
+- Each retry logs a warning on the `citefinder` logger, and the client's
+  `retries` counter is reported in the `verify` summary line.
+- The skill and README carry a guide to reading `verify` output by
+  `method` × `status`, and the skill notes which source fields carry the
+  family/given name split (Crossref's `author[i].family` / `given`).
+
+### Changed
+
+- `OpenAlexClient` paces requests at `min_interval=0.1` s by default,
+  matching OpenAlex's documented 10 requests per second. Pass
+  `min_interval=0` to restore the previous unpaced behavior.
+
 ## [0.5.0] - 2026-09-01
 
 ### Added
