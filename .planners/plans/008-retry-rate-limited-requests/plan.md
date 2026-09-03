@@ -4,7 +4,7 @@ slug: retry-rate-limited-requests
 status: done
 branch: feature/retry-rate-limited-requests
 created: 2026-09-02T16:51:43-07:00
-concluded: 2026-09-02T17:49:03-07:00
+concluded: 2026-09-02T17:53:19-07:00
 pr: https://github.com/gitronald/citefinder/pull/42
 ---
 
@@ -83,6 +83,7 @@ What stays downstream: the downstream repo's cache-path convention (its `data/` 
 - The `mock_response` fixture now takes `headers` and raises `requests.HTTPError` from `raise_for_status` for any 4xx/5xx, mirroring `requests`; existing tests only ever used 200 and 404, so nothing else changed.
 - 2026-09-02T17:50:03-07:00 — Review gate before merge: `/code-review` at medium on PR #42 (posted as a PR comment). Five findings confirmed, three candidates rejected as conventions the file already had. Fixes in commit `50246ca`; gate green (ruff, ruff format, pyrefly, 196 tests).
   - **Review follow-up.** Raised: (1) the retry and pacing knobs were never validated — `--min-interval inf` passes click's `min=0.0` and crashed in `time.sleep` on the second uncached request, and a negative `max_wait` did the same on the first retry; (2) `verify`'s env fallback skipped the lower bound the flags enforce, so `OPENALEX_MAX_RETRIES=-5` was silently clamped; (3) a float `max_retries = 3.0` in `config.toml` was rejected as "not a number" without naming `config.toml`; (4) `verify`'s help strings retyped the shared templates by hand; (5) `_pace` read the monotonic clock twice on the no-sleep path. Actioned all five: the constructors reject a non-finite or negative knob with `ValueError` (replacing the silent `max(0, max_retries)` clamp); `_client_kwargs`, the funnel every CLI command already routes knobs through, exits 2 for the same inputs, which covers flags, env, and config at once; `_env_number` names the expected type and `config.toml`; `verify` formats the templates; `_pace` reuses its first read and re-reads only after a real sleep. Nine tests added (five knob cases, four CLI). Conscious no-ops: the `DEFAULT_MIN_INTERVAL` export, the per-source Option pairs, and the per-command client construction all match the module's existing pattern; a float `max_retries` is still rejected — only the message changed.
+- 2026-09-02T17:54:00-07:00 — CI failed on the new `verify --help` test after the fix commit: in CI, typer renders help through rich with ANSI codes and wraps at 80 columns, splitting the `<SOURCE>_MAX_RETRIES` token that the local run printed as plain text. Rewrote the test to read the help strings off the option objects (`typer.main.get_group`) instead of rendered output, commit `b6e1dfb`; CI green on all four Python versions.
 
 ## Retrospective
 
