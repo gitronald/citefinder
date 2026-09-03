@@ -1,8 +1,8 @@
 ---
 id: 2
 slug: handle-openalex-metadata-quirks
-status: draft
-branch:
+status: active
+branch: feature/handle-openalex-metadata-quirks
 created: 2026-05-01T10:30:45-07:00
 concluded:
 pr:
