@@ -1,10 +1,10 @@
 ---
 id: 9
 slug: project-cache-config
-status: active
+status: done
 branch: feature/project-cache-config
 created: 2026-09-02T18:33:44-07:00
-concluded:
+concluded: 2026-09-02T19:23:50-07:00
 pr: https://github.com/gitronald/citefinder/pull/44
 ---
 
@@ -82,3 +82,50 @@ Config is also user-level only. There is no per-repo file the tool discovers, so
     made the first cut unreadable.
 - Step 5 (minor release) is left for the close: stable releases are cut from
   `main` after the PR merges.
+- 2026-09-02 — Review follow-up (medium-level review of PR #44; eight
+  findings, seven actioned, one conscious no-op), committed as "harden config
+  loading and verify output paths".
+  - A `pyproject.toml` whose `tool.citefinder` was a scalar or array was
+    returned as the project config and loaded as an empty table, silently
+    masking a real config further up. `load_config` now raises `ValueError`,
+    which `_apply_config` warns about and falls through from, the same as
+    malformed TOML. Test: the non-table pyproject case.
+  - `DEFAULT_CACHE_DIR` evaluated `Path.home()` at import, and the package
+    `__init__` now imports `config`, so `import citefinder` could raise where
+    no home directory exists. Replaced by a lazy `default_cache_dir()`.
+    Test: reload the module with `Path.home` raising.
+  - `verify` built its cache filename inline; `--out` is now anchored to cwd
+    like `--cache-dir` (a quoted `~` expands) and the cache path comes from
+    `resolve_cache_path`, so both outputs land in one directory. Test: the
+    `--out "~/..."` case. Noted in the changelog.
+  - The verify default root was written twice (`verify` and `config`); one
+    `_verify_root` helper feeds both. Test: `config`'s printed verify path is
+    where `verify` writes.
+  - Tests ran project-config discovery from the real cwd and never reset
+    `_config_sources`; the autouse fixture now pins cwd to `tmp_path` and
+    starts with a fresh source map (also pinned in the retry config test).
+  - `--cache-dir` help named only `config.toml`; now "a config file".
+  - No-op: `find_project_config` parses a candidate `pyproject.toml` once for
+    the key check and `load_config` parses it again. One small-file parse per
+    process; avoiding it would make the helper return parsed data instead of
+    a path for no user-visible gain.
+
+## Retrospective
+
+- Filling env names in precedence order, each source touching only names
+  still unset, delivered the whole flag > env > project > user chain with no
+  new plumbing, and `citefinder config` fell out of it as a side map of the
+  same loop. Worth reaching for again before adding a settings object.
+- The anchoring rule (config value -> the file's directory, flag or env ->
+  cwd) drove most of the tests and the docs, and it is also where review
+  found the gap: `--out` was the one path input not run through `_anchor`.
+  Next time, list every path-taking input against that rule in the plan.
+- "A file that looks like a config either loads or warns" is the rule the
+  unparseable-pyproject decision implied; the non-table `[tool.citefinder]`
+  case was the same rule not yet applied. Enumerate the malformed shapes
+  alongside the happy path when the design records one of them.
+- Moving a default from the CLI module into the library made an eager
+  `Path.home()` part of `import citefinder`. Defaults that touch the
+  environment belong in functions, not module constants.
+- Discovery by walking up makes every test cwd-sensitive; pin cwd in the
+  autouse fixture from the first test rather than per test.
