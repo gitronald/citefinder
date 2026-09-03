@@ -114,6 +114,9 @@ class CachedJsonClient:
       requests from this instance. Cache hits are not requests and are never
       paced.
 
+    All four must be finite and non-negative; anything else raises
+    `ValueError` here rather than from `sleep` on a later request.
+
     `sleep`, `monotonic`, and `clock` are test seams (`time.sleep`,
     `time.monotonic`, and `time.time` by default) so a fake clock can drive
     the retry loop without waiting.
@@ -140,7 +143,17 @@ class CachedJsonClient:
         self.cache = cache
         self.mailto = mailto
         self.timeout = timeout
-        self.max_retries = max(0, max_retries)
+        for name, value in (
+            ("max_retries", max_retries),
+            ("backoff_base", backoff_base),
+            ("max_wait", max_wait),
+            ("min_interval", min_interval),
+        ):
+            # `inf`/`nan` and negatives would only surface later as an
+            # OverflowError/ValueError out of `time.sleep`, mid-run.
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite number >= 0, got {value!r}")
+        self.max_retries = max_retries
         self.backoff_base = backoff_base
         self.max_wait = max_wait
         self.min_interval = min_interval
@@ -167,11 +180,13 @@ class CachedJsonClient:
         """Sleep off whatever remains of `min_interval` since the last send."""
         if self.min_interval <= 0:
             return
+        now = self._monotonic()
         if self._last_request_at is not None:
-            remaining = self.min_interval - (self._monotonic() - self._last_request_at)
+            remaining = self.min_interval - (now - self._last_request_at)
             if remaining > 0:
                 self._sleep(remaining)
-        self._last_request_at = self._monotonic()
+                now = self._monotonic()  # a real sleep can overshoot
+        self._last_request_at = now
 
     def _retry_wait(self, response: requests.Response, attempt: int) -> float:
         """Seconds to wait before retrying `response`, `attempt` retries in."""

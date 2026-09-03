@@ -10,6 +10,7 @@ remains accessible via the `crossref` subcommand for its own workflows
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
@@ -168,10 +169,25 @@ def _client_kwargs(
     """
     kwargs: dict[str, Any] = {}
     if max_retries is not None:
-        kwargs["max_retries"] = max_retries
+        kwargs["max_retries"] = _checked_knob("max_retries", max_retries)
     if min_interval is not None:
-        kwargs["min_interval"] = min_interval
+        kwargs["min_interval"] = _checked_knob("min_interval", min_interval)
     return kwargs
+
+
+def _checked_knob(name: str, value: float) -> float:
+    """Reject a knob value the client would refuse, with a clean exit 2.
+
+    Every CLI path funnels through here: click's `min=0` on the flags lets
+    `inf`/`nan` through, and `verify`'s env fallback skips click's range
+    check entirely, so this is the one place the bound is enforced.
+    """
+    if not math.isfinite(value) or value < 0:
+        typer.echo(
+            f"Error: {name} must be a finite number >= 0, got {value!r}", err=True
+        )
+        raise typer.Exit(code=2)
+    return value
 
 
 def _source_client_kwargs(
@@ -199,7 +215,11 @@ def _env_number(name: str, cast: type[int] | type[float]) -> Any:
     try:
         return cast(raw)
     except ValueError:
-        typer.echo(f"Error: {name}={raw!r} is not a number", err=True)
+        kind = "an integer" if cast is int else "a number"
+        typer.echo(
+            f"Error: {name}={raw!r} is not {kind} (set in the env or config.toml)",
+            err=True,
+        )
         raise typer.Exit(code=2) from None
 
 
@@ -349,15 +369,15 @@ def verify(
         None,
         "--max-retries",
         min=0,
-        help="Retries after a 429/502/503/504 response; 0 disables (default 3). "
-        "Also <SOURCE>_MAX_RETRIES env or config.toml.",
+        help=_MAX_RETRIES_HELP.format(env="<SOURCE>_MAX_RETRIES"),
     ),
     min_interval: float | None = typer.Option(
         None,
         "--min-interval",
         min=0.0,
-        help="Minimum seconds between requests (default 0.1 for OpenAlex, 0 for "
-        "Crossref). Also <SOURCE>_MIN_INTERVAL env or config.toml.",
+        help=_MIN_INTERVAL_HELP.format(
+            default="0.1 for OpenAlex, 0 for Crossref", env="<SOURCE>_MIN_INTERVAL"
+        ),
     ),
 ) -> None:
     """Verify a `.bib` against Crossref or OpenAlex.

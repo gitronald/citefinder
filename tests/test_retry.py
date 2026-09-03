@@ -284,6 +284,24 @@ def test_default_pacing_per_source(tmp_path: Path) -> None:
     assert CrossrefClient(cache_path=tmp_path / "cr.jsonl").min_interval == 0
 
 
+@pytest.mark.parametrize(
+    "knobs",
+    [
+        {"min_interval": float("inf")},
+        {"min_interval": -0.5},
+        {"max_wait": float("nan")},
+        {"backoff_base": -1.0},
+        {"max_retries": -1},
+    ],
+)
+def test_non_finite_or_negative_knobs_are_rejected(
+    tmp_path: Path, knobs: dict[str, Any]
+) -> None:
+    """A bad knob fails at construction, not as OverflowError from sleep."""
+    with pytest.raises(ValueError, match="finite number >= 0"):
+        CrossrefClient(cache_path=tmp_path / "cr.jsonl", **knobs)
+
+
 # --- CLI and config ---------------------------------------------------------
 
 
@@ -363,3 +381,43 @@ def test_verify_reports_retries_in_summary(tmp_path: Path, monkeypatch) -> None:
 
     assert result.exit_code == 0, result.output
     assert "2 retries" in result.output
+
+
+def test_cli_rejects_non_finite_min_interval(tmp_path: Path) -> None:
+    """click's `min=0.0` lets `inf` through; the CLI still refuses it."""
+    result = runner.invoke(
+        app,
+        ["doi", "10.1/x", "--min-interval", "inf", "--cache", str(tmp_path / "oa")],
+    )
+    assert result.exit_code == 2
+    assert "min_interval must be a finite number >= 0" in result.output
+
+
+def test_verify_rejects_negative_env_max_retries(tmp_path: Path, monkeypatch) -> None:
+    """The env fallback enforces the same lower bound as the flag."""
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{k1,\n  title = {A Paper},\n}\n", encoding="utf-8")
+    monkeypatch.setenv("OPENALEX_MAX_RETRIES", "-5")
+    result = runner.invoke(app, ["verify", str(bib), "--out", str(tmp_path / "out")])
+    assert result.exit_code == 2
+    assert "max_retries must be a finite number >= 0" in result.output
+
+
+def test_verify_names_the_type_for_a_float_max_retries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`max_retries = 3.0` in config.toml lands here as the string "3.0"."""
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{k1,\n  title = {A Paper},\n}\n", encoding="utf-8")
+    monkeypatch.setenv("OPENALEX_MAX_RETRIES", "3.0")
+    result = runner.invoke(app, ["verify", str(bib), "--out", str(tmp_path / "out")])
+    assert result.exit_code == 2
+    assert "OPENALEX_MAX_RETRIES='3.0' is not an integer" in result.output
+    assert "config.toml" in result.output
+
+
+def test_verify_help_uses_the_shared_knob_templates() -> None:
+    result = runner.invoke(app, ["verify", "--help"])
+    assert result.exit_code == 0
+    assert "<SOURCE>_MAX_RETRIES" in result.output
+    assert "<SOURCE>_MIN_INTERVAL" in result.output

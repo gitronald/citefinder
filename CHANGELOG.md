@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   subcommands; `max_retries` / `min_interval` keys under `[openalex]` and
   `[crossref]` in `config.toml` (env: `OPENALEX_MAX_RETRIES`,
   `OPENALEX_MIN_INTERVAL`, `CROSSREF_MAX_RETRIES`, `CROSSREF_MIN_INTERVAL`).
+  Each knob must be finite and non-negative: the constructors raise
+  `ValueError` otherwise, and the CLI exits 2.
 - Each retry logs a warning on the `citefinder` logger, and the client's
   `retries` counter is reported in the `verify` summary line.
 - The skill and README carry a guide to reading `verify` output by

@@ -170,7 +170,8 @@ Requests can also be paced: `min_interval` is the minimum number of seconds
 between the start of consecutive requests from one client instance. It
 defaults to `0.1` for `OpenAlexClient`, matching OpenAlex's documented 10
 requests per second, and `0` for `CrossrefClient`. Cache hits are not
-requests and are never paced.
+requests and are never paced. All four knobs must be finite and
+non-negative; anything else raises `ValueError` at construction.
 
 ```python
 openalex = OpenAlexClient(
