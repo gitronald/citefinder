@@ -71,3 +71,13 @@ What stays downstream: the downstream repo's cache-path convention (its `data/` 
 - Caching 429 or any error payload (explicitly rejected; the cache holds only records and 404s).
 - Managing the OpenAlex daily budget across runs; the run surfaces the 429 and stops retrying after `max_retries`.
 - Reading `X-Rate-Limit-*` headers to auto-tune pacing. Worth a follow-up if the fixed defaults still trip Crossref.
+
+## Log
+
+- 2026-09-02T17:20:38-07:00 — Activated on `dev` and implemented on `feature/retry-rate-limited-requests` (draft PR #42). Steps 1–5 of the implementation order shipped in three commits: the retry loop, pacing, knobs, logging, and `retries` counter with `tests/test_retry.py` (24 tests, all driven by a fake clock); the CLI flags and `config.toml` keys; and the docs (README "Rate limits and retries" section, the report-reading guide in the README and skill, the name-split note in the skill, and the changelog). Step 6 (minor release, then the downstream pin bump and stub swap) is left for the release.
+- Two small departures from the spec, both deliberate:
+  - The `config.toml` key is `max_retries`, not `retries`, so the config key, the `--max-retries` flag, and the constructor parameter share one name. The env fallbacks follow the same shape (`OPENALEX_MAX_RETRIES`, `OPENALEX_MIN_INTERVAL`, and the `CROSSREF_` pair).
+  - The injectable clock is three seams rather than two: `sleep` and `monotonic` as planned, plus `clock` (wall time, `time.time`) because the HTTP-date form of `Retry-After` has to be measured against wall time, not the monotonic clock. All three are keyword-only so they stay out of the way of the public knobs.
+- Fixed a latent bug while wiring the config keys: `_load_user_config` skipped falsy values, which would have dropped `max_retries = 0` (and `min_interval = 0`). It now checks `is not None`.
+- `verify` picks its source at runtime, so its `--max-retries` / `--min-interval` flags do not bind a single `envvar`; an unset flag reads `<SOURCE>_MAX_RETRIES` / `<SOURCE>_MIN_INTERVAL` for whichever source is chosen, so `verify --source crossref` honors the `[crossref]` section.
+- The `mock_response` fixture now takes `headers` and raises `requests.HTTPError` from `raise_for_status` for any 4xx/5xx, mirroring `requests`; existing tests only ever used 200 and 404, so nothing else changed.
