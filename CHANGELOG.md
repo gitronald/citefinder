@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-02
+
 ### Added
 
 - Project-level config: the CLI reads the nearest `citefinder.toml`, or a
