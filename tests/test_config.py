@@ -421,3 +421,84 @@ def test_malformed_project_config_warns_and_falls_through(
 
     assert "warning: ignoring" in capsys.readouterr().err
     assert os.environ["CITEFINDER_CACHE_DIR"] == str(tmp_path / "user")
+
+
+# --- citefinder config --------------------------------------------------------
+
+
+def config_rows(output: str) -> dict[str, tuple[str, str]]:
+    """The settings table: label -> (source, value)."""
+    rows: dict[str, tuple[str, str]] = {}
+    for line in output.splitlines():
+        parts = line.split(None, 2)
+        # Header and path lines read `<word> <word>: ...`; settings don't.
+        if len(parts) == 3 and not parts[1].endswith(":"):
+            rows[parts[0]] = (parts[1], parts[2])
+    return rows
+
+
+def test_config_names_the_source_of_each_value(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "proj"
+    project = write_project_config(
+        project_dir, 'cache_dir = "data"\n[openalex]\nmailto = "p@example.com"\n'
+    )
+    user = write_user_config(
+        tmp_path,
+        '[openalex]\napi_key = "secret"\n[crossref]\nmailto = "u@example.com"\n',
+    )
+    monkeypatch.setenv("OPENALEX_MAX_RETRIES", "7")
+    monkeypatch.chdir(project_dir)
+    _load_configs()
+
+    result = runner.invoke(app, ["config"])
+
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert f"project config: {project}" in out
+    assert f"user config:    {user}" in out
+    rows = config_rows(out)
+    assert rows["cache_dir"] == ("project", str(project_dir / "data"))
+    assert rows["openalex.mailto"] == ("project", "p@example.com")
+    assert rows["openalex.api_key"] == ("user", "(set)")
+    assert "secret" not in out
+    assert rows["openalex.max_retries"] == ("env", "7")
+    assert rows["openalex.min_interval"] == ("default", "0.1")
+    assert rows["crossref.mailto"] == ("user", "u@example.com")
+    assert rows["crossref.max_retries"] == ("default", "3")
+    assert f"openalex cache:  {project_dir / 'data' / 'openalex.jsonl'}" in out
+    assert f"crossref cache:  {project_dir / 'data' / 'crossref.jsonl'}" in out
+    assert f"verify output:   {project_dir / 'data'}/<bib-stem>/<source>/" in out
+
+
+def test_config_with_nothing_set_reports_defaults(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _load_configs()
+
+    result = runner.invoke(app, ["config"])
+
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert "project config: (none)" in out
+    assert "user config:    (none:" in out
+    rows = config_rows(out)
+    assert rows["cache_dir"] == ("default", "(unset)")
+    assert rows["openalex.mailto"] == ("default", "(none)")
+    assert rows["openalex.min_interval"] == ("default", "0.1")
+    assert rows["crossref.min_interval"] == ("default", "0")
+    assert f"openalex cache:  {DEFAULT_CACHE_DIR / 'openalex.jsonl'}" in out
+    assert f"verify output:   {tmp_path / 'data' / 'citefinder'}/<bib-stem>/" in out
+
+
+def test_config_reports_a_cache_dir_flag_anchored_to_cwd(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["config", "--cache-dir", "caches"])
+
+    assert result.exit_code == 0, result.output
+    rows = config_rows(result.output)
+    assert rows["cache_dir"] == ("flag", str(tmp_path / "caches"))
+    assert (
+        f"verify output:   {tmp_path / 'caches'}/<bib-stem>/<source>/" in result.output
+    )

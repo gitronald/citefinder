@@ -26,6 +26,7 @@ import typer
 from dotenv import find_dotenv, load_dotenv
 
 from citefinder import install as install_mod
+from citefinder._base import DEFAULT_MAX_RETRIES
 from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.client import CrossrefClient
@@ -36,7 +37,7 @@ from citefinder.config import (
     resolve_cache_path,
     user_config_path,
 )
-from citefinder.openalex import OpenAlexClient
+from citefinder.openalex import DEFAULT_MIN_INTERVAL, OpenAlexClient
 from citefinder.verify import Result, Source, verify_entry
 
 # Load `.env` from the current working directory (or any parent) so users can
@@ -50,9 +51,9 @@ def _anchor(path: str | Path, base: Path) -> Path:
     return base / Path(path).expanduser()
 
 
-# Env name -> where `_load_configs` took its value from ("project <path>" or
-# "user <path>"). Names it did not set came from a flag, the shell env, or
-# `.env`. `citefinder config` reports these.
+# Env name -> which config file `_load_configs` took its value from
+# ("project" or "user"). Names it did not set came from a flag, the shell
+# env, or `.env`. `citefinder config` reports these.
 _config_sources: dict[str, str] = {}
 
 
@@ -123,7 +124,7 @@ def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
             # `cache_dir` names the same place whatever the command's cwd.
             value = _anchor(str(value), path.parent)
         os.environ[env_name] = str(value)
-        _config_sources[env_name] = f"{kind} {path}"
+        _config_sources[env_name] = kind
 
 
 _load_configs()
@@ -666,6 +667,64 @@ def install(
         typer.echo(f"Error: cannot write {path}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"wrote {written} (citefinder {version}, mode={mode})")
+
+
+# --- config ------------------------------------------------------------------
+
+# What a setting is when nothing sets it: the clients' own defaults.
+_SETTING_DEFAULTS = {
+    "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
+    "OPENALEX_MIN_INTERVAL": str(DEFAULT_MIN_INTERVAL),
+    "CROSSREF_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
+    "CROSSREF_MIN_INTERVAL": "0",
+}
+
+
+@app.command("config")
+def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
+    """Show each setting, where it came from, and the paths lookups would use.
+
+    Read-only. Each value is tagged with its source: `flag`, `env` (shell or
+    `.env`), `project` or `user` (the config files named at the top), or
+    `default`. Run it from the directory a lookup ran in to see why it wrote
+    where it did; pass `--cache-dir` to preview a flag's effect.
+    """
+    project = find_project_config()
+    user = user_config_path()
+    typer.echo(f"project config: {project or '(none)'}")
+    typer.echo(f"user config:    {user if user.is_file() else f'(none: {user})'}")
+    typer.echo()
+
+    root = _cache_dir(cache_dir)
+    if cache_dir is not None:
+        source = "flag"
+    elif root is not None:
+        source = _config_sources.get("CITEFINDER_CACHE_DIR", "env")
+    else:
+        source = "default"
+    rows = [("cache_dir", source, str(root) if root else "(unset)")]
+    for env_name, (section, key) in ENV_KEYS.items():
+        if section is None:
+            continue
+        raw = os.environ.get(env_name)
+        if raw:
+            # Never print a credential; that it is set, and from where, is
+            # what the reader needs.
+            value = "(set)" if key == "api_key" else raw
+            source = _config_sources.get(env_name, "env")
+        else:
+            value = _SETTING_DEFAULTS.get(env_name, "(none)")
+            source = "default"
+        rows.append((f"{section}.{key}", source, value))
+    label_width = max(len(label) for label, _, _ in rows)
+    for label, source, value in rows:
+        typer.echo(f"{label:<{label_width}}  {source:<7}  {value}")
+
+    typer.echo()
+    typer.echo(f"openalex cache:  {resolve_cache_path('openalex', root)}")
+    typer.echo(f"crossref cache:  {resolve_cache_path('crossref', root)}")
+    verify_root = root or Path.cwd() / "data" / "citefinder"
+    typer.echo(f"verify output:   {verify_root / '<bib-stem>' / '<source>'}/")
 
 
 # --- crossref subcommand ----------------------------------------------------
