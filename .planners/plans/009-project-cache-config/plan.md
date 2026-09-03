@@ -5,7 +5,7 @@ status: active
 branch: feature/project-cache-config
 created: 2026-09-02T18:33:44-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/44
 ---
 
 # Resolve cache paths from a project-level config
