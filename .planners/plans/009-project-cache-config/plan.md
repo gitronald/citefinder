@@ -1,0 +1,131 @@
+---
+id: 9
+slug: project-cache-config
+status: done
+branch: feature/project-cache-config
+created: 2026-09-02T18:33:44-07:00
+concluded: 2026-09-02T19:23:50-07:00
+pr: https://github.com/gitronald/citefinder/pull/44
+---
+
+# Resolve cache paths from a project-level config
+
+## Plan
+
+### Problem
+
+The CLI's two command families disagree about where a repo's caches live. `verify` writes under the working directory (`data/citefinder/<stem>/<source>/`, with a `refs.bib` filed under its parent directory's name), so it lands inside the repo it is run from. `doi`, `search`, and the `crossref` subcommands default their `--cache` to `~/.cache/citefinder/<source>.jsonl`, and the flag is the only way to move it: the config layer (`~/.config/citefinder/config.toml`, plus `.env` and shell env) carries `mailto`, `api_key`, `max_retries`, and `min_interval` but nothing about cache paths. A repo that keeps its caches on a shared or synced directory has to pass `--cache` on every single lookup, and the instruction to do so lives in that repo's agent rules rather than in anything the tool reads.
+
+Config is also user-level only. There is no per-repo file the tool discovers, so a setting that is really a property of the project (where its caches go, which polite-pool address to use) has to be repeated per machine.
+
+### Design
+
+1. **A `cache_dir` setting.** One directory from which every cache path derives: lookups use `<cache_dir>/<source>.jsonl`, `verify` uses `<cache_dir>/<stem>/<source>/` (the current cwd-relative default becomes the fallback when nothing is set). Sources, in precedence order: an explicit `--cache` on a lookup command or `--out` on `verify` (unchanged, always wins); a new `--cache-dir` flag on the same commands; `CITEFINDER_CACHE_DIR` in the env or `.env`; `cache_dir` in a project config; `cache_dir` in the user config; the built-in defaults. A relative `cache_dir` from a project config resolves against that config file's directory, so `data/citefinder` means the repo's `data/citefinder` whatever the working directory; a relative value from the env or the flag resolves against the working directory, as flags do today.
+2. **Project config discovery.** Walk up from the working directory, the way `find_dotenv(usecwd=True)` already does for `.env`, for the first of `citefinder.toml` or a `pyproject.toml` with a `[tool.citefinder]` table. Same keys and sections as the user config (`[openalex]`, `[crossref]`, plus top-level `cache_dir`). Precedence: flag > env and `.env` > project config > user config > default. Implementation: `_load_user_config` becomes `_load_configs`, reading the project file first and the user file second, each filling only env names still unset, so the existing "env wins" contract holds and the project overrides the user file without new plumbing.
+3. **Secrets stay out of project files.** A project config is meant to be committed. If one carries `api_key`, warn on stderr and ignore the key, pointing at `.env` or the user config; `mailto` is fine to commit.
+4. **`citefinder config` command.** Prints each resolved setting with where it came from (`flag`, `env`, `project <path>`, `user <path>`, `default`) and the cache paths the lookups and `verify` would use. Read-only; the debugging surface for "why did it write there".
+5. **Library side.** A small `resolve_cache_path(source, cache_dir=None)` helper next to the clients, used by the CLI and available to wrappers that build clients themselves. The clients keep taking `cache_path`; nothing changes for library users.
+
+### Tests
+
+- Discovery: from a nested working directory, `citefinder.toml` two levels up is found; `[tool.citefinder]` in `pyproject.toml` is found; the nearer file wins when both exist; nothing found leaves the defaults.
+- Precedence matrix for `cache_dir` and `mailto`: flag over env, env over project, project over user, user over default; `--cache` still beats `--cache-dir`.
+- Relative-path anchoring: a project `cache_dir` resolves against the config's directory; an env value resolves against cwd.
+- `verify` honors `cache_dir` for its output directory and still files `refs.bib` by parent name; `--out` still wins.
+- A project config with `api_key` warns, is ignored, and the user config's key still applies.
+- A malformed project file warns and falls through, mirroring the user-config behavior.
+- `citefinder config` output names the source of each value.
+
+### Docs
+
+- README: a "Configuration" section with the two file locations, the key list, the precedence table, and the note about secrets; the lookup examples drop `--cache` where the project config covers it.
+- `citefinder/prompts/skill.md`: the "Cache path" bullet says to check for a project config before passing `--cache`, and mentions `citefinder config` for finding out where a lookup will write.
+- CHANGELOG `[Unreleased]`: Added (project config, `cache_dir`, `--cache-dir`, `CITEFINDER_CACHE_DIR`, `citefinder config`), Changed (`verify` default derives from `cache_dir` when set).
+
+### Implementation order
+
+1. `resolve_cache_path` and the `cache_dir` plumbing on the lookup commands and `verify`, with the flag and env sources and the precedence tests.
+2. Project config discovery in `_load_configs`, the secrets warning, and the discovery and anchoring tests.
+3. `citefinder config`.
+4. README, skill text, changelog.
+5. Release as a minor version. A downstream repo then commits `cache_dir = "data/citefinder"` (or wherever it keeps them) and drops the per-command `--cache` from its agent rules.
+
+### Out of scope
+
+- Per-source cache directories or any change to the JSONL format.
+- Migrating existing home-directory caches into a project directory.
+- Reading settings from `.env` beyond the existing env-name mapping; `.env` stays a place for secrets and one-off overrides, not a second config format.
+
+## Log
+
+- 2026-09-02 — Implemented on `feature/project-cache-config` (PR #44), in the
+  plan's order: `cache_dir` plumbing, discovery, `citefinder config`, docs.
+  - `citefinder/config.py` holds the library-side pieces (`resolve_cache_path`,
+    `DEFAULT_CACHE_DIR`, `ENV_KEYS`, `user_config_path`, `find_project_config`,
+    `load_config`). `cli.py` keeps the env-populating loader, now
+    `_load_configs`, since writing `os.environ` is a CLI-only side effect and
+    importing `cli` must stay the only thing that triggers it.
+  - Provenance for `citefinder config` is a module-level map that
+    `_load_configs` fills (env name -> `project` / `user`). Anything it did not
+    set reports as `env`, so a shell value and a `.env` value are
+    indistinguishable there — matching the plan's source list.
+  - Both config files anchor a relative `cache_dir` to their own directory.
+    For the user config that lands under `~/.config/citefinder/`, consistent
+    rather than useful; an absolute path is the sensible value there.
+  - A `pyproject.toml` that fails to parse is returned as the project-config
+    candidate so the CLI warns about it, rather than silently reading a
+    config further up the tree.
+  - The project `api_key` warning fires even when the env already carries a
+    key, so a key on disk is always reported.
+  - The `config` table prints `label  source  value`, with the two file paths
+    named once in the header. Padding the value column to the longest path
+    made the first cut unreadable.
+- Step 5 (minor release) is left for the close: stable releases are cut from
+  `main` after the PR merges.
+- 2026-09-02 — Review follow-up (medium-level review of PR #44; eight
+  findings, seven actioned, one conscious no-op), committed as "harden config
+  loading and verify output paths".
+  - A `pyproject.toml` whose `tool.citefinder` was a scalar or array was
+    returned as the project config and loaded as an empty table, silently
+    masking a real config further up. `load_config` now raises `ValueError`,
+    which `_apply_config` warns about and falls through from, the same as
+    malformed TOML. Test: the non-table pyproject case.
+  - `DEFAULT_CACHE_DIR` evaluated `Path.home()` at import, and the package
+    `__init__` now imports `config`, so `import citefinder` could raise where
+    no home directory exists. Replaced by a lazy `default_cache_dir()`.
+    Test: reload the module with `Path.home` raising.
+  - `verify` built its cache filename inline; `--out` is now anchored to cwd
+    like `--cache-dir` (a quoted `~` expands) and the cache path comes from
+    `resolve_cache_path`, so both outputs land in one directory. Test: the
+    `--out "~/..."` case. Noted in the changelog.
+  - The verify default root was written twice (`verify` and `config`); one
+    `_verify_root` helper feeds both. Test: `config`'s printed verify path is
+    where `verify` writes.
+  - Tests ran project-config discovery from the real cwd and never reset
+    `_config_sources`; the autouse fixture now pins cwd to `tmp_path` and
+    starts with a fresh source map (also pinned in the retry config test).
+  - `--cache-dir` help named only `config.toml`; now "a config file".
+  - No-op: `find_project_config` parses a candidate `pyproject.toml` once for
+    the key check and `load_config` parses it again. One small-file parse per
+    process; avoiding it would make the helper return parsed data instead of
+    a path for no user-visible gain.
+
+## Retrospective
+
+- Filling env names in precedence order, each source touching only names
+  still unset, delivered the whole flag > env > project > user chain with no
+  new plumbing, and `citefinder config` fell out of it as a side map of the
+  same loop. Worth reaching for again before adding a settings object.
+- The anchoring rule (config value -> the file's directory, flag or env ->
+  cwd) drove most of the tests and the docs, and it is also where review
+  found the gap: `--out` was the one path input not run through `_anchor`.
+  Next time, list every path-taking input against that rule in the plan.
+- "A file that looks like a config either loads or warns" is the rule the
+  unparseable-pyproject decision implied; the non-table `[tool.citefinder]`
+  case was the same rule not yet applied. Enumerate the malformed shapes
+  alongside the happy path when the design records one of them.
+- Moving a default from the CLI module into the library made an eager
+  `Path.home()` part of `import citefinder`. Defaults that touch the
+  environment belong in functions, not module constants.
+- Discovery by walking up makes every test cwd-sensitive; pin cwd in the
+  autouse fixture from the first test rather than per test.
