@@ -55,3 +55,30 @@ Config is also user-level only. There is no per-repo file the tool discovers, so
 - Per-source cache directories or any change to the JSONL format.
 - Migrating existing home-directory caches into a project directory.
 - Reading settings from `.env` beyond the existing env-name mapping; `.env` stays a place for secrets and one-off overrides, not a second config format.
+
+## Log
+
+- 2026-09-02 — Implemented on `feature/project-cache-config` (PR #44), in the
+  plan's order: `cache_dir` plumbing, discovery, `citefinder config`, docs.
+  - `citefinder/config.py` holds the library-side pieces (`resolve_cache_path`,
+    `DEFAULT_CACHE_DIR`, `ENV_KEYS`, `user_config_path`, `find_project_config`,
+    `load_config`). `cli.py` keeps the env-populating loader, now
+    `_load_configs`, since writing `os.environ` is a CLI-only side effect and
+    importing `cli` must stay the only thing that triggers it.
+  - Provenance for `citefinder config` is a module-level map that
+    `_load_configs` fills (env name -> `project` / `user`). Anything it did not
+    set reports as `env`, so a shell value and a `.env` value are
+    indistinguishable there — matching the plan's source list.
+  - Both config files anchor a relative `cache_dir` to their own directory.
+    For the user config that lands under `~/.config/citefinder/`, consistent
+    rather than useful; an absolute path is the sensible value there.
+  - A `pyproject.toml` that fails to parse is returned as the project-config
+    candidate so the CLI warns about it, rather than silently reading a
+    config further up the tree.
+  - The project `api_key` warning fires even when the env already carries a
+    key, so a key on disk is always reported.
+  - The `config` table prints `label  source  value`, with the two file paths
+    named once in the header. Padding the value column to the longest path
+    made the first cut unreadable.
+- Step 5 (minor release) is left for the close: stable releases are cut from
+  `main` after the PR merges.
