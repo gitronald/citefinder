@@ -1,11 +1,11 @@
 ---
 id: 2
 slug: handle-openalex-metadata-quirks
-status: active
+status: done
 branch: feature/handle-openalex-metadata-quirks
 created: 2026-05-01T10:30:45-07:00
-concluded:
-pr:
+concluded: 2026-09-02T22:53:22-07:00
+pr: https://github.com/gitronald/citefinder/pull/46
 ---
 
 # Reduce false positives and false negatives in signal checks
@@ -145,3 +145,82 @@ quirk individually.
     6. **Fixtures.** Use the three live records above as the real-run
        fixtures the Notes call for; `cialdini2003influence` remains the
        fixture for #1.
+- **2026-09-02T21:14:26-07:00** — Implemented on `feature/handle-openalex-metadata-quirks`
+  (draft PR: https://github.com/gitronald/citefinder/pull/46).
+  - `signals.py`: `MIN_TITLE_TOKENS = 3`, `title_tokens`, `is_short_title`.
+    `check_title` downgrades a pass to `unknown` when the bib title has fewer
+    than three words, and a fail to `unknown` when one title's tokens are a
+    strict subset of the other's and the shorter side has at least three
+    words. Revision 3 named only source-side truncation; a bib that omits the
+    subtitle is the same phenomenon and failed the same way, so the rule is
+    symmetric. A one-word subset does not count as truncation, so `Influence`
+    vs `Influence: Science and Practice` still fails on the DOI path, which is
+    the right review flag for a deficient bib title. Downgrades carry a `note`
+    in the signal dict.
+  - `verify.py`: on the DOI path, a `probable` verdict from exactly one
+    non-title fail becomes `matched`, with the note prefixed `DOI resolved;`.
+    Title fails and double fails are untouched (the related-work guard from
+    revision 1). On the search path, a short bib title cannot select a
+    candidate; the result is `unmatched` (or `skip-source`) with a "title too
+    short" note and the hits left in `candidates`. Chose the gate over
+    signal-based candidate selection for short titles to keep the rule one
+    line at both sites; ranking short-title candidates by their other signals
+    is a possible follow-up.
+  - Year tolerance stays at ±1 (revision 4): the DOI override handles
+    messing2014 and keeps the disagreement in the note.
+  - Fixtures: Fang2022, Ohm2020, and messing2014 run their trimmed live
+    OpenAlex records through `openalex_to_work` and `verify_entry` in
+    `tests/test_verify.py`. Fang2022 is `matched` with no note (title
+    `unknown` by truncation, three passes); the other two are `matched` with
+    the disagreement noted. `cialdini2003influence` covers the short-title
+    gate; signal-level tests cover the min-token and truncation rules.
+  - Docs: the report-reading guide in the skill body and README splits
+    `method=doi` into `mismatch`, `probable` (title disagrees or too few
+    signals), and `matched` with a note, and adds the "title too short"
+    `unmatched` row. CHANGELOG `[Unreleased]` records the behavior changes.
+- **2026-09-02T22:53:46-07:00** — Review gate on PR #46 (medium): 7 confirmed,
+  1 plausible; fixes in `1e0aaa8`.
+  - **Review follow-up.**
+    - Actioned: the DOI override required no confirming signal, so one fail
+      plus three unknowns became `matched` while zero fails plus one pass
+      stayed `probable`. Moved the rule into
+      `status_from_signals(doi_resolved=True)` with a two-passes guard, and
+      added tests at the reducer and `verify_entry` levels. The skip-source
+      short-title note lost its `@etype:` and verify-via-URL framing;
+      restructured the search-path tail so it keeps them, documented the
+      `skip-source` variant in the README, skill body, and CHANGELOG, and
+      added a test. Cleanups: one shared `_jaccard`, one `hit` binding, one
+      tokenization; `is_short_title` was left without a consumer and removed
+      (CHANGELOG updated).
+    - Conscious no-ops: (1) a short title's `unknown` verdict lets a DOI
+      record by a different author with matching year and venue stay
+      `matched` with an author note. With the two-passes guard the override
+      never beats the status the same signals would get with the
+      disagreeing one unknown, and the note carries the disagreement.
+      (2) Possessive apostrophes inflate the token count ("Kant's Ethics" is
+      three tokens). That is pre-existing `normalize_title` behavior shared
+      with every similarity score, so it stays.
+  - Gate: `ruff check`, `ruff format --check`, `pyrefly check`, `pytest`
+    (250 passed).
+
+## Retrospective
+
+- The cross-cutting DOI override was the right primary fix. One rule in the
+  reducer resolved three of the four quirks and kept the year-review flag in
+  the note, where the per-quirk threshold tweaks in the original spec would
+  have loosened every source at once.
+- The override started in `verify.py` and moved into `status_from_signals`
+  at review, which is where it belonged: the fails and passes lists the
+  reducer already builds are exactly what the guard needs, and the
+  two-passes guard fell out of reading the existing "two passes is matched"
+  rule next to it.
+- A new "downgrade to unknown" rule interacts with every consumer of
+  `unknown`; the short-title rule quietly weakened the override's title
+  guard. Check each new verdict path against the status reduction table
+  before shipping, not after.
+- Real, trimmed API records as fixtures caught the truncation and
+  series-name cases directly and read well in the tests. The fetch date on
+  each record matters, since OpenAlex may fix the metadata later and the
+  fixture then documents a historical quirk.
+- Next time, run the review gate before opening the draft PR so the
+  follow-up lands in the initial diff rather than as an addendum.

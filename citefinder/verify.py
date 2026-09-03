@@ -27,11 +27,13 @@ from citefinder.bib import (
 from citefinder.client import CrossrefClient
 from citefinder.openalex import OpenAlexClient
 from citefinder.signals import (
+    MIN_TITLE_TOKENS,
     Status,
     Work,
     compute_signals,
     status_from_signals,
     title_similarity,
+    title_tokens,
 )
 
 # Entry types whose sources usually aren't indexed in academic metadata
@@ -149,7 +151,10 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = base.signals["title"].get("sim")
-        base.status, base.note = status_from_signals(base.signals)
+        # The bib's own DOI resolved to this record, so one non-title
+        # disagreement is metadata loss, not a different work (see
+        # `status_from_signals`).
+        base.status, base.note = status_from_signals(base.signals, doi_resolved=True)
         return base
 
     # No DOI — bibliographic search. Skip-source types still get tried but
@@ -193,10 +198,16 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         base.note = f"@{entry.etype}: not expected in source; verify via URL"
         return base
 
-    if best_item is not None and best_sim >= TITLE_MATCH_THRESHOLD:
-        work = source.to_work(best_item)
-        assert work is not None  # best_item is a real record
-        base.matched_doi = source.candidate_doi(best_item)
+    # A one- or two-word bib title scores a perfect similarity against any
+    # hit that contains those words, so it cannot pick a candidate on its own.
+    # Fall through to unmatched and leave the candidates for a human.
+    n_words = len(title_tokens(title))
+    short_title = n_words < MIN_TITLE_TOKENS
+    hit = best_item if best_sim >= TITLE_MATCH_THRESHOLD else None
+    if hit is not None and not short_title:
+        work = source.to_work(hit)
+        assert work is not None  # hit is a real record
+        base.matched_doi = source.candidate_doi(hit)
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = best_sim
@@ -216,10 +227,19 @@ def verify_entry(entry: Entry, source: Source) -> Result:
             base.matched_title = None
         return base
 
+    # Reaching here with a hit means the short title blocked it; say so and
+    # keep the skip-source framing for @online / @misc, whose canonical
+    # source is the URL either way.
+    why = (
+        f"title too short to match by search ({n_words} word(s), "
+        f"need {MIN_TITLE_TOKENS})"
+        if hit is not None
+        else "no plausible source hit"
+    )
     if entry.etype in SKIP_SOURCE_TYPES:
         base.status = Status.SKIP_SOURCE
-        base.note = f"@{entry.etype}: no plausible hit; verify via URL"
+        base.note = f"@{entry.etype}: {why}; verify via URL"
     else:
         base.status = Status.UNMATCHED
-        base.note = "no plausible source hit"
+        base.note = f"{why}; review candidates" if hit is not None else why
     return base

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `verify` keeps a DOI-resolved entry `matched` when exactly one non-title
+  signal disagrees and at least two confirm, and records the disagreement in
+  `note` (`DOI resolved; source disagrees on: year (...)`). OpenAlex truncates titles at the colon,
+  stores the LNCS series name instead of the booktitle, and reports preprint
+  years; those no longer land such entries in `probable`. A title
+  disagreement, or two disagreeing signals, still does.
+- The title check no longer passes on a bib title of fewer than three words,
+  and search no longer selects a candidate on such a title: the entry is
+  `unmatched` (`skip-source` for `@online`/`@misc`) with a "title too short"
+  note and the hits stay in `candidates`. A one-word title such as "Influence" previously matched any
+  record containing the word.
+- The title check reports `unknown` rather than `fail` when one title is a
+  truncation of the other (subtitle dropped on either side) and the shorter
+  side still has at least three words.
+- Title signals carry a `note` when the verdict was downgraded for either
+  reason above.
+- The report-reading guide in the skill body and README distinguishes
+  `method=doi` `probable` (title disagrees, or too few signals) from
+  `matched` with a note (one non-title field disagrees, usually source-side
+  metadata loss).
+
+### Added
+
+- `MIN_TITLE_TOKENS` and `title_tokens` in `citefinder.signals`, and a
+  `doi_resolved` keyword on `status_from_signals` that applies the DOI rule
+  above.
+
 ## [0.7.0] - 2026-09-02
 
 ### Added
