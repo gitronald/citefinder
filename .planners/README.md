@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 009 | [Resolve cache paths from a project-level config](plans/009-project-cache-config/plan.md) | draft | — | — |
+| 009 | [Resolve cache paths from a project-level config](plans/009-project-cache-config/plan.md) | active | — | — |
 | 002 | [Reduce false positives and false negatives in signal checks](plans/002-handle-openalex-metadata-quirks/plan.md) | draft | — | — |
 | 008 | [Retry rate-limited requests with backoff and pace the search fallback](plans/008-retry-rate-limited-requests/plan.md) | done | 2026-09-02 17:53 PT | [#42](https://github.com/gitronald/citefinder/pull/42) |
 | 007 | [Bundle the use-citefinder skill in the package](plans/007-bundle-skill-in-package/plan.md) | done | 2026-08-31 22:44 PT | [#37](https://github.com/gitronald/citefinder/pull/37) |
