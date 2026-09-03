@@ -58,6 +58,11 @@ ENV_KEYS: dict[str, tuple[str | None, str]] = {
     "CROSSREF_MIN_INTERVAL": ("crossref", "min_interval"),
 }
 
+# The sections a config file may carry, each of which must be a table.
+SECTIONS: tuple[str, ...] = tuple(
+    dict.fromkeys(section for section, _ in ENV_KEYS.values() if section is not None)
+)
+
 
 def user_config_path() -> Path:
     """`~/.config/citefinder/config.toml`, honoring `$XDG_CONFIG_HOME`."""
@@ -101,21 +106,32 @@ def load_config(path: Path) -> dict[str, Any]:
     """Parse a config file; for a `pyproject.toml`, its `[tool.citefinder]`.
 
     Raises `OSError`, `tomllib.TOMLDecodeError`, or `ValueError` (a
-    `tool.citefinder` that is not a table) — how to report a broken file
-    is the caller's decision (the CLI warns and falls through).
+    `tool.citefinder`, or one of `SECTIONS`, that is not a table) — how to
+    report a broken file is the caller's decision (the CLI warns and falls
+    through).
     """
     with open(path, "rb") as f:
         data = tomllib.load(f)
     if path.name != "pyproject.toml":
-        return data
-    tool = data.get("tool")
-    table = tool.get("citefinder") if isinstance(tool, dict) else None
-    if table is None:
-        return {}
-    if not isinstance(table, dict):
-        # A scalar or array under `[tool]` is a broken config, not an
-        # absent one: raise so the caller warns instead of silently reading
-        # an empty table over a real config further up the tree.
-        kind = type(table).__name__
-        raise ValueError(f"[tool.citefinder] is not a table (got {kind})")
-    return table
+        config = data
+    else:
+        tool = data.get("tool")
+        table = tool.get("citefinder") if isinstance(tool, dict) else None
+        if table is None:
+            return {}
+        if not isinstance(table, dict):
+            # A scalar or array under `[tool]` is a broken config, not an
+            # absent one: raise so the caller warns instead of silently
+            # reading an empty table over a real config further up the tree.
+            kind = type(table).__name__
+            raise ValueError(f"[tool.citefinder] is not a table (got {kind})")
+        config = table
+    for section in SECTIONS:
+        value = config.get(section)
+        if value is not None and not isinstance(value, dict):
+            # `openalex = 5` where `[openalex]` was meant: the same kind of
+            # broken file, raised here so the caller never reads keys off a
+            # scalar.
+            kind = type(value).__name__
+            raise ValueError(f"[{section}] is not a table (got {kind})")
+    return config

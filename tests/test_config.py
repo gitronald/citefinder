@@ -492,6 +492,27 @@ def test_malformed_project_config_warns_and_falls_through(
     assert os.environ["CITEFINDER_CACHE_DIR"] == str(tmp_path / "user")
 
 
+@pytest.mark.parametrize("pyproject", [False, True])
+def test_non_table_section_warns_and_falls_through(
+    tmp_path: Path, monkeypatch, capsys, pyproject: bool
+) -> None:
+    """`openalex = 5` where `[openalex]` was meant is a broken file, not an
+    absent section: warn and fall through rather than crash the CLI at
+    import reading keys off a scalar."""
+    project_dir = tmp_path / "proj"
+    cfg = write_project_config(project_dir, "openalex = 5\n", pyproject)
+    write_user_config(tmp_path, f'cache_dir = "{(tmp_path / "user").as_posix()}"\n')
+    monkeypatch.chdir(project_dir)
+
+    _load_configs()  # must not raise
+
+    with pytest.raises(ValueError, match=r"\[openalex\] is not a table \(got int\)"):
+        load_config(cfg)
+    err = capsys.readouterr().err
+    assert f"warning: ignoring {cfg}" in err
+    assert os.environ["CITEFINDER_CACHE_DIR"] == str(tmp_path / "user")
+
+
 # --- citefinder config --------------------------------------------------------
 
 
