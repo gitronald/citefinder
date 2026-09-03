@@ -1,8 +1,8 @@
 ---
 id: 8
 slug: retry-rate-limited-requests
-status: draft
-branch:
+status: active
+branch: feature/retry-rate-limited-requests
 created: 2026-09-02T16:51:43-07:00
 concluded:
 pr:
