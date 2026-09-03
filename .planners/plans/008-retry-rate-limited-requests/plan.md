@@ -5,7 +5,7 @@ status: active
 branch: feature/retry-rate-limited-requests
 created: 2026-09-02T16:51:43-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/42
 ---
 
 # Retry rate-limited requests with backoff and pace the search fallback

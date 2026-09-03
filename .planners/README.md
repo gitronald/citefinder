@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 008 | [Retry rate-limited requests with backoff and pace the search fallback](plans/008-retry-rate-limited-requests/plan.md) | active | — | — |
+| 008 | [Retry rate-limited requests with backoff and pace the search fallback](plans/008-retry-rate-limited-requests/plan.md) | active | — | [#42](https://github.com/gitronald/citefinder/pull/42) |
 | 002 | [Reduce false positives and false negatives in signal checks](plans/002-handle-openalex-metadata-quirks/plan.md) | draft | — | — |
 | 007 | [Bundle the use-citefinder skill in the package](plans/007-bundle-skill-in-package/plan.md) | done | 2026-08-31 22:44 PT | [#37](https://github.com/gitronald/citefinder/pull/37) |
 | 006 | [Port downstream improvements into the use-citefinder skill](plans/006-update-use-citefinder-skill/plan.md) | done | 2026-08-24 08:28 PT | [#33](https://github.com/gitronald/citefinder/pull/33) |
