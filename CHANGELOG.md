@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-03
+
 ### Changed
 
 - `verify` keeps a DOI-resolved entry `matched` when exactly one non-title
