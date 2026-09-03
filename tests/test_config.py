@@ -1,5 +1,6 @@
 """Tests for cache-path resolution and the CLI's config-file loading."""
 
+import importlib
 import os
 from pathlib import Path
 from typing import Any
@@ -9,8 +10,8 @@ from typer.testing import CliRunner
 
 from citefinder.cli import _load_configs, app
 from citefinder.config import (
-    DEFAULT_CACHE_DIR,
     PROJECT_CONFIG_NAME,
+    default_cache_dir,
     find_project_config,
     load_config,
     resolve_cache_path,
@@ -32,14 +33,20 @@ CONFIG_ENV = (
 
 @pytest.fixture(autouse=True)
 def clean_env(tmp_path: Path, monkeypatch) -> None:
-    """Start from an empty config env and an empty user config dir.
+    """Start from an empty config env, an empty user config dir, and a
+    sandboxed working directory.
 
     The loader writes `os.environ` directly; `delenv` records the prior
     (absent) state so monkeypatch removes whatever a test loads at teardown.
+    Pinning cwd keeps project-config discovery inside `tmp_path` rather
+    than walking the repo's ancestors, and a fresh `_config_sources` means
+    no source label leaks in from an earlier test.
     """
     for name in CONFIG_ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("citefinder.cli._config_sources", {})
 
 
 @pytest.fixture
@@ -86,8 +93,8 @@ def write_bib(directory: Path, name: str = "refs.bib") -> Path:
 
 
 def test_resolve_cache_path_defaults_to_the_home_cache_dir() -> None:
-    assert resolve_cache_path("openalex") == DEFAULT_CACHE_DIR / "openalex.jsonl"
-    assert DEFAULT_CACHE_DIR == Path.home() / ".cache" / "citefinder"
+    assert resolve_cache_path("openalex") == default_cache_dir() / "openalex.jsonl"
+    assert default_cache_dir() == Path.home() / ".cache" / "citefinder"
 
 
 def test_resolve_cache_path_joins_cache_dir_and_expands_home(tmp_path: Path) -> None:
@@ -97,13 +104,33 @@ def test_resolve_cache_path_joins_cache_dir_and_expands_home(tmp_path: Path) -> 
     assert resolve_cache_path("openalex", "data") == Path("data") / "openalex.jsonl"
 
 
+def test_importing_config_never_touches_the_home_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`Path.home()` raises where no home can be determined (an unnamed UID
+    in a container); the default must be computed lazily, not at import.
+    """
+    import citefinder.config as config
+
+    def no_home() -> Path:
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "home", no_home)
+    importlib.reload(config)  # must not raise
+
+    expected = tmp_path / "openalex.jsonl"
+    assert config.resolve_cache_path("openalex", tmp_path) == expected
+    with pytest.raises(RuntimeError):
+        config.resolve_cache_path("openalex")
+
+
 # --- cache_dir precedence on the lookup commands ----------------------------
 
 
 def test_lookup_defaults_to_the_home_cache_dir(captured) -> None:
     result = runner.invoke(app, ["doi", "10.1/x"])
     assert result.exit_code == 0, result.output
-    assert captured["cache_path"] == DEFAULT_CACHE_DIR / "openalex.jsonl"
+    assert captured["cache_path"] == default_cache_dir() / "openalex.jsonl"
 
 
 def test_cache_flag_beats_cache_dir(tmp_path: Path, captured) -> None:
@@ -234,6 +261,22 @@ def test_verify_out_beats_cache_dir(tmp_path: Path, captured) -> None:
     assert not caches.exists()
 
 
+def test_verify_out_expands_home_and_keeps_the_cache_beside_results(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    """A quoted `~` reaches the command unexpanded; `--out` is anchored like
+    `--cache-dir`, so both output files land in the same expanded directory.
+    """
+    bib = write_bib(tmp_path / "paper")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["verify", str(bib), "--out", "~/vout"])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "vout" / "results.json").is_file()
+    assert captured["cache_path"] == tmp_path / "vout" / "openalex.jsonl"
+
+
 # --- user config file ---------------------------------------------------------
 
 
@@ -243,6 +286,32 @@ def test_load_configs_populates_env(tmp_path: Path) -> None:
     _load_configs()
 
     assert os.environ.get("OPENALEX_MAILTO") == "you@example.com"
+
+
+def test_pyproject_with_a_non_table_citefinder_key_warns_and_falls_through(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A scalar `citefinder` under `[tool]` is a broken config, not an absent
+    one: warn and fall through to the user config, the same as malformed
+    TOML, rather than silently reading an empty table.
+    """
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    pyproject = project_dir / "pyproject.toml"
+    pyproject.write_text('[tool]\ncitefinder = "oops"\n', encoding="utf-8")
+    user_dir = tmp_path / "user"
+    write_user_config(tmp_path, f'cache_dir = "{user_dir}"\n')
+    monkeypatch.chdir(project_dir)
+
+    _load_configs()  # must not raise
+
+    assert find_project_config(project_dir) == pyproject
+    with pytest.raises(ValueError, match="not a table"):
+        load_config(pyproject)
+    err = capsys.readouterr().err
+    assert f"warning: ignoring {pyproject}" in err
+    assert "not a table" in err
+    assert os.environ["CITEFINDER_CACHE_DIR"] == str(user_dir)
 
 
 def test_load_configs_ignores_a_malformed_toml(tmp_path: Path, capsys) -> None:
@@ -322,7 +391,7 @@ def test_no_project_config_leaves_the_defaults(
     assert "CITEFINDER_CACHE_DIR" not in os.environ
     result = runner.invoke(app, ["doi", "10.1/x"])
     assert result.exit_code == 0, result.output
-    assert captured["cache_path"] == DEFAULT_CACHE_DIR / "openalex.jsonl"
+    assert captured["cache_path"] == default_cache_dir() / "openalex.jsonl"
 
 
 LEVELS = ("flag", "env", "project", "user", "default")
@@ -357,7 +426,7 @@ def test_precedence_matrix(winner: str, tmp_path: Path, monkeypatch, captured) -
 
     assert result.exit_code == 0, result.output
     if winner == "default":
-        assert captured["cache_path"] == DEFAULT_CACHE_DIR / "openalex.jsonl"
+        assert captured["cache_path"] == default_cache_dir() / "openalex.jsonl"
         assert captured["mailto"] is None
     else:
         assert captured["cache_path"] == tmp_path / winner / "openalex.jsonl"
@@ -485,7 +554,7 @@ def test_config_with_nothing_set_reports_defaults(tmp_path: Path, monkeypatch) -
     assert rows["openalex.mailto"] == ("default", "(none)")
     assert rows["openalex.min_interval"] == ("default", "0.1")
     assert rows["crossref.min_interval"] == ("default", "0")
-    assert f"openalex cache:  {DEFAULT_CACHE_DIR / 'openalex.jsonl'}" in out
+    assert f"openalex cache:  {default_cache_dir() / 'openalex.jsonl'}" in out
     assert f"verify output:   {tmp_path / 'data' / 'citefinder'}/<bib-stem>/" in out
 
 
@@ -502,3 +571,25 @@ def test_config_reports_a_cache_dir_flag_anchored_to_cwd(
     assert (
         f"verify output:   {tmp_path / 'caches'}/<bib-stem>/<source>/" in result.output
     )
+
+
+def test_config_verify_output_is_where_verify_writes(tmp_path: Path, captured) -> None:
+    """`config` and `verify` derive the output root from one helper, so the
+    path `config` prints is the one `verify` writes to.
+    """
+    write_project_config(tmp_path, 'cache_dir = "caches"\n')
+    _load_configs()
+    shown = runner.invoke(app, ["config"]).output
+    line = next(ln for ln in shown.splitlines() if ln.startswith("verify output:"))
+    template = line.split(":", 1)[1].strip()
+    expected = Path(
+        template.replace("<bib-stem>", "paper").replace("<source>", "openalex")
+    )
+
+    bib = write_bib(tmp_path / "paper")
+    result = runner.invoke(app, ["verify", str(bib)])
+
+    assert result.exit_code == 0, result.output
+    assert expected == tmp_path / "caches" / "paper" / "openalex"
+    assert (expected / "results.json").is_file()
+    assert captured["cache_path"] == expected / "openalex.jsonl"

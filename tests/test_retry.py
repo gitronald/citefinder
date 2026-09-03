@@ -330,6 +330,8 @@ def test_config_retry_keys_reach_the_client(tmp_path: Path, monkeypatch) -> None
         "[openalex]\nmax_retries = 0\nmin_interval = 0.5\n", encoding="utf-8"
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    # Pin cwd so project-config discovery walks a sandbox, not the repo.
+    monkeypatch.chdir(tmp_path)
     # `_load_configs` writes os.environ directly; delenv records the
     # prior (absent) state so monkeypatch removes the keys again at teardown.
     for name in ("OPENALEX_MAX_RETRIES", "OPENALEX_MIN_INTERVAL"):

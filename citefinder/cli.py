@@ -95,7 +95,7 @@ def _load_configs() -> None:
 def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
     try:
         config = load_config(path)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+    except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
         # A broken config file must never take the whole CLI down —
         # `citefinder skill` is the only copy of the skill instructions on
         # this machine. Warn and fall through to the next source.
@@ -142,7 +142,7 @@ _CACHE_HELP = (
 )
 _CACHE_DIR_HELP = (
     "Directory the {what} derives from: <cache-dir>/{layout} (default {default}). "
-    "Also CITEFINDER_CACHE_DIR in the env or `cache_dir` in config.toml."
+    "Also CITEFINDER_CACHE_DIR in the env or `cache_dir` in a config file."
 )
 OpenAlexCacheOption = typer.Option(
     None, "--cache", help=_CACHE_HELP.format(source="openalex")
@@ -310,6 +310,13 @@ def _cache_path(source: str, cache: Path | None, cache_dir: Path | None) -> Path
     if cache is not None:
         return cache
     return resolve_cache_path(source, _cache_dir(cache_dir))
+
+
+def _verify_root(cache_dir: Path | None) -> Path:
+    """The directory `verify` files its output under: `cache_dir` when one
+    is set, else `data/citefinder` under the working directory. Shared with
+    `citefinder config` so the path it prints is the one `verify` writes."""
+    return _cache_dir(cache_dir) or Path.cwd() / "data" / "citefinder"
 
 
 def _emit(result: object) -> None:
@@ -489,15 +496,18 @@ def verify(
     # Default output: <cache_dir>/<bib-stem>/<source>/, with cache_dir
     # falling back to cwd/data/citefinder. Per-source subdir lets crossref
     # and openalex outputs coexist for side-by-side comparison without
-    # collision.
+    # collision. `--out` is anchored to cwd like `--cache-dir`, so a quoted
+    # `~` expands and the cache below lands beside `results.json`.
     stem = bib_file.stem
     if stem == "refs":
         stem = bib_file.parent.name
-    root = _cache_dir(cache_dir) or Path.cwd() / "data" / "citefinder"
-    out_dir = out or root / stem / source
+    if out is not None:
+        out_dir = _anchor(out, Path.cwd())
+    else:
+        out_dir = _verify_root(cache_dir) / stem / source
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cache_path = out_dir / f"{source}.jsonl"
+    cache_path = resolve_cache_path(source, out_dir)
     knobs = _source_client_kwargs(source, max_retries, min_interval)
     if source == "crossref":
         src = Source(
@@ -723,7 +733,7 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
     typer.echo()
     typer.echo(f"openalex cache:  {resolve_cache_path('openalex', root)}")
     typer.echo(f"crossref cache:  {resolve_cache_path('crossref', root)}")
-    verify_root = root or Path.cwd() / "data" / "citefinder"
+    verify_root = _verify_root(cache_dir)
     typer.echo(f"verify output:   {verify_root / '<bib-stem>' / '<source>'}/")
 
 

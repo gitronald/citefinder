@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `--cache` on the lookup commands defaults to `<cache_dir>/<source>.jsonl`
   rather than a fixed home-directory path — the same
   `~/.cache/citefinder/<source>.jsonl` when nothing sets `cache_dir`.
+- `verify --out` is anchored to the working directory and expands a leading
+  `~`, the same as `--cache-dir`, so `results.json` and the `<source>.jsonl`
+  cache always land in one directory.
 
 ## [0.6.0] - 2026-09-02
 

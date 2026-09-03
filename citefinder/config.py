@@ -14,7 +14,17 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "citefinder"
+
+def default_cache_dir() -> Path:
+    """`~/.cache/citefinder`, the root every cache path derives from when
+    nothing sets `cache_dir`.
+
+    A function rather than a module constant so that importing the package
+    never touches the home directory: `Path.home()` raises when no home can
+    be determined (an unnamed UID in a container, say), and a caller that
+    passes its own `cache_dir` never needs it.
+    """
+    return Path.home() / ".cache" / "citefinder"
 
 
 def resolve_cache_path(source: str, cache_dir: str | Path | None = None) -> Path:
@@ -28,7 +38,7 @@ def resolve_cache_path(source: str, cache_dir: str | Path | None = None) -> Path
     project's config means that project's `data/citefinder` wherever the
     command runs from.
     """
-    root = DEFAULT_CACHE_DIR if cache_dir is None else Path(cache_dir).expanduser()
+    root = default_cache_dir() if cache_dir is None else Path(cache_dir).expanduser()
     return root / f"{source}.jsonl"
 
 
@@ -90,8 +100,9 @@ def _declares_citefinder(pyproject: Path) -> bool:
 def load_config(path: Path) -> dict[str, Any]:
     """Parse a config file; for a `pyproject.toml`, its `[tool.citefinder]`.
 
-    Raises `OSError` or `tomllib.TOMLDecodeError` — how to report a broken
-    file is the caller's decision (the CLI warns and falls through).
+    Raises `OSError`, `tomllib.TOMLDecodeError`, or `ValueError` (a
+    `tool.citefinder` that is not a table) — how to report a broken file
+    is the caller's decision (the CLI warns and falls through).
     """
     with open(path, "rb") as f:
         data = tomllib.load(f)
@@ -99,4 +110,12 @@ def load_config(path: Path) -> dict[str, Any]:
         return data
     tool = data.get("tool")
     table = tool.get("citefinder") if isinstance(tool, dict) else None
-    return table if isinstance(table, dict) else {}
+    if table is None:
+        return {}
+    if not isinstance(table, dict):
+        # A scalar or array under `[tool]` is a broken config, not an
+        # absent one: raise so the caller warns instead of silently reading
+        # an empty table over a real config further up the tree.
+        kind = type(table).__name__
+        raise ValueError(f"[tool.citefinder] is not a table (got {kind})")
+    return table
