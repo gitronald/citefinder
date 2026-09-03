@@ -20,15 +20,29 @@ from __future__ import annotations
 
 import os
 import re
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 
-from citefinder._base import DEFAULT_TIMEOUT, CachedJsonClient, _strip_mailto
+from citefinder._base import (
+    DEFAULT_BACKOFF_BASE,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_MAX_WAIT,
+    DEFAULT_TIMEOUT,
+    CachedJsonClient,
+    _strip_mailto,
+)
 from citefinder.cache import JsonlCache
 
 OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
+
+# OpenAlex documents a limit of 10 requests per second (plus a daily cap), so
+# consecutive uncached requests from one client are spaced at least this far
+# apart by default. Crossref publishes no fixed rate, so its default is 0.
+DEFAULT_MIN_INTERVAL = 0.1
 
 # OpenAlex `filter=` syntax reserves these characters (`,` separates filters,
 # `|` is OR, `:` separates field from value, `!` is negation). Including them
@@ -38,6 +52,7 @@ _FILTER_RESERVED_RE = re.compile(r"[,:|!?]")
 
 __all__ = [
     "API_KEY_ENV_VAR",
+    "DEFAULT_MIN_INTERVAL",
     "OPENALEX_BASE",
     "OpenAlexClient",
     "_strip_mailto",
@@ -98,6 +113,14 @@ class OpenAlexClient(CachedJsonClient):
         api_key: str | None = None,
         user_agent: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        backoff_base: float = DEFAULT_BACKOFF_BASE,
+        max_wait: float = DEFAULT_MAX_WAIT,
+        min_interval: float = DEFAULT_MIN_INTERVAL,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         super().__init__(
             cache=cache,
@@ -105,6 +128,13 @@ class OpenAlexClient(CachedJsonClient):
             mailto=mailto,
             user_agent=user_agent,
             timeout=timeout,
+            max_retries=max_retries,
+            backoff_base=backoff_base,
+            max_wait=max_wait,
+            min_interval=min_interval,
+            sleep=sleep,
+            monotonic=monotonic,
+            clock=clock,
         )
         # Falls back to env var so users can `export OPENALEX_API_KEY=...` (or
         # set it in a `.env` file the CLI loads at startup) without threading

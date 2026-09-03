@@ -19,6 +19,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
 from operator import itemgetter
 from pathlib import Path
+from typing import Any
 
 import typer
 from dotenv import find_dotenv, load_dotenv
@@ -46,9 +47,13 @@ def _load_user_config() -> None:
         [openalex]
         api_key = "oa_pk_..."
         mailto = "you@example.com"
+        max_retries = 3
+        min_interval = 0.1
 
         [crossref]
         mailto = "you@example.com"
+        max_retries = 3
+        min_interval = 0
     """
     xdg = os.environ.get("XDG_CONFIG_HOME")
     config_dir = Path(xdg) if xdg else Path.home() / ".config"
@@ -67,12 +72,17 @@ def _load_user_config() -> None:
     mappings = {
         "OPENALEX_API_KEY": ("openalex", "api_key"),
         "OPENALEX_MAILTO": ("openalex", "mailto"),
+        "OPENALEX_MAX_RETRIES": ("openalex", "max_retries"),
+        "OPENALEX_MIN_INTERVAL": ("openalex", "min_interval"),
         "CROSSREF_MAILTO": ("crossref", "mailto"),
+        "CROSSREF_MAX_RETRIES": ("crossref", "max_retries"),
+        "CROSSREF_MIN_INTERVAL": ("crossref", "min_interval"),
     }
     for env_name, (section, key) in mappings.items():
         value = (config.get(section) or {}).get(key)
-        if value and env_name not in os.environ:
-            os.environ[env_name] = value
+        # `is not None`, not truthiness: `max_retries = 0` is a real setting.
+        if value is not None and value != "" and env_name not in os.environ:
+            os.environ[env_name] = str(value)
 
 
 _load_user_config()
@@ -110,6 +120,88 @@ ApiKeyOption = typer.Option(
     help="OpenAlex API key (also OPENALEX_API_KEY env, .env, or config.toml).",
 )
 
+_MAX_RETRIES_HELP = (
+    "Retries after a 429/502/503/504 response; 0 disables (default 3). "
+    "Also {env} env or config.toml."
+)
+_MIN_INTERVAL_HELP = (
+    "Minimum seconds between requests (default {default}). "
+    "Also {env} env or config.toml."
+)
+OpenAlexMaxRetriesOption = typer.Option(
+    None,
+    "--max-retries",
+    min=0,
+    envvar="OPENALEX_MAX_RETRIES",
+    help=_MAX_RETRIES_HELP.format(env="OPENALEX_MAX_RETRIES"),
+)
+OpenAlexMinIntervalOption = typer.Option(
+    None,
+    "--min-interval",
+    min=0.0,
+    envvar="OPENALEX_MIN_INTERVAL",
+    help=_MIN_INTERVAL_HELP.format(default="0.1", env="OPENALEX_MIN_INTERVAL"),
+)
+CrossrefMaxRetriesOption = typer.Option(
+    None,
+    "--max-retries",
+    min=0,
+    envvar="CROSSREF_MAX_RETRIES",
+    help=_MAX_RETRIES_HELP.format(env="CROSSREF_MAX_RETRIES"),
+)
+CrossrefMinIntervalOption = typer.Option(
+    None,
+    "--min-interval",
+    min=0.0,
+    envvar="CROSSREF_MIN_INTERVAL",
+    help=_MIN_INTERVAL_HELP.format(default="0", env="CROSSREF_MIN_INTERVAL"),
+)
+
+
+def _client_kwargs(
+    max_retries: int | None, min_interval: float | None
+) -> dict[str, Any]:
+    """Constructor kwargs for the knobs a user actually set.
+
+    An unset flag is omitted rather than passed as `None`, so the client's
+    own default (per-source pacing, 3 retries) stays in force.
+    """
+    kwargs: dict[str, Any] = {}
+    if max_retries is not None:
+        kwargs["max_retries"] = max_retries
+    if min_interval is not None:
+        kwargs["min_interval"] = min_interval
+    return kwargs
+
+
+def _source_client_kwargs(
+    source: str, max_retries: int | None, min_interval: float | None
+) -> dict[str, Any]:
+    """Like `_client_kwargs`, falling back to the chosen source's env vars.
+
+    `verify` picks its source at runtime, so its flags can't bind a single
+    `envvar`; an unset flag reads `<SOURCE>_MAX_RETRIES` /
+    `<SOURCE>_MIN_INTERVAL` (which config.toml also feeds) so
+    `verify --source crossref` honors the `[crossref]` section.
+    """
+    prefix = source.upper()
+    if max_retries is None:
+        max_retries = _env_number(f"{prefix}_MAX_RETRIES", int)
+    if min_interval is None:
+        min_interval = _env_number(f"{prefix}_MIN_INTERVAL", float)
+    return _client_kwargs(max_retries, min_interval)
+
+
+def _env_number(name: str, cast: type[int] | type[float]) -> Any:
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    try:
+        return cast(raw)
+    except ValueError:
+        typer.echo(f"Error: {name}={raw!r} is not a number", err=True)
+        raise typer.Exit(code=2) from None
+
 
 def _emit(result: object) -> None:
     typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
@@ -124,9 +216,16 @@ def doi(
     cache: Path = OpenAlexCacheOption,
     mailto: str | None = OpenAlexMailtoOption,
     api_key: str | None = ApiKeyOption,
+    max_retries: int | None = OpenAlexMaxRetriesOption,
+    min_interval: float | None = OpenAlexMinIntervalOption,
 ) -> None:
     """Look up a single DOI via OpenAlex."""
-    client = OpenAlexClient(cache_path=cache, mailto=mailto, api_key=api_key)
+    client = OpenAlexClient(
+        cache_path=cache,
+        mailto=mailto,
+        api_key=api_key,
+        **_client_kwargs(max_retries, min_interval),
+    )
     result = client.lookup_doi(doi)
     if result is None:
         typer.echo(f"not found: {doi}", err=True)
@@ -141,9 +240,16 @@ def search(
     cache: Path = OpenAlexCacheOption,
     mailto: str | None = OpenAlexMailtoOption,
     api_key: str | None = ApiKeyOption,
+    max_retries: int | None = OpenAlexMaxRetriesOption,
+    min_interval: float | None = OpenAlexMinIntervalOption,
 ) -> None:
     """Search OpenAlex by title (title-only filter; tuned for citation lookup)."""
-    client = OpenAlexClient(cache_path=cache, mailto=mailto, api_key=api_key)
+    client = OpenAlexClient(
+        cache_path=cache,
+        mailto=mailto,
+        api_key=api_key,
+        **_client_kwargs(max_retries, min_interval),
+    )
     items = client.search_title(title, rows=rows)
     _emit(items)
 
@@ -239,6 +345,20 @@ def verify(
         "--out",
         help="Output dir (default: data/citefinder/<bib-stem>/<source>/).",
     ),
+    max_retries: int | None = typer.Option(
+        None,
+        "--max-retries",
+        min=0,
+        help="Retries after a 429/502/503/504 response; 0 disables (default 3). "
+        "Also <SOURCE>_MAX_RETRIES env or config.toml.",
+    ),
+    min_interval: float | None = typer.Option(
+        None,
+        "--min-interval",
+        min=0.0,
+        help="Minimum seconds between requests (default 0.1 for OpenAlex, 0 for "
+        "Crossref). Also <SOURCE>_MIN_INTERVAL env or config.toml.",
+    ),
 ) -> None:
     """Verify a `.bib` against Crossref or OpenAlex.
 
@@ -263,12 +383,15 @@ def verify(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cache_path = out_dir / f"{source}.jsonl"
+    knobs = _source_client_kwargs(source, max_retries, min_interval)
     if source == "crossref":
-        src = Source(name="crossref", client=CrossrefClient(cache_path=cache_path))
+        src = Source(
+            name="crossref", client=CrossrefClient(cache_path=cache_path, **knobs)
+        )
     else:
         src = Source(
             name="openalex",
-            client=OpenAlexClient(cache_path=cache_path, mailto=mailto),
+            client=OpenAlexClient(cache_path=cache_path, mailto=mailto, **knobs),
         )
 
     entries = parse_entries(bib_file.read_text())
@@ -299,9 +422,11 @@ def verify(
         typer.echo(f" {r.status:<14} {r.method:<7} sim={sim} [{net_or_hit}]  {running}")
 
     elapsed = time.monotonic() - t0
+    retries = getattr(src.client, "retries", 0)
     typer.echo(
         f"\nDone in {elapsed:.1f}s — {network_calls} network call(s), "
-        f"{len(entries) - network_calls} cache hit(s)."
+        f"{len(entries) - network_calls} cache hit(s), "
+        f"{retries} retr{'y' if retries == 1 else 'ies'}."
     )
     typer.echo(
         "Final counts — "
@@ -437,9 +562,14 @@ def crossref_doi(
     doi: str,
     cache: Path = CrossrefCacheOption,
     mailto: str | None = CrossrefMailtoOption,
+    max_retries: int | None = CrossrefMaxRetriesOption,
+    min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Look up a single DOI via Crossref."""
-    result = CrossrefClient(cache_path=cache, mailto=mailto).lookup_doi(doi)
+    client = CrossrefClient(
+        cache_path=cache, mailto=mailto, **_client_kwargs(max_retries, min_interval)
+    )
+    result = client.lookup_doi(doi)
     if result is None:
         typer.echo(f"not found: {doi}", err=True)
         raise typer.Exit(code=1)
@@ -452,9 +582,13 @@ def crossref_search(
     rows: int = RowsOption,
     cache: Path = CrossrefCacheOption,
     mailto: str | None = CrossrefMailtoOption,
+    max_retries: int | None = CrossrefMaxRetriesOption,
+    min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Search Crossref by free-form bibliographic query (author + title + year)."""
-    client = CrossrefClient(cache_path=cache, mailto=mailto)
+    client = CrossrefClient(
+        cache_path=cache, mailto=mailto, **_client_kwargs(max_retries, min_interval)
+    )
     items = client.search_bibliographic(query, rows=rows)
     _emit(items)
 
@@ -465,10 +599,14 @@ def crossref_chapter(
     chapter: str,
     cache: Path = CrossrefCacheOption,
     mailto: str | None = CrossrefMailtoOption,
+    max_retries: int | None = CrossrefMaxRetriesOption,
+    min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Look up a book chapter by `{book_doi}.{NNN}` pattern."""
     chapter_arg: int | str = int(chapter) if chapter.isdigit() else chapter
-    client = CrossrefClient(cache_path=cache, mailto=mailto)
+    client = CrossrefClient(
+        cache_path=cache, mailto=mailto, **_client_kwargs(max_retries, min_interval)
+    )
     result = client.lookup_book_chapter(book_doi, chapter_arg)
     if result is None:
         typer.echo(f"not found: {book_doi}.{chapter}", err=True)
