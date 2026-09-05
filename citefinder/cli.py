@@ -162,7 +162,7 @@ VerifyCacheDirOption = typer.Option(
     "--cache-dir",
     help=_CACHE_DIR_HELP.format(
         what="output dir",
-        layout="<bib-stem>/<source>/",
+        layout="<bib-dir>[-<bib-stem>]/<source>/",
         default="data/citefinder under the working directory",
     ),
 )
@@ -319,6 +319,29 @@ def _verify_root(cache_dir: Path | None) -> Path:
     return _cache_dir(cache_dir) or Path.cwd() / "data" / "citefinder"
 
 
+_PRIMARY_BIB_STEM = "refs"
+
+
+def _verify_out_dir(bib_file: Path, source: str, cache_dir: Path | None) -> Path:
+    """The default directory `verify` writes to:
+    `<root>/<bib-dir>[-<bib-stem>]/<source>/`, where `<bib-dir>` is the name
+    of the directory holding the `.bib` and the `-<bib-stem>` suffix is added
+    unless the file is the primary `refs.bib`.
+
+    Keying on the directory rather than the stem keeps runs from different
+    directories apart even when they name their bibliographies alike
+    (`refs.bib` everywhere, or an `extra.bib` in each); keying on the stem
+    alone funnelled them into one directory, the later run overwriting the
+    earlier. The path is resolved first: a bare `verify refs.bib` has no
+    parent component to name the directory by otherwise.
+    """
+    bib = bib_file.resolve()
+    name = bib.parent.name
+    if bib.stem != _PRIMARY_BIB_STEM:
+        name = f"{name}-{bib.stem}"
+    return _verify_root(cache_dir) / name / source
+
+
 def _emit(result: object) -> None:
     typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -461,7 +484,7 @@ def verify(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="Output dir (default: <cache-dir>/<bib-stem>/<source>/). "
+        help="Output dir (default: <cache-dir>/<bib-dir>[-<bib-stem>]/<source>/). "
         "Overrides --cache-dir.",
     ),
     cache_dir: Path | None = VerifyCacheDirOption,
@@ -493,18 +516,15 @@ def verify(
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
 
-    # Default output: <cache_dir>/<bib-stem>/<source>/, with cache_dir
-    # falling back to cwd/data/citefinder. Per-source subdir lets crossref
-    # and openalex outputs coexist for side-by-side comparison without
-    # collision. `--out` is anchored to cwd like `--cache-dir`, so a quoted
-    # `~` expands and the cache below lands beside `results.json`.
-    stem = bib_file.stem
-    if stem == "refs":
-        stem = bib_file.parent.name
+    # Default output: <cache_dir>/<bib-dir>[-<bib-stem>]/<source>/, with
+    # cache_dir falling back to cwd/data/citefinder. Per-source subdir lets
+    # crossref and openalex outputs coexist for side-by-side comparison
+    # without collision. `--out` is anchored to cwd like `--cache-dir`, so a
+    # quoted `~` expands and the cache below lands beside `results.json`.
     if out is not None:
         out_dir = _anchor(out, Path.cwd())
     else:
-        out_dir = _verify_root(cache_dir) / stem / source
+        out_dir = _verify_out_dir(bib_file, source, cache_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cache_path = resolve_cache_path(source, out_dir)
@@ -734,7 +754,9 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
     typer.echo(f"openalex cache:  {resolve_cache_path('openalex', root)}")
     typer.echo(f"crossref cache:  {resolve_cache_path('crossref', root)}")
     verify_root = _verify_root(cache_dir)
-    typer.echo(f"verify output:   {verify_root / '<bib-stem>' / '<source>'}/")
+    typer.echo(
+        f"verify output:   {verify_root / '<bib-dir>[-<bib-stem>]' / '<source>'}/"
+    )
 
 
 # --- crossref subcommand ----------------------------------------------------
