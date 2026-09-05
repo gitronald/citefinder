@@ -55,7 +55,11 @@ every entry, which is exactly the path that provokes upstream rate limiting.
 parent directory, appending the stem only when it is not the primary name:
 
 ```python
-stem = bib_file.parent.name if bib_file.stem == "refs" else f"{bib_file.parent.name}-{bib_file.stem}"
+stem = (
+    bib_file.parent.name
+    if bib_file.stem == "refs"
+    else f"{bib_file.parent.name}-{bib_file.stem}"
+)
 ```
 
 Unique across directories by construction, and byte-identical to today's layout
