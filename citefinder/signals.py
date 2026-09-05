@@ -264,19 +264,22 @@ def container_similarity(a: str, b: str) -> float:
     matching, since bibs frequently abbreviate venue names while
     metadata sources keep the full form.
     """
-    sa = normalize_title(a).split()
-    sb = normalize_title(b).split()
+    sa = list(dict.fromkeys(normalize_title(a).split()))
+    sb = list(dict.fromkeys(normalize_title(b).split()))
     if not sa or not sb:
         return 0.0
-    matched_a: set[str] = set()
-    matched_b: set[str] = set()
+    # Pair each token at most once. Without that a short token prefix-matches
+    # every longer token on the other side ("data" against "data database
+    # dataset") and the score outruns the real overlap.
+    unmatched_b = list(sb)
+    pairs = 0
     for ta in sa:
-        for tb in sb:
+        for i, tb in enumerate(unmatched_b):
             if _container_token_match(ta, tb):
-                matched_a.add(ta)
-                matched_b.add(tb)
-    union_size = len(set(sa) | set(sb))
-    return max(len(matched_a), len(matched_b)) / union_size if union_size else 0.0
+                del unmatched_b[i]
+                pairs += 1
+                break
+    return pairs / len(set(sa) | set(sb))
 
 
 def check_container(

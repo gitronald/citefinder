@@ -178,6 +178,16 @@ def test_container_similarity_prefix_matches_abbreviations() -> None:
     assert sim > 0.0
 
 
+def test_container_similarity_pairs_each_token_once() -> None:
+    # One short token used to prefix-match every longer token on the other
+    # side and score a perfect match against an unrelated venue.
+    assert container_similarity("Data Database Dataset", "Data") < 0.50
+    assert container_similarity("proc", "proceedings procedure procession") < 0.50
+    # Genuine abbreviations still clear the pass threshold.
+    assert container_similarity("Proc ICML", "Proceedings of ICML") >= 0.50
+    assert container_similarity("Journal of Things", "Journal of Things") == 1.0
+
+
 def test_check_container_full_overlap_passes() -> None:
     r = check_container("Journal of Things", ["Journal of Things"])
     assert r["verdict"] == "pass"
