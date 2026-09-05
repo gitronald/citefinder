@@ -213,3 +213,51 @@ library API); `openalex.py:152` shared search helper (URL building and
 result nesting differ; not a net simplification); `_base.py:59` blank-value
 cache-key collision (no two real requests collide; re-encoding is
 deterministic).
+
+### 2026-09-04 — pass B findings (verification pipeline)
+
+`/code-review high` over `bib.py`, `signals.py`, `adapters.py`, `verify.py`
+and their tests: 4 finders, 35 raw candidates, 25 after dedup, 5 verifiers,
+21 verified (19 confirmed, 2 plausible incl. one from the gap sweep), 4
+rejected.
+
+| # | Location | Finding | Verdict |
+|---|---|---|---|
+| B16 | `verify.py:122` | `citation_from_entry` runs outside any try/except; `author = {Smith, Jane,}` raises `InvalidNameError` and the CLI loop (no guard) aborts the whole run | CONFIRMED |
+| B01 | `bib.py:35` | `parse_entries` ignores `library.failed_blocks`; duplicate field key, duplicate entry key, or unterminated block silently drops the entry | CONFIRMED |
+| B06 | `signals.py:106` | `normalize_title` deletes non-Latin scripts; identical CJK/Cyrillic titles score 0.0 and fail | CONFIRMED |
+| B04 | `signals.py:223` | `check_author` passes on a shared von particle alone (`van de Rijt` vs `van der Berg`) | CONFIRMED |
+| B05 | `signals.py:249` | `container_similarity` has no one-to-one pairing; one short token prefix-matches many (`Data Database Dataset` vs `Data` = 1.0) | CONFIRMED |
+| B17 | `verify.py:107` | Crossref `candidate_title` drops the subtitle the DOI path keeps; split-title hits score 0.235 and go UNMATCHED | CONFIRMED |
+| B12 | `adapters.py:61` | Crossref corporate authors use `name`, not `family`; author signal stays unknown | CONFIRMED |
+| B24 | `verify.py:210` | `matched_doi` is `""` on the search path but `None` on the DOI path | CONFIRMED |
+| B18 | `verify.py:220` | Skip-source note says "signals disagree" when the status came from too few confirmations | CONFIRMED |
+| B07 | `signals.py:102` | `strip_braces` defined three times (bib, signals, adapters); signals is the leaf | CONFIRMED |
+| B08 | `signals.py:39` | `Status.header` has no consumer; the docstring's `render_summary` never existed | CONFIRMED |
+| B20 | `verify.py:57` | `Result.method` comment lists `"skipped"`, never assigned | CONFIRMED |
+| B14 | `adapters.py:6` | Docstring says a new source needs only an adapter; `Source` branches on the name in four methods | CONFIRMED |
+| B26 | `tests/test_verify.py:32` | No test runs the real `Source` dispatch to completion; CLI verify tests land in `error` via the `isinstance` assert | CONFIRMED |
+| B19 | `verify.py:196` | `SKIP_SOURCE_TYPES` checked three times; the skip-type "no plausible hit" combination is unreachable | CONFIRMED |
+| B22 | `verify.py:183` | Bib title re-tokenised per candidate and once more for the word count | CONFIRMED |
+| B15 | `adapters.py:21` | `date-parts` `[[None]]`/`[]` guard untested | CONFIRMED |
+| B10 | `signals.py:263` | `check_container` with no candidates untested | CONFIRMED |
+| B03 | `bib.py:105` | `first_author_surname` parsed twice per Crossref search entry (~5 µs) | CONFIRMED (negligible) |
+| B21 | `verify.py:83` | `Source` string dispatch in four methods; likely right-sized given the public constructor | PLAUSIBLE |
+| B27 | `README.md:257` | Status list order differs from the enum; nothing renders in enum order | CONFIRMED (cosmetic) |
+| GB1 | `verify.py:121` | URL-form or `doi:`-prefixed bib DOI is sent untouched and 404s | PLAUSIBLE (gap sweep) |
+
+Rejected: `bib.py:57` leading `and` folded into the surname (bibtexparser's
+documented behaviour on malformed input); `signals.py:192` `2020a`/`2020.0`
+years (not realistic `.bib` values; the table round trip keeps strings);
+`adapters.py:100` capitalised particle surname mismatch (token overlap passes
+every constructible pair); `verify.py:209` `assert work is not None` (the
+adapters return `None` only for `None` input).
+
+Context surfaced by a verifier: `origin/claude/max-full-package-review-38smq5`
+is an unmerged single-commit branch from 2026-06-20 (based on 0.4.2) that
+proposed overlapping fixes — reserved-column collision in `bib_to_table`,
+stricter `table_to_bib` validation, string `publication_year` coercion,
+single-token prefix matching disabled in `container_similarity`, `doi = {}`
+as `None`, and OpenAlex title normalisation moved to the client. It is stale
+against `dev` and is not merged here; each proposal is weighed on its own in
+the fix phase.
