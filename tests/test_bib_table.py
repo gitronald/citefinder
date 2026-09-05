@@ -170,12 +170,12 @@ def test_table_to_bib_round_trip_preserves_data() -> None:
         assert src_entries[key].fields == regen_entries[key].fields
 
 
-def test_table_to_bib_refuses_unbalanced_braces() -> None:
+@pytest.mark.parametrize("value", ["Weird } stray", "Weird { stray"])
+def test_table_to_bib_refuses_unbalanced_braces(value: str) -> None:
     # A stray `}` would close the field early and drop every field after it
-    # on re-parse; BibTeX cannot represent it, so refuse instead.
-    df = pl.DataFrame(
-        {"key": ["x"], "entry_type": ["article"], "title": ["Weird } stray"]}
-    )
+    # on re-parse; an unclosed `{` swallows them the same way. BibTeX cannot
+    # represent either, so refuse instead.
+    df = pl.DataFrame({"key": ["x"], "entry_type": ["article"], "title": [value]})
     with pytest.raises(ValueError, match="unbalanced braces"):
         table_to_bib(df)
 

@@ -150,7 +150,7 @@ def test_search_title_404_returns_empty(
     assert client.search_title("Some Title") == []
 
 
-def testnormalize_title_query() -> None:
+def test_normalize_title_query() -> None:
     assert normalize_title_query("Backstabber's") == "Backstabber’s"
     assert normalize_title_query("a, b: c|d!e?") == "a b c d e"
     assert normalize_title_query("  spaced   out  ") == "spaced out"

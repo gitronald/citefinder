@@ -51,33 +51,45 @@ def test_parse_entries_multiple() -> None:
 
 
 @pytest.mark.parametrize(
-    ("text", "kept", "reason"),
+    ("text", "kept", "line", "reason"),
     [
         # A duplicated field key drops the whole entry.
-        ("@article{x, author = {A}, author = {B}, title = {T}}", [], "Duplicate field"),
+        (
+            "@article{x, author = {A}, author = {B}, title = {T}}",
+            [],
+            1,
+            "Duplicate field",
+        ),
         # A repeated citation key drops the second entry.
         (
             "@article{x, title = {T1}}\n@article{x, title = {T2}}",
             ["x"],
+            2,
             "Duplicate entry",
         ),
         # An unterminated brace aborts that block; earlier ones survive.
         (
             "@article{ok, title = {T}}\n@article{x, title = {Open",
             ["ok"],
+            2,
             "BlockAborted",
         ),
     ],
 )
 def test_parse_entries_warns_on_dropped_blocks(
-    text: str, kept: list[str], reason: str, caplog: pytest.LogCaptureFixture
+    text: str,
+    kept: list[str],
+    line: int,
+    reason: str,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # bibtexparser files what it cannot parse under `failed_blocks` and moves
-    # on. Those entries must not vanish without a trace.
+    # on. Those entries must not vanish without a trace, and the line is the
+    # 1-based one an editor shows, not bibtexparser's 0-based start_line.
     with caplog.at_level(logging.WARNING, logger="citefinder"):
         entries = parse_entries(text)
     assert [e.key for e in entries] == kept
-    assert "skipped unparsable bib block at line" in caplog.text
+    assert f"skipped unparsable bib block at line {line}:" in caplog.text
     assert reason in caplog.text
 
 
