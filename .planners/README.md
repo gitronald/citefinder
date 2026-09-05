@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 010 | [Derive the verify cache directory from the source directory, not the bib stem](plans/010-verify-cache-dir-collisions/plan.md) | active | — | — |
+| 010 | [Derive the verify cache directory from the source directory, not the bib stem](plans/010-verify-cache-dir-collisions/plan.md) | done | 2026-09-04 17:59 PT | [#48](https://github.com/gitronald/citefinder/pull/48) |
 | 002 | [Reduce false positives and false negatives in signal checks](plans/002-handle-openalex-metadata-quirks/plan.md) | done | 2026-09-02 22:53 PT | [#46](https://github.com/gitronald/citefinder/pull/46) |
 | 009 | [Resolve cache paths from a project-level config](plans/009-project-cache-config/plan.md) | done | 2026-09-02 19:23 PT | [#44](https://github.com/gitronald/citefinder/pull/44) |
 | 008 | [Retry rate-limited requests with backoff and pace the search fallback](plans/008-retry-rate-limited-requests/plan.md) | done | 2026-09-02 17:53 PT | [#42](https://github.com/gitronald/citefinder/pull/42) |

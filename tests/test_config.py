@@ -225,6 +225,102 @@ def test_verify_default_output_is_under_cwd(
     assert captured["cache_path"] == out / "openalex.jsonl"
 
 
+def test_verify_files_a_non_primary_bib_under_its_directory(
+    tmp_path: Path, captured
+) -> None:
+    """A bib not named `refs.bib` is keyed on its directory too, with the
+    stem as a qualifier, so it sits beside the directory's `refs.bib` run.
+    """
+    caches = tmp_path / "caches"
+    write_bib(tmp_path / "paper")
+    extra = write_bib(tmp_path / "paper", "extra.bib")
+
+    result = runner.invoke(app, ["verify", str(extra), "--cache-dir", str(caches)])
+
+    assert result.exit_code == 0, result.output
+    out = caches / "paper-extra" / "openalex"
+    assert (out / "results.json").is_file()
+    assert captured["cache_path"] == out / "openalex.jsonl"
+
+
+def test_verify_keeps_same_named_bibs_in_sibling_directories_apart(
+    tmp_path: Path, captured
+) -> None:
+    """Two directories that each hold an `extra.bib` used to share one
+    `extra/` output directory, the second run silently overwriting the first.
+    """
+    caches = tmp_path / "caches"
+    a = write_bib(tmp_path / "paper-a", "extra.bib")
+    b = write_bib(tmp_path / "paper-b", "extra.bib")
+
+    for bib in (a, b):
+        result = runner.invoke(app, ["verify", str(bib), "--cache-dir", str(caches)])
+        assert result.exit_code == 0, result.output
+
+    written = {p.parent.parent.name for p in caches.glob("*/openalex/results.json")}
+    assert written == {"paper-a-extra", "paper-b-extra"}
+    assert not (caches / "extra").exists()
+
+
+def test_verify_anchors_a_relative_bib_path_before_naming_its_directory(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    """A bare `verify refs.bib` has no parent component; without anchoring
+    it to the working directory first, the directory name came out empty and
+    the output collapsed into `<root>/<source>/`.
+    """
+    write_bib(tmp_path / "paper")
+    monkeypatch.chdir(tmp_path / "paper")
+
+    result = runner.invoke(app, ["verify", "refs.bib"])
+
+    assert result.exit_code == 0, result.output
+    out = tmp_path / "paper" / "data" / "citefinder" / "paper" / "openalex"
+    assert (out / "results.json").is_file()
+    assert captured["cache_path"] == out / "openalex.jsonl"
+
+
+def test_verify_collapses_dot_dot_before_naming_the_directory(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    """`verify ../refs.bib` from a subdirectory names the output after the
+    bib's real directory, not `..`.
+    """
+    write_bib(tmp_path / "paper")
+    (tmp_path / "paper" / "sub").mkdir()
+    monkeypatch.chdir(tmp_path / "paper" / "sub")
+    caches = tmp_path / "caches"
+
+    result = runner.invoke(app, ["verify", "../refs.bib", "--cache-dir", str(caches)])
+
+    assert result.exit_code == 0, result.output
+    assert (caches / "paper" / "openalex" / "results.json").is_file()
+    assert [p.name for p in caches.iterdir()] == ["paper"]
+
+
+def test_verify_keeps_a_symlinked_directory_under_its_own_name(
+    tmp_path: Path, captured
+) -> None:
+    """A bib reached through a symlinked directory is keyed on the name the
+    user pointed at, not the link's target, so the cache written under that
+    name before this layout change is the one that is read.
+    """
+    write_bib(tmp_path / "2026-foo-final")
+    link = tmp_path / "paper"
+    link.symlink_to(tmp_path / "2026-foo-final", target_is_directory=True)
+    caches = tmp_path / "caches"
+
+    result = runner.invoke(
+        app, ["verify", str(link / "refs.bib"), "--cache-dir", str(caches)]
+    )
+
+    assert result.exit_code == 0, result.output
+    out = caches / "paper" / "openalex"
+    assert (out / "results.json").is_file()
+    assert captured["cache_path"] == out / "openalex.jsonl"
+    assert not (caches / "2026-foo-final").exists()
+
+
 def test_verify_output_derives_from_cache_dir(tmp_path: Path, captured) -> None:
     bib = write_bib(tmp_path / "paper")
     caches = tmp_path / "caches"
@@ -239,13 +335,14 @@ def test_verify_output_derives_from_cache_dir(tmp_path: Path, captured) -> None:
 def test_verify_honors_env_cache_dir_and_source(
     tmp_path: Path, monkeypatch, captured
 ) -> None:
-    bib = write_bib(tmp_path, "thesis.bib")
+    bib = write_bib(tmp_path / "paper", "thesis.bib")
     monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "caches"))
 
     result = runner.invoke(app, ["verify", str(bib), "--source", "crossref"])
 
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "caches" / "thesis" / "crossref" / "results.json").is_file()
+    out = tmp_path / "caches" / "paper-thesis" / "crossref"
+    assert (out / "results.json").is_file()
 
 
 def test_verify_out_beats_cache_dir(tmp_path: Path, captured) -> None:
@@ -557,7 +654,10 @@ def test_config_names_the_source_of_each_value(tmp_path: Path, monkeypatch) -> N
     assert rows["crossref.max_retries"] == ("default", "3")
     assert f"openalex cache:  {project_dir / 'data' / 'openalex.jsonl'}" in out
     assert f"crossref cache:  {project_dir / 'data' / 'crossref.jsonl'}" in out
-    assert f"verify output:   {project_dir / 'data'}/<bib-stem>/<source>/" in out
+    assert (
+        f"verify output:   {project_dir / 'data'}/<bib-dir>[-<bib-stem>]/<source>/"
+        in out
+    )
 
 
 def test_config_with_nothing_set_reports_defaults(tmp_path: Path, monkeypatch) -> None:
@@ -576,7 +676,10 @@ def test_config_with_nothing_set_reports_defaults(tmp_path: Path, monkeypatch) -
     assert rows["openalex.min_interval"] == ("default", "0.1")
     assert rows["crossref.min_interval"] == ("default", "0")
     assert f"openalex cache:  {default_cache_dir() / 'openalex.jsonl'}" in out
-    assert f"verify output:   {tmp_path / 'data' / 'citefinder'}/<bib-stem>/" in out
+    assert (
+        f"verify output:   {tmp_path / 'data' / 'citefinder'}/<bib-dir>[-<bib-stem>]/"
+        in out
+    )
 
 
 def test_config_reports_a_cache_dir_flag_anchored_to_cwd(
@@ -590,7 +693,8 @@ def test_config_reports_a_cache_dir_flag_anchored_to_cwd(
     rows = config_rows(result.output)
     assert rows["cache_dir"] == ("flag", str(tmp_path / "caches"))
     assert (
-        f"verify output:   {tmp_path / 'caches'}/<bib-stem>/<source>/" in result.output
+        f"verify output:   {tmp_path / 'caches'}/<bib-dir>[-<bib-stem>]/<source>/"
+        in result.output
     )
 
 
@@ -604,7 +708,9 @@ def test_config_verify_output_is_where_verify_writes(tmp_path: Path, captured) -
     line = next(ln for ln in shown.splitlines() if ln.startswith("verify output:"))
     template = line.split(":", 1)[1].strip()
     expected = Path(
-        template.replace("<bib-stem>", "paper").replace("<source>", "openalex")
+        template.replace("<bib-dir>[-<bib-stem>]", "paper").replace(
+            "<source>", "openalex"
+        )
     )
 
     bib = write_bib(tmp_path / "paper")

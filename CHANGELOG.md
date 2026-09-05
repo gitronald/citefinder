@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `verify` names its default output directory after the directory holding
+  the `.bib`, not the file's stem: `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/`,
+  where the `-<bib-stem>` suffix is added for any file not named `refs.bib`.
+  A `refs.bib` lands exactly where it did (`paper/refs.bib` → `paper/`); any
+  other file moves from `<bib-stem>/` to `<bib-dir>-<bib-stem>/`
+  (`paper/extra.bib` → `paper-extra/`, previously `extra/`). Same-named
+  bibliographies in different directories used to share one output
+  directory, the later run silently overwriting the earlier one. To keep an
+  existing cache, rename the old `<bib-stem>/` directory to the new name.
+
+### Fixed
+
+- `verify` given a bare relative `refs.bib` (`citefinder verify refs.bib`)
+  filed its output under `<cache_dir>/<source>/`, since the parent of a
+  relative path has no name. The path is made absolute before the directory
+  is named; symlinks are left alone, so a linked directory keeps its own name.
+
 ## [0.8.0] - 2026-09-03
 
 ### Changed
