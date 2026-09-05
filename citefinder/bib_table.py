@@ -33,30 +33,24 @@ def bib_to_table(text: str) -> pl.DataFrame:
     """
     entries = parse_entries(text)
 
-    all_fields: set[str] = set()
-    for e in entries:
-        all_fields.update(e.fields.keys())
-
     # `key` and `entry_type` hold the citation key and entry kind. A bib
     # field with either name (BibTeX has a real `key` sort field) would be
     # overwritten and lost on the way back, so refuse rather than drop data.
-    reserved = sorted(all_fields & {"key", "entry_type"})
+    fields = {f for e in entries for f in e.fields}
+    reserved = sorted(fields & {"key", "entry_type"})
     if reserved:
         raise ValueError(
             f"bib field(s) {reserved} collide with the table's key/entry_type columns"
         )
 
-    rows: list[dict[str, str | None]] = []
-    for e in entries:
-        row: dict[str, str | None] = {f: e.fields.get(f) for f in all_fields}
-        row["key"] = e.key
-        row["entry_type"] = e.etype
-        rows.append(row)
-
-    if not rows:
+    if not entries:
         return pl.DataFrame(schema={"key": pl.Utf8, "entry_type": pl.Utf8})
 
-    df = pl.DataFrame(rows)
+    rows = [{"key": e.key, "entry_type": e.etype, **e.fields} for e in entries]
+    # polars unions the keys and fills the gaps with null. Every row decides
+    # the columns, not the first hundred: a field that first appears late in
+    # a long bib must not be dropped.
+    df = pl.DataFrame(rows, infer_schema_length=None)
     other = sorted(c for c in df.columns if c not in ("key", "entry_type"))
     return df.select(["key", "entry_type", *other])
 
