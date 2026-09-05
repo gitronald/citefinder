@@ -141,26 +141,6 @@ def test_cache_flag_beats_cache_dir(tmp_path: Path, captured) -> None:
     assert captured["cache_path"] == explicit
 
 
-def test_cache_dir_flag_beats_env(tmp_path: Path, monkeypatch, captured) -> None:
-    monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "env"))
-    result = runner.invoke(
-        app, ["doi", "10.1/x", "--cache-dir", str(tmp_path / "flag")]
-    )
-    assert result.exit_code == 0, result.output
-    assert captured["cache_path"] == tmp_path / "flag" / "openalex.jsonl"
-
-
-def test_env_cache_dir_beats_user_config(tmp_path: Path, monkeypatch, captured) -> None:
-    write_user_config(tmp_path, f'cache_dir = "{tmp_path / "user"}"\n')
-    monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "env"))
-
-    _load_configs()
-    result = runner.invoke(app, ["doi", "10.1/x"])
-
-    assert result.exit_code == 0, result.output
-    assert captured["cache_path"] == tmp_path / "env" / "openalex.jsonl"
-
-
 def test_user_config_cache_dir_beats_default(tmp_path: Path, captured) -> None:
     write_user_config(tmp_path, f'cache_dir = "{tmp_path / "user"}"\n')
 

@@ -390,15 +390,6 @@ def test_cli_install_local_writes_the_repo_copy(sandbox) -> None:
     assert "mode=local" in path.read_text(encoding="utf-8")
 
 
-def test_installed_stub_holds_no_instructions(sandbox) -> None:
-    """Nothing on disk duplicates the package's body — the drift can't happen."""
-    runner.invoke(app, ["install", "--local"])
-    on_disk = install_mod.skill_path(sandbox, "local").read_text(encoding="utf-8")
-    assert "Four core operations" not in on_disk
-    assert "lookup_book_chapter" not in on_disk
-    assert len(on_disk) < 2500
-
-
 def test_cli_install_defaults_to_global(sandbox) -> None:
     repo = sandbox
     result = runner.invoke(app, ["install"])

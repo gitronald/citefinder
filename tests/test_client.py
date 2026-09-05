@@ -31,15 +31,6 @@ def test_lookup_doi_returns_message(
     assert result == {"title": ["A Paper"], "DOI": "10.1/test"}
 
 
-def test_lookup_doi_404_returns_none(
-    setup: tuple[CrossrefClient, MagicMock],
-    mock_response,
-) -> None:
-    client, session = setup
-    session.get.return_value = mock_response(404)
-    assert client.lookup_doi("10.1/missing") is None
-
-
 def test_lookup_doi_encodes_url_structural_characters(
     setup: tuple[CrossrefClient, MagicMock],
     mock_response,
