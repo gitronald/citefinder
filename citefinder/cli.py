@@ -424,7 +424,11 @@ def bib_to_table_cmd(
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
 
-    df = bib_to_table(bib_file.read_text())
+    try:
+        df = bib_to_table(bib_file.read_text())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
     if fields:
         wanted = ["key", "entry_type", *(f.strip() for f in fields.split(","))]

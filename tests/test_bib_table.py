@@ -65,6 +65,14 @@ def test_bib_to_table_preserves_literal_type_field_alongside_entry_type() -> Non
     assert row["type"] == "SSRN Scholarly Paper"
 
 
+def test_bib_to_table_refuses_fields_named_like_the_id_columns() -> None:
+    # BibTeX has a real `key` sort field; silently replacing it with the
+    # citation key would lose it on round trip.
+    text = "@misc{x, key = {sort-me}, title = {T}}"
+    with pytest.raises(ValueError, match=r"\['key'\] collide"):
+        bib_to_table(text)
+
+
 def test_bib_to_table_empty_bib() -> None:
     df = bib_to_table("")
     assert df.shape == (0, 2)

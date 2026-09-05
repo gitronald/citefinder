@@ -37,6 +37,15 @@ def bib_to_table(text: str) -> pl.DataFrame:
     for e in entries:
         all_fields.update(e.fields.keys())
 
+    # `key` and `entry_type` hold the citation key and entry kind. A bib
+    # field with either name (BibTeX has a real `key` sort field) would be
+    # overwritten and lost on the way back, so refuse rather than drop data.
+    reserved = sorted(all_fields & {"key", "entry_type"})
+    if reserved:
+        raise ValueError(
+            f"bib field(s) {reserved} collide with the table's key/entry_type columns"
+        )
+
     rows: list[dict[str, str | None]] = []
     for e in entries:
         row: dict[str, str | None] = {f: e.fields.get(f) for f in all_fields}
