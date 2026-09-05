@@ -415,6 +415,16 @@ def test_cli_check_reports_each_status(sandbox) -> None:
     assert "drifted" in drifted.stdout
 
 
+def test_cli_check_with_nothing_installed_reports_missing(sandbox) -> None:
+    # Bare --check with neither copy present: `missing`, and the fix it names
+    # is a plain global install, not a --force repair.
+    result = runner.invoke(app, ["install", "--check"])
+    assert result.exit_code == 1
+    assert "skill: missing" in result.output
+    assert "run: citefinder install" in result.output
+    assert "--force" not in result.output
+
+
 def test_cli_check_writes_nothing(sandbox) -> None:
     repo = sandbox
     runner.invoke(app, ["install", "--local", "--check"])
