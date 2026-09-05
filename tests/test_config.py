@@ -3,7 +3,6 @@
 import importlib
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -47,31 +46,6 @@ def clean_env(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("citefinder.cli._config_sources", {})
-
-
-@pytest.fixture
-def captured(monkeypatch) -> dict[str, Any]:
-    """Swap both clients for a stub that records its constructor kwargs."""
-    seen: dict[str, Any] = {}
-
-    class FakeClient:
-        def __init__(self, **kwargs: Any) -> None:
-            seen.update(kwargs)
-            self.cache = None
-            self.retries = 0
-
-        def lookup_doi(self, doi: str) -> dict[str, str]:
-            return {"id": doi}
-
-        def search_title(self, title: str, rows: int = 3) -> list[Any]:
-            return []
-
-        def search_bibliographic(self, query: str, rows: int = 3) -> list[Any]:
-            return []
-
-    monkeypatch.setattr("citefinder.cli.OpenAlexClient", FakeClient)
-    monkeypatch.setattr("citefinder.cli.CrossrefClient", FakeClient)
-    return seen
 
 
 def write_user_config(tmp_path: Path, body: str) -> Path:
