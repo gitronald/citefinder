@@ -158,6 +158,16 @@ def test_check_author_no_overlap_fails() -> None:
     assert check_author("Smith", "Jones")["verdict"] == "fail"
 
 
+def test_check_author_shared_particle_alone_is_not_agreement() -> None:
+    # `van` is a particle, not a name; two unrelated Dutch surnames share it.
+    assert check_author("van de Rijt", "van der Berg")["verdict"] == "fail"
+    assert check_author("van de Rijt", "van de Rijt")["verdict"] == "pass"
+    # OpenAlex may capitalise the particle the bib keeps lower-case.
+    assert check_author("de Wolf", "De Wolf")["verdict"] == "pass"
+    # An all-lower-case surname has no particles to drop.
+    assert check_author("bell hooks", "hooks")["verdict"] == "pass"
+
+
 def test_check_author_missing_is_unknown() -> None:
     assert check_author(None, "Smith")["verdict"] == "unknown"
 

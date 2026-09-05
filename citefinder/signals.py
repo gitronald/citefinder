@@ -213,6 +213,24 @@ def check_year(bib_year_raw: str | None, work_year: int | None) -> dict[str, Any
     return {"verdict": v, "bib": str(by), "crossref": str(work_year), "diff": diff}
 
 
+def _surname_tokens(surname: str) -> set[str]:
+    """Normalized tokens of a surname, minus its name particles.
+
+    BibTeX's convention, which bibtexparser follows, is that a lower-case
+    word before the last name is a particle: `van`, `de`, `der`. Two
+    different authors can share one, so it must not count as agreement on
+    its own. A surname that is nothing but such words keeps them all.
+    """
+    words = surname.split()
+    core = {
+        token
+        for word in words
+        if not word[:1].islower()
+        for token in normalize_title(word).split()
+    }
+    return core or set(normalize_title(surname).split())
+
+
 def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str, Any]:
     if not bib_surname or not work_surname:
         return {
@@ -224,8 +242,8 @@ def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str,
     # the compound surname ("Larios Vargas") while the other gives only
     # the last token ("Vargas"). Real author conflicts (Petty vs Marquart,
     # Cai vs Fang) still fail because no tokens overlap.
-    bib_tokens = set(normalize_title(bib_surname).split())
-    work_tokens = set(normalize_title(work_surname).split())
+    bib_tokens = _surname_tokens(bib_surname)
+    work_tokens = _surname_tokens(work_surname)
     v = "pass" if (bib_tokens & work_tokens) else "fail"
     return {"verdict": v, "bib": bib_surname, "crossref": work_surname}
 
