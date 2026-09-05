@@ -303,3 +303,103 @@ Pass C gap sweep (main loop): nothing additional.
 
 Review totals across the three passes: 105 raw candidates, 70 after dedup,
 60 verified findings (53 confirmed, 7 plausible), 12 rejected.
+
+### 2026-09-04 — fix phase
+
+43 commits on the branch after the four Log commits; one per finding or
+closely related group, gate green after each. Draft PR: #50.
+
+**Bugs fixed, with a regression test each** (severity order): C09 private
+skill reference removed from the skill body; B16 malformed author field
+→ per-entry `error`; B01 `parse_entries` warns per dropped block; A03 cache
+replay skips a corrupt line and the next append starts on a fresh line; A04
+`put` serialises before storing; C06 `bib_to_table` refuses `key`/`entry_type`
+fields; C07 `table_to_bib` refuses unbalanced braces; C01 `verify` passes
+`mailto` to the chosen source with a `<SOURCE>_MAILTO` fallback; C03
+`--fields` dedupes the id columns; C04 empty env var counts as unset; C02
+`--source` is a `Literal` (case-insensitive, click validates); C05 `~user`
+paths give a clean error or warning; A01/A02 `_doi_path` encodes `#`, `?`,
+`%` only (other cache keys unchanged); B06 `normalize_title` keeps non-Latin
+scripts; B04 particle-free author tokens; B05 one-to-one container pairing;
+B12 corporate Crossref `name`; B17 Crossref candidates rejoin the subtitle
+(with real-`Source` dispatch tests for both branches, closing B26); GB1
+`normalize_doi` shared by the bib side and the OpenAlex adapter, `doi = {}`
+→ `None`; B24 `matched_doi` `None` for a hit without a DOI; B18 skip-source
+note says "do not confirm" when nothing disagreed; A06 backoff exponent
+capped; C22 `install` reports a body without frontmatter cleanly.
+
+**`/simplify` over the fix diff:** applied — `_surname_tokens` reuses
+`title_tokens`; one `_report_errors` context manager replaces four
+report-and-exit blocks in the CLI; `_installed_status` flattens the
+`install --check` branch. Skipped — replacing the cache's `_needs_newline`
+flag with a file-tail check (a constructor-time repair would turn a read
+into a write; a second concurrent writer is already unsupported); moving
+particle handling into the two surname producers (adds a field to two
+public dataclasses); `Source.from_name` (moves construction out of `cli`,
+where the CLI tests patch the client classes). Efficiency angle: nothing.
+
+**Seeded simplifications:** 1 `strip_braces` → one definition in
+`signals`, imported by `bib` and `adapters` (adapters' copy was a no-op on
+OpenAlex names); 2 `_emit_or_exit` for the three lookup commands (Typer's
+option wiring means the bodies cannot collapse to one, as the seed hoped);
+3 config loading stays in `cli.py` — `config.py` is deliberately
+typer-free and documented as never loading config, so the move was a wash
+in lines with a worse boundary; 4 the verify loop stays in `cli.py` — a
+redistribution, not a reduction, worth doing only for unit-testing the
+tallies; 5 five subsumed tests removed (two 404 twins, two precedence
+tests, one stub-content test), `captured` fixture shared through
+`conftest.py` and made `isinstance`-compatible so CLI verify tests reach the
+search path, `mock_response.headers` case-insensitive; 6 `validate_knob` in
+`_base` serves both the constructor and `_checked_knob`. Also: A07
+`normalize_title_query` is the one OpenAlex normaliser (`build_title_query`
+calls it); A10 `_strip_mailto` no longer re-exported; B19 `verify_entry`
+tail binds the skip type once and drops the unreachable branch; C15
+`bib_to_table` lets polars union the columns (`infer_schema_length=None`).
+
+**Docs:** B20, B14, B08 (docstring only), C10, C11, C17 comment, B27 README
+order. C23 needs no change now that A03 makes the claim true. CHANGELOG
+`[Unreleased]` carries the user-visible fixes. CLAUDE.md package table
+unchanged: no responsibility moved between modules.
+
+**Coverage added:** A14, A15, A16, B10, B15; C21 smoke tests for `search`,
+`crossref search`, `crossref chapter`, both `doi` not-found paths,
+`table-to-bib --out`, `verify` on a missing file, bare `install --check`.
+
+**No change, with reason:** A08 explicit `__init__` keeps kwarg-name
+checking; A12 `ENV_KEYS` is the canonical env table; A17 unreachable from
+real payloads; A18 library-only, unrealistic input; G1 would change cache
+keys; B03/B22 microseconds next to a network call; B21 right-sized; C16
+modest saving for an indirection; C17 left as `"0"` (a locked test and the
+printed format). Rejected in review: C08, C13, C18, A05, A11, A13, A19,
+A22, B02, B09, B13, B23.
+
+**Final gate:** `uv run pytest` 301 passed (from 255); pre-commit green;
+`install --check` ok; `ruff check .` clean; coverage 98% (cli.py 97%, from
+85%). `cli.py` is 875 lines (from 828): the new helpers and the
+`--mailto`/`Literal` option text outweigh the removed blocks, and the two
+seeds that would have shrunk it were judged not worth their cost.
+
+**Follow-up candidates (not done here):** remove `Status.header` and its
+`__new__` (API change plus a test edit); `Source.from_name` once the CLI
+tests patch at the `verify` boundary; extract the verify loop for
+unit-testable tallies; drop or wire `install.check()`; single-token prefix
+matching in `container_similarity` (from the stale prior branch, which the
+user may delete).
+
+## Retrospective
+
+- Three passes of `/code-review high` produced 105 candidates, 60 verified,
+  12 rejected; every rejection came from the verifier stage, which earned
+  its cost — the `isinstance`-blind CLI fixtures, the CRLF non-bug, and the
+  documented retry scope would all have been wasted fixes.
+- The costliest real bugs were quiet ones: a whole-run abort on one bad
+  author field, entries silently dropped by the parser, a cache made
+  unreadable by one torn line, and a private reference shipped in a public
+  prompt. None threw in the test suite because none had a test.
+- Pipelines that hide exit codes (`cmd | tail -1` under `set -e`) let a
+  failed commit chain keep going; the reusable gate script that writes a
+  log and returns non-zero fixed that for the rest of the run.
+- Plan seeds are hypotheses. Two of six (move config loading, extract the
+  verify loop) failed verification on the "smaller and clearer" test the
+  plan itself set, and one (collapse four command bodies) was blocked by
+  the framework; recording why is as useful as the four that landed.
