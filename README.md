@@ -254,7 +254,7 @@ for entry in parse_entries(open("refs.bib").read()):
     print(result.key, result.status, result.matched_doi)
 ```
 
-Each `Result` reports a `Status` (matched / probable / mismatch / unmatched / doi-not-found / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
+Each `Result` reports a `Status` (matched / probable / mismatch / doi-not-found / unmatched / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
 
 ### Bib ↔ table
 
