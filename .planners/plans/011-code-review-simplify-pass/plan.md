@@ -162,3 +162,54 @@ does not merge until the matrix is green.
   including the ones skipped and why.
 - A PR against `dev` with one commit per finding.
 - Any out-of-scope work the review surfaced, written up as follow-up plans.
+
+## Log
+
+### 2026-09-04 — baseline
+
+Branch `feature/code-review-simplify-pass` created in a worktree off `dev`
+at the activation commit. Gate on the untouched tree:
+
+- `uv run pytest`: 255 passed in 1.20s (1.7s wall).
+- `uv run pre-commit run --all-files`: ruff format, ruff, pyrefly, planners
+  validate all pass.
+- `uv run citefinder install --check`: skill stub ok.
+
+Tree size: 6463 lines across `citefinder/` and `tests/`. Largest files:
+`cli.py` 828, `tests/test_config.py` 722, `tests/test_install.py` 553,
+`tests/test_retry.py` 429, `tests/test_verify.py` 428.
+
+### 2026-09-04 — pass A findings (HTTP + cache layer)
+
+`/code-review high` over `_base.py`, `cache.py`, `client.py`, `openalex.py`
+and their tests: 4 finders, 28 raw candidates, 22 after dedup, 5 verifiers,
+17 confirmed + 1 plausible from the gap sweep, 5 rejected.
+
+| # | Location | Finding | Verdict |
+|---|---|---|---|
+| A03 | `cache.py:35` | `_replay` has no error handling; one truncated trailing line aborts every later `JsonlCache` construction and orphans all prior records | CONFIRMED |
+| A01 | `client.py:31` | DOI interpolated raw into the URL path; `#` and `?` truncate or reshape the request while the cache key keeps the full DOI | CONFIRMED |
+| A02 | `openalex.py:150` | Same raw DOI interpolation in `/works/doi:{doi}` | CONFIRMED |
+| A04 | `cache.py:45` | `put()` updates `_store` before `json.dumps`; a non-serialisable value leaves memory and disk diverged (public API only) | CONFIRMED |
+| A07 | `openalex.py:90` | `_normalize_title_query` duplicates `bib.build_title_query`; `verify.Source.search` normalizes every OpenAlex title twice | CONFIRMED |
+| A09 | `_base.py:146` | Knob validation predicate and message text duplicated in `cli._checked_knob` | CONFIRMED |
+| A10 | `openalex.py:58` | `_strip_mailto` imported only to sit in `__all__`; nothing in the module calls it | CONFIRMED |
+| A12 | `openalex.py:40` | `API_KEY_ENV_VAR` exported for reuse but `cli.py:185` and `config.py:52` hardcode the literal | CONFIRMED |
+| A08 | `openalex.py:108` | `OpenAlexClient.__init__` redeclares 12 base params; `**kwargs` would pass pyrefly but lose kwarg-name checking | CONFIRMED (trade-off) |
+| A15 | `_base.py:89` | tz-naive `Retry-After` date branch never exercised; reachable with an RFC-valid `-0000` date | CONFIRMED |
+| A14 | `_base.py:84` | `Retry-After: nan` untested (only `inf`) | CONFIRMED |
+| A16 | `_base.py:59` | `_strip_mailto` with mailto as the only param untested | CONFIRMED |
+| A20 | `tests/test_client.py:33`, `tests/test_openalex.py:44` | `test_lookup_doi_404_returns_none` is a strict subset of `test_404_is_cached` in both files | CONFIRMED |
+| A21 | `tests/conftest.py:20` | `mock_response.headers` is a plain dict, not `CaseInsensitiveDict`; inert today | CONFIRMED |
+| A06 | `_base.py:195` | `2**attempt` overflows before the `max_wait` cap at attempt 1024; needs `--max-retries >= 1025` and ~17 h of 429s | CONFIRMED (impractical) |
+| A17 | `openalex.py:84` | `reconstruct_abstract` mishandles non-list index values; unreachable from real OpenAlex payloads | CONFIRMED (malformed input only) |
+| A18 | `client.py:52` | `:03d` padding gives `-01` for negatives and 4 digits above 999; library-only, CLI never passes a negative int | CONFIRMED (low) |
+| G1 | `_base.py:228` | Case variants of one DOI are separate cache entries and separate requests | PLAUSIBLE (gap sweep) |
+
+Rejected: `_base.py:210` no retry on `ConnectionError`/`Timeout` (documented
+scope); `client.py:38` no `rows` guard (the API's contract; a 400 raises and
+is never cached); `openalex.py:152` `search()` dead (README documents it as
+library API); `openalex.py:152` shared search helper (URL building and
+result nesting differ; not a net simplification); `_base.py:59` blank-value
+cache-key collision (no two real requests collide; re-encoding is
+deterministic).
