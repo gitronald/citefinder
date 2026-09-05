@@ -254,7 +254,7 @@ for entry in parse_entries(open("refs.bib").read()):
     print(result.key, result.status, result.matched_doi)
 ```
 
-Each `Result` reports a `Status` (matched / probable / mismatch / unmatched / doi-not-found / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
+Each `Result` reports a `Status` (matched / probable / mismatch / doi-not-found / unmatched / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
 
 ### Bib ↔ table
 
@@ -267,7 +267,7 @@ df = bib_to_table(open("refs.bib").read())  # key, entry_type, then fields alpha
 new_bib = table_to_bib(df)  # back to .bib, null cells skipped
 ```
 
-`bib_to_table` lowercases field keys (`DOI` → `doi`) and stores the entry kind in `entry_type` to avoid collision with the literal `type` field that some entries carry (e.g., SSRN papers set `type = {SSRN Scholarly Paper}`). `table_to_bib` requires `key` and `entry_type` columns and serializes the rest in column order. The round-trip is lossless on field values and entry types; the original within-entry field order and any source-file `@string`/`@comment` blocks are not preserved.
+`bib_to_table` lowercases field keys (`DOI` → `doi`) and stores the entry kind in `entry_type` to avoid collision with the literal `type` field that some entries carry (e.g., SSRN papers set `type = {SSRN Scholarly Paper}`). `table_to_bib` requires `key` and `entry_type` columns and serializes the rest in column order. The round-trip is lossless on field values and entry types; the original within-entry field order and any source-file `@string`/`@comment` blocks are not preserved. Both refuse input they cannot round-trip: `bib_to_table` raises `ValueError` on a bib field literally named `key` or `entry_type` rather than overwriting it, and `table_to_bib` raises on a value with unbalanced braces, since the `.bib` it would write drops every later field on re-parse.
 
 ## CLI usage
 
@@ -315,7 +315,7 @@ Read `results.json` by `method` × `status`:
 - `unmatched` (or `skip-source` for `@online`/`@misc`) with a "title too short" note — a bib title of fewer than three words cannot select a search hit; pick from `candidates` by hand.
 - `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type.
 
-`bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved.
+`bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved. Input that cannot round-trip — a bib field named `key` or `entry_type`, a cell with unbalanced braces — is refused with an error and exit 1 rather than written out with data silently lost.
 
 ### CLI arguments
 
@@ -333,7 +333,9 @@ Read `results.json` by `method` × `status`:
 - `--mailto EMAIL` — Opts the request into the source's polite pool (both
   OpenAlex and Crossref honor it): faster responses and a higher quota.
   Sent as a `?mailto=…` query param; stripped from the cache key, so
-  rotating the email doesn't invalidate prior entries.
+  rotating the email doesn't invalidate prior entries. Also `OPENALEX_MAILTO`
+  / `CROSSREF_MAILTO` in the env or `mailto` in `config.toml`; `verify`
+  reads the one for whichever `--source` it runs against.
 - `--api-key KEY` *(OpenAlex only)* — OpenAlex API key for higher
   rate limits and tier-specific endpoints. Also read from `OPENALEX_API_KEY`
   in the env or a `.env` file (loaded from cwd or any parent). Sent as

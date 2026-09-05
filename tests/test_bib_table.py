@@ -65,6 +65,14 @@ def test_bib_to_table_preserves_literal_type_field_alongside_entry_type() -> Non
     assert row["type"] == "SSRN Scholarly Paper"
 
 
+def test_bib_to_table_refuses_fields_named_like_the_id_columns() -> None:
+    # BibTeX has a real `key` sort field; silently replacing it with the
+    # citation key would lose it on round trip.
+    text = "@misc{x, key = {sort-me}, title = {T}}"
+    with pytest.raises(ValueError, match=r"\['key'\] collide"):
+        bib_to_table(text)
+
+
 def test_bib_to_table_empty_bib() -> None:
     df = bib_to_table("")
     assert df.shape == (0, 2)
@@ -160,6 +168,16 @@ def test_table_to_bib_round_trip_preserves_data() -> None:
     for key in src_entries:
         assert src_entries[key].etype == regen_entries[key].etype
         assert src_entries[key].fields == regen_entries[key].fields
+
+
+@pytest.mark.parametrize("value", ["Weird } stray", "Weird { stray"])
+def test_table_to_bib_refuses_unbalanced_braces(value: str) -> None:
+    # A stray `}` would close the field early and drop every field after it
+    # on re-parse; an unclosed `{` swallows them the same way. BibTeX cannot
+    # represent either, so refuse instead.
+    df = pl.DataFrame({"key": ["x"], "entry_type": ["article"], "title": [value]})
+    with pytest.raises(ValueError, match="unbalanced braces"):
+        table_to_bib(df)
 
 
 def test_table_to_bib_empty_dataframe() -> None:

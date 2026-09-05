@@ -1,9 +1,9 @@
 """Tabulate a `.bib` file into a wide DataFrame for visual inspection.
 
-Designed for the editorial workflow: before running any cleanup, see the
-bib at a glance — which entries have abstracts, who has uppercase field
-keys, where the URLs sit, which titles need title-case work, etc. Reading
-a flat tabular view is faster than scrolling through `.bib` source.
+Designed for a first look before any cleanup: see the bib at a glance —
+which entries have abstracts, who has uppercase field keys, where the URLs
+sit, which titles need title-case work, etc. Reading a flat tabular view is
+faster than scrolling through `.bib` source.
 
 Note: citefinder lowercases all field keys on read, so this view normalizes
 `DOI` -> `doi`. To inspect the original case, look at the `.bib` source.
@@ -33,23 +33,39 @@ def bib_to_table(text: str) -> pl.DataFrame:
     """
     entries = parse_entries(text)
 
-    all_fields: set[str] = set()
-    for e in entries:
-        all_fields.update(e.fields.keys())
+    # `key` and `entry_type` hold the citation key and entry kind. A bib
+    # field with either name (BibTeX has a real `key` sort field) would be
+    # overwritten and lost on the way back, so refuse rather than drop data.
+    fields = {f for e in entries for f in e.fields}
+    reserved = sorted(fields & {"key", "entry_type"})
+    if reserved:
+        raise ValueError(
+            f"bib field(s) {reserved} collide with the table's key/entry_type columns"
+        )
 
-    rows: list[dict[str, str | None]] = []
-    for e in entries:
-        row: dict[str, str | None] = {f: e.fields.get(f) for f in all_fields}
-        row["key"] = e.key
-        row["entry_type"] = e.etype
-        rows.append(row)
-
-    if not rows:
+    if not entries:
         return pl.DataFrame(schema={"key": pl.Utf8, "entry_type": pl.Utf8})
 
-    df = pl.DataFrame(rows)
+    rows = [{"key": e.key, "entry_type": e.etype, **e.fields} for e in entries]
+    # polars unions the keys and fills the gaps with null. Every row decides
+    # the columns, not the first hundred: a field that first appears late in
+    # a long bib must not be dropped.
+    df = pl.DataFrame(rows, infer_schema_length=None)
     other = sorted(c for c in df.columns if c not in ("key", "entry_type"))
     return df.select(["key", "entry_type", *other])
+
+
+def _braces_balanced(s: str) -> bool:
+    """Whether every `}` in `s` closes an earlier `{` and none stay open."""
+    depth = 0
+    for ch in s:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
 
 
 def table_to_bib(df: pl.DataFrame, indent: str = "  ") -> str:
@@ -70,6 +86,14 @@ def table_to_bib(df: pl.DataFrame, indent: str = "  ") -> str:
     chunks: list[str] = []
     for row in df.iter_rows(named=True):
         fields = [(c, row[c]) for c in field_cols if row[c] is not None]
+        for c, v in fields:
+            # Values are emitted verbatim inside `{...}`. BibTeX requires the
+            # braces inside any value to balance; a stray `}` would close the
+            # field early and swallow the ones after it on re-parse.
+            if not _braces_balanced(str(v)):
+                raise ValueError(
+                    f"field {c!r} in entry {row['key']!r} has unbalanced braces: {v!r}"
+                )
         header = f"@{row['entry_type']}{{{row['key']},"
         if fields:
             body = ",\n".join(f"{indent}{c} = {{{v}}}" for c, v in fields)

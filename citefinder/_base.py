@@ -51,6 +51,30 @@ def _default_user_agent() -> str:
     return f"citefinder/{ver} (https://github.com/gitronald/citefinder)"
 
 
+def _doi_path(doi: str) -> str:
+    """`doi` made safe to interpolate into a URL path.
+
+    Only the three characters that change URL structure are encoded: a raw
+    `#` starts a fragment (nothing after it is ever sent), a raw `?` starts a
+    query, and a raw `%` would be read as an existing escape. Everything else
+    `requests` already transmits correctly, and leaving it alone keeps the
+    cache keys built from these URLs identical for every ordinary DOI.
+    """
+    return doi.replace("%", "%25").replace("#", "%23").replace("?", "%3F")
+
+
+def validate_knob(name: str, value: float) -> float:
+    """`value` if it is a finite number >= 0, else `ValueError` naming `name`.
+
+    `inf`/`nan` and negatives would otherwise only surface later as an
+    OverflowError/ValueError out of `time.sleep`, mid-run. The CLI calls
+    this too, so the flag and the constructor enforce one bound.
+    """
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a finite number >= 0, got {value!r}")
+    return value
+
+
 def _strip_mailto(url: str) -> str:
     """Return `url` with any `mailto` query param removed."""
     parts = urlsplit(url)
@@ -149,10 +173,7 @@ class CachedJsonClient:
             ("max_wait", max_wait),
             ("min_interval", min_interval),
         ):
-            # `inf`/`nan` and negatives would only surface later as an
-            # OverflowError/ValueError out of `time.sleep`, mid-run.
-            if not math.isfinite(value) or value < 0:
-                raise ValueError(f"{name} must be a finite number >= 0, got {value!r}")
+            validate_knob(name, value)
         self.max_retries = max_retries
         self.backoff_base = backoff_base
         self.max_wait = max_wait
@@ -192,7 +213,9 @@ class CachedJsonClient:
         """Seconds to wait before retrying `response`, `attempt` retries in."""
         wait = retry_after_seconds(response.headers.get("Retry-After"), self._clock())
         if wait is None:
-            step = self.backoff_base * 2**attempt
+            # Cap the exponent: 2**60 s already dwarfs any real `max_wait`,
+            # and `2**1024` would overflow the float multiplication.
+            step = self.backoff_base * 2 ** min(attempt, 60)
             wait = step + random.uniform(0, step / 2)
         return min(wait, self.max_wait)
 

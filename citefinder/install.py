@@ -322,11 +322,13 @@ def check(root: Path, version: str) -> Literal["ok", "drifted", "missing"]:
     """Drift for whichever skill is installed, judged by its location.
 
     Resolves the installed copy (global first) and compares it against a
-    re-render for *where it sits* — so `install --check` is a single no-arg
-    command, and a local-rendered stub carried to the global path reads as
-    `drifted`: its embedded `uv run` commands are wrong for global use no
-    matter how it was originally rendered. An unstamped or hand-authored file
-    likewise reads as `drifted` — it is not something this package generated.
+    re-render for *where it sits*, so a local-rendered stub carried to the
+    global path reads as `drifted`: its embedded `uv run` commands are wrong
+    for global use no matter how it was originally rendered. An unstamped or
+    hand-authored file likewise reads as `drifted` — it is not something this
+    package generated. The CLI's `install --check` does this same resolution
+    itself, because it also reports the path it judged; this is the one-call
+    form for library use.
     """
     found = resolve_installed(root)
     if found is None:

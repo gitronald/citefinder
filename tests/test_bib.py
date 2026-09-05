@@ -1,10 +1,15 @@
 """Tests for citefinder.bib — parsing and bib-side query helpers."""
 
+import logging
+
+import pytest
+
 from citefinder.bib import (
     build_search_query,
     build_title_query,
     citation_from_entry,
     first_author_surname,
+    normalize_doi,
     parse_entries,
     strip_braces,
 )
@@ -45,10 +50,69 @@ def test_parse_entries_multiple() -> None:
     assert [e.etype for e in entries] == ["article", "inproceedings"]
 
 
+@pytest.mark.parametrize(
+    ("text", "kept", "line", "reason"),
+    [
+        # A duplicated field key drops the whole entry.
+        (
+            "@article{x, author = {A}, author = {B}, title = {T}}",
+            [],
+            1,
+            "Duplicate field",
+        ),
+        # A repeated citation key drops the second entry.
+        (
+            "@article{x, title = {T1}}\n@article{x, title = {T2}}",
+            ["x"],
+            2,
+            "Duplicate entry",
+        ),
+        # An unterminated brace aborts that block; earlier ones survive.
+        (
+            "@article{ok, title = {T}}\n@article{x, title = {Open",
+            ["ok"],
+            2,
+            "BlockAborted",
+        ),
+    ],
+)
+def test_parse_entries_warns_on_dropped_blocks(
+    text: str,
+    kept: list[str],
+    line: int,
+    reason: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # bibtexparser files what it cannot parse under `failed_blocks` and moves
+    # on. Those entries must not vanish without a trace, and the line is the
+    # 1-based one an editor shows, not bibtexparser's 0-based start_line.
+    with caplog.at_level(logging.WARNING, logger="citefinder"):
+        entries = parse_entries(text)
+    assert [e.key for e in entries] == kept
+    assert f"skipped unparsable bib block at line {line}:" in caplog.text
+    assert reason in caplog.text
+
+
 def test_strip_braces() -> None:
     assert strip_braces("{Hello World}") == "Hello World"
     assert strip_braces("  {a {b} c}  ") == "a b c"
     assert strip_braces("") == ""
+
+
+@pytest.mark.parametrize(
+    ("raw", "bare"),
+    [
+        ("10.1234/abc", "10.1234/abc"),
+        ("{https://doi.org/10.1234/abc}", "10.1234/abc"),
+        ("http://dx.doi.org/10.1234/abc", "10.1234/abc"),
+        ("HTTPS://DOI.ORG/10.1234/ABC", "10.1234/ABC"),
+        ("doi:10.1234/abc", "10.1234/abc"),
+        ("DOI: 10.1234/abc ", "10.1234/abc"),
+        ("{}", ""),
+    ],
+)
+def test_normalize_doi(raw: str, bare: str) -> None:
+    assert normalize_doi(raw) == bare
 
 
 def test_first_author_surname_simple() -> None:

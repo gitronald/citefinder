@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlencode
 
-from citefinder._base import CachedJsonClient
+from citefinder._base import CachedJsonClient, _doi_path
 
 CROSSREF_BASE = "https://api.crossref.org"
 
@@ -28,7 +28,7 @@ CROSSREF_BASE = "https://api.crossref.org"
 class CrossrefClient(CachedJsonClient):
     def lookup_doi(self, doi: str) -> dict[str, Any] | None:
         """Fetch metadata for a single DOI. Returns None if not found."""
-        payload = self._get(f"{CROSSREF_BASE}/works/{doi}")
+        payload = self._get(f"{CROSSREF_BASE}/works/{_doi_path(doi)}")
         if payload is None:
             return None
         return payload.get("message")

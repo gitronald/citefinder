@@ -9,6 +9,7 @@ a bib entry into something Crossref/OpenAlex can search for.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 
@@ -18,7 +19,10 @@ from bibtexparser.middlewares.names import (
     split_multiple_persons_names,
 )
 
-from citefinder.signals import BibCitation
+from citefinder.openalex import normalize_title_query
+from citefinder.signals import BibCitation, strip_braces
+
+log = logging.getLogger("citefinder")
 
 
 @dataclass
@@ -29,8 +33,19 @@ class Entry:
 
 
 def parse_entries(text: str) -> list[Entry]:
-    """Parse a BibTeX string into a list of `Entry` records."""
+    """Parse a BibTeX string into a list of `Entry` records.
+
+    A block bibtexparser cannot turn into an entry — a duplicated field key,
+    a repeated citation key, an unterminated brace — is left out of the
+    result and reported with a warning, so a shorter-than-expected entry
+    count has a visible cause rather than a silent one.
+    """
     library = parse_bib_string(text)
+    for block in library.failed_blocks:
+        reason = str(block.error) or type(block.error).__name__
+        line = block.start_line
+        where = f"line {line + 1}" if line is not None else "unknown line"
+        log.warning("skipped unparsable bib block at %s: %s", where, reason)
     entries: list[Entry] = []
     for e in library.entries:
         fields = {f.key.lower(): f.value for f in e.fields}
@@ -38,8 +53,17 @@ def parse_entries(text: str) -> list[Entry]:
     return entries
 
 
-def strip_braces(s: str) -> str:
-    return re.sub(r"[{}]", "", s).strip()
+_DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)
+
+
+def normalize_doi(s: str) -> str:
+    """A bare DOI from the forms a `.bib` or a source may carry.
+
+    Braces and whitespace go, as does a `https://doi.org/` (or `dx.doi.org`)
+    URL prefix or a `doi:` label — exported bibs use all three, and a source
+    given the URL form 404s on a DOI it does index.
+    """
+    return _DOI_PREFIX_RE.sub("", strip_braces(s).strip()).strip()
 
 
 def first_author_surname(author_field: str) -> str:
@@ -81,20 +105,11 @@ def build_title_query(entry: Entry) -> str:
     queries. Restricting to title-only via the filter syntax matches
     what verifies search hits in the first place: title similarity.
 
-    OpenAlex filter syntax reserves `,` (filter separator), `|` (OR),
-    `:` (field separator), and `!` (negation), so titles containing
-    them return HTTP 400. Strip those out — `title.search` is fuzzy
-    anyway, so dropping punctuation doesn't hurt recall.
-
-    Straight apostrophes are also remapped to U+2019 because OpenAlex's
-    title index stores the curly form (e.g., Ohm2020 is indexed as
-    `Backstabber’s Knife Collection`); a query with `Backstabber's`
-    returns zero hits while `Backstabber’s` finds the paper.
+    The OpenAlex-specific normalisation (curly apostrophes, reserved
+    filter punctuation) lives with the client in `normalize_title_query`;
+    this adds only the bib side, dropping the protective braces.
     """
-    title = strip_braces(entry.fields.get("title", ""))
-    title = title.replace("'", "’")
-    title = re.sub(r"[,:|!?]", " ", title)
-    return re.sub(r"\s+", " ", title).strip()
+    return normalize_title_query(strip_braces(entry.fields.get("title", "")))
 
 
 def citation_from_entry(entry: Entry) -> BibCitation:

@@ -10,11 +10,12 @@ remains accessible via the `crossref` subcommand for its own workflows
 from __future__ import annotations
 
 import json
-import math
 import os
 import sys
 import time
 import tomllib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
@@ -26,7 +27,7 @@ import typer
 from dotenv import find_dotenv, load_dotenv
 
 from citefinder import install as install_mod
-from citefinder._base import DEFAULT_MAX_RETRIES
+from citefinder._base import DEFAULT_MAX_RETRIES, validate_knob
 from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.client import CrossrefClient
@@ -47,8 +48,38 @@ load_dotenv(find_dotenv(usecwd=True))
 
 
 def _anchor(path: str | Path, base: Path) -> Path:
-    """`path` made absolute against `base`; a leading `~` expands first."""
-    return base / Path(path).expanduser()
+    """`path` made absolute against `base`; a leading `~` expands first.
+
+    Raises `ValueError` for a `~user` form naming an unknown account, which
+    `Path.expanduser` reports as a bare `RuntimeError`.
+    """
+    try:
+        expanded = Path(path).expanduser()
+    except RuntimeError as exc:
+        raise ValueError(f"cannot expand {str(path)!r}: {exc}") from exc
+    return base / expanded
+
+
+@contextmanager
+def _report_errors(
+    *kinds: type[Exception], prefix: str = "", code: int = 1
+) -> Iterator[None]:
+    """Turn a library exception into an `Error:` line and exit, no traceback.
+
+    Exit 1 for a failure in the work itself; `code=2` for a usage error (a
+    bad flag or env value), the code click itself uses for those.
+    """
+    try:
+        yield
+    except kinds as exc:
+        typer.echo(f"Error: {prefix}{exc}", err=True)
+        raise typer.Exit(code=code) from exc
+
+
+def _anchor_or_exit(path: str | Path, base: Path) -> Path:
+    """`_anchor` for a flag or env value, where a bad `~user` is a usage error."""
+    with _report_errors(ValueError, code=2):
+        return _anchor(path, base)
 
 
 # Env name -> which config file `_load_configs` took its value from
@@ -117,12 +148,19 @@ def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
                 err=True,
             )
             continue
-        if env_name in os.environ:
+        # An empty value is "unset" everywhere else the env is read (typer's
+        # `envvar`, `_env_number`, `_cache_dir`), so treat it the same here or
+        # `OPENALEX_MAILTO=""` would block the config value and win nothing.
+        if os.environ.get(env_name):
             continue
         if key == "cache_dir":
             # Anchored to the file, not the working directory, so a relative
             # `cache_dir` names the same place whatever the command's cwd.
-            value = _anchor(str(value), path.parent)
+            try:
+                value = _anchor(str(value), path.parent)
+            except ValueError as exc:
+                typer.echo(f"warning: ignoring {key} in {path}: {exc}", err=True)
+                continue
         os.environ[env_name] = str(value)
         _config_sources[env_name] = kind
 
@@ -245,32 +283,33 @@ def _checked_knob(name: str, value: float) -> float:
 
     Every CLI path funnels through here: click's `min=0` on the flags lets
     `inf`/`nan` through, and `verify`'s env fallback skips click's range
-    check entirely, so this is the one place the bound is enforced.
+    check entirely, so the client's own bound is applied up front.
     """
-    if not math.isfinite(value) or value < 0:
-        typer.echo(
-            f"Error: {name} must be a finite number >= 0, got {value!r}", err=True
-        )
-        raise typer.Exit(code=2)
-    return value
+    with _report_errors(ValueError, code=2):
+        return validate_knob(name, value)
 
 
 def _source_client_kwargs(
-    source: str, max_retries: int | None, min_interval: float | None
+    source: str,
+    max_retries: int | None,
+    min_interval: float | None,
+    mailto: str | None,
 ) -> dict[str, Any]:
     """Like `_client_kwargs`, falling back to the chosen source's env vars.
 
     `verify` picks its source at runtime, so its flags can't bind a single
     `envvar`; an unset flag reads `<SOURCE>_MAX_RETRIES` /
-    `<SOURCE>_MIN_INTERVAL` (which config.toml also feeds) so
-    `verify --source crossref` honors the `[crossref]` section.
+    `<SOURCE>_MIN_INTERVAL` / `<SOURCE>_MAILTO` (which config.toml also
+    feeds) so `verify --source crossref` honors the `[crossref]` section.
     """
     prefix = source.upper()
     if max_retries is None:
         max_retries = _env_number(f"{prefix}_MAX_RETRIES", int)
     if min_interval is None:
         min_interval = _env_number(f"{prefix}_MIN_INTERVAL", float)
-    return _client_kwargs(max_retries, min_interval)
+    kwargs = _client_kwargs(max_retries, min_interval)
+    kwargs["mailto"] = mailto or os.environ.get(f"{prefix}_MAILTO") or None
+    return kwargs
 
 
 def _env_number(name: str, cast: type[int] | type[float]) -> Any:
@@ -298,11 +337,11 @@ def _cache_dir(flag: Path | None) -> Path | None:
     anchored to the file's directory when it was loaded.
     """
     if flag is not None:
-        return _anchor(flag, Path.cwd())
+        return _anchor_or_exit(flag, Path.cwd())
     env = os.environ.get("CITEFINDER_CACHE_DIR")
     if not env:
         return None
-    return _anchor(env, Path.cwd())
+    return _anchor_or_exit(env, Path.cwd())
 
 
 def _cache_path(source: str, cache: Path | None, cache_dir: Path | None) -> Path:
@@ -347,6 +386,14 @@ def _emit(result: object) -> None:
     typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
 
 
+def _emit_or_exit(result: object | None, label: str) -> None:
+    """Print a lookup result as JSON, or report `not found: <label>` and exit 1."""
+    if result is None:
+        typer.echo(f"not found: {label}", err=True)
+        raise typer.Exit(code=1)
+    _emit(result)
+
+
 # --- top-level (OpenAlex) ---------------------------------------------------
 
 
@@ -367,11 +414,7 @@ def doi(
         api_key=api_key,
         **_client_kwargs(max_retries, min_interval),
     )
-    result = client.lookup_doi(doi)
-    if result is None:
-        typer.echo(f"not found: {doi}", err=True)
-        raise typer.Exit(code=1)
-    _emit(result)
+    _emit_or_exit(client.lookup_doi(doi), doi)
 
 
 @app.command()
@@ -424,10 +467,14 @@ def bib_to_table_cmd(
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
 
-    df = bib_to_table(bib_file.read_text())
+    with _report_errors(ValueError):
+        df = bib_to_table(bib_file.read_text())
 
     if fields:
-        wanted = ["key", "entry_type", *(f.strip() for f in fields.split(","))]
+        # `dict.fromkeys` keeps order and drops repeats, so naming `key` or
+        # `entry_type` again does not become a duplicate projection.
+        requested = (f.strip() for f in fields.split(","))
+        wanted = dict.fromkeys(["key", "entry_type", *requested])
         present = [c for c in wanted if c in df.columns]
         df = df.select(present)
 
@@ -465,7 +512,8 @@ def table_to_bib_cmd(
     # volume, etc. are bib values, not numbers, and downstream consumers
     # expect them to round-trip verbatim.
     df = pl.read_csv(csv_file, infer_schema_length=0)
-    bib = table_to_bib(df)
+    with _report_errors(ValueError):
+        bib = table_to_bib(df)
     if out:
         out.write_text(bib)
     else:
@@ -475,13 +523,18 @@ def table_to_bib_cmd(
 @app.command()
 def verify(
     bib_file: Path,
-    source: str = typer.Option(
+    source: Literal["crossref", "openalex"] = typer.Option(
         "openalex",
         "--source",
         help="Metadata source to verify against.",
         case_sensitive=False,
     ),
-    mailto: str | None = OpenAlexMailtoOption,
+    mailto: str | None = typer.Option(
+        None,
+        "--mailto",
+        help="Email for the source's polite pool "
+        "(also <SOURCE>_MAILTO env or config.toml).",
+    ),
     out: Path | None = typer.Option(
         None,
         "--out",
@@ -510,9 +563,6 @@ def verify(
     otherwise search by author + title + year. Writes a JSONL response
     cache and a structured `results.json` to the output directory.
     """
-    if source not in ("crossref", "openalex"):
-        typer.echo("Error: --source must be 'crossref' or 'openalex'", err=True)
-        raise typer.Exit(code=2)
     if not bib_file.is_file():
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
@@ -522,21 +572,20 @@ def verify(
     # without collision. `--out` is anchored to cwd like `--cache-dir`, so a
     # quoted `~` expands and the cache below lands beside `results.json`.
     if out is not None:
-        out_dir = _anchor(out, Path.cwd())
+        out_dir = _anchor_or_exit(out, Path.cwd())
     else:
         out_dir = _verify_out_dir(bib_file, source, cache_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cache_path = resolve_cache_path(source, out_dir)
-    knobs = _source_client_kwargs(source, max_retries, min_interval)
+    knobs = _source_client_kwargs(source, max_retries, min_interval, mailto)
     if source == "crossref":
         src = Source(
             name="crossref", client=CrossrefClient(cache_path=cache_path, **knobs)
         )
     else:
         src = Source(
-            name="openalex",
-            client=OpenAlexClient(cache_path=cache_path, mailto=mailto, **knobs),
+            name="openalex", client=OpenAlexClient(cache_path=cache_path, **knobs)
         )
 
     entries = parse_entries(bib_file.read_text())
@@ -614,6 +663,26 @@ def skill() -> None:
     typer.echo(install_mod.skill_body(), nl=False)
 
 
+def _installed_status(
+    root: Path, version: str, mode: install_mod.Mode, local: bool
+) -> tuple[Path | None, Literal["ok", "drifted", "missing"], install_mod.Mode]:
+    """Where the checked stub sits, its drift status, and the mode it was judged by.
+
+    `--local` narrows the check to the per-repo copy; otherwise whichever copy
+    is installed (global first, matching Claude Code's own precedence) is
+    judged by where it sits. Raises `ValueError` when the bundled body cannot
+    be rendered to compare against.
+    """
+    if local:
+        where = install_mod.skill_path(root, mode)
+        return where, install_mod.check_mode(root, version, mode), mode
+    found = install_mod.resolve_installed(root)
+    if found is None:
+        return None, "missing", mode
+    where, mode = found
+    return where, install_mod.check_mode(root, version, mode), mode
+
+
 @app.command()
 def install(
     local: bool = typer.Option(
@@ -652,21 +721,8 @@ def install(
     mode: install_mod.Mode = "local" if local else "global"
 
     if check:
-        # `--local` narrows the check to the per-repo location; bare `--check`
-        # resolves whichever copy is installed (global first, matching Claude
-        # Code's own precedence) and judges it by where it sits.
-        where: Path | None
-        if local:
-            where = install_mod.skill_path(root, mode)
-            status = install_mod.check_mode(root, version, mode)
-        else:
-            found = install_mod.resolve_installed(root)
-            where = found[0] if found else None
-            if found is not None:
-                mode = found[1]
-                status = install_mod.check_mode(root, version, mode)
-            else:
-                status = "missing"
+        with _report_errors(ValueError):
+            where, status, mode = _installed_status(root, version, mode, local)
         typer.echo(f"skill: {status}" + (f" ({where})" if where else ""))
         if status != "ok":
             # `missing` has nothing to overwrite, so it needs a plain install,
@@ -689,19 +745,17 @@ def install(
         )
         raise typer.Exit(code=1)
 
-    try:
+    # OSError: a plain file squatting where `.claude/` should be, a directory at
+    # SKILL.md itself. ValueError: a bundled body with no frontmatter to lift.
+    with _report_errors(OSError, ValueError, prefix=f"cannot write {path}: "):
         written = install_mod.write_skill(root, version, mode)
-    except OSError as exc:
-        # e.g. a plain file squatting where `.claude/` should be, or a
-        # directory at SKILL.md itself — report it, don't traceback.
-        typer.echo(f"Error: cannot write {path}: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
     typer.echo(f"wrote {written} (citefinder {version}, mode={mode})")
 
 
 # --- config ------------------------------------------------------------------
 
-# What a setting is when nothing sets it: the clients' own defaults.
+# What a setting is when nothing sets it: the clients' own defaults. Crossref
+# has no named min_interval constant; "0" mirrors `CachedJsonClient`'s `0.0`.
 _SETTING_DEFAULTS = {
     "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
     "OPENALEX_MIN_INTERVAL": str(DEFAULT_MIN_INTERVAL),
@@ -777,11 +831,7 @@ def crossref_doi(
         mailto=mailto,
         **_client_kwargs(max_retries, min_interval),
     )
-    result = client.lookup_doi(doi)
-    if result is None:
-        typer.echo(f"not found: {doi}", err=True)
-        raise typer.Exit(code=1)
-    _emit(result)
+    _emit_or_exit(client.lookup_doi(doi), doi)
 
 
 @crossref_app.command("search")
@@ -822,7 +872,4 @@ def crossref_chapter(
         **_client_kwargs(max_retries, min_interval),
     )
     result = client.lookup_book_chapter(book_doi, chapter_arg)
-    if result is None:
-        typer.echo(f"not found: {book_doi}.{chapter}", err=True)
-        raise typer.Exit(code=1)
-    _emit(result)
+    _emit_or_exit(result, f"{book_doi}.{chapter}")

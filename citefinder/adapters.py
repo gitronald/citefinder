@@ -2,18 +2,18 @@
 
 Everything that knows the Crossref or OpenAlex JSON shape lives here.
 To wire a new metadata source (Semantic Scholar, DataCite, ...), write
-an analogous `<source>_to_work` function — the rest of the verifier
-(signal checks, status reduction, rendering) doesn't need to change.
+an analogous `<source>_to_work` function and teach `verify.Source` the
+new name — the signal checks and status reduction don't need to change.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from bibtexparser.middlewares.names import parse_single_name_into_parts
 
-from citefinder.signals import Work
+from citefinder.bib import normalize_doi
+from citefinder.signals import Work, strip_braces
 
 # --- Crossref ---------------------------------------------------------------
 
@@ -32,7 +32,7 @@ def _crossref_extract_year(work: dict[str, Any]) -> int | None:
     return None
 
 
-def _crossref_full_title(work: dict[str, Any]) -> str | None:
+def crossref_full_title(work: dict[str, Any]) -> str | None:
     """Crossref splits long titles across `title` and `subtitle` (e.g.
     Fang2022's main title is in `title` and the colon-after part is in
     `subtitle`). Concatenate so downstream comparison sees the full title.
@@ -58,7 +58,9 @@ def crossref_to_work(message: dict[str, Any] | None) -> Work | None:
     cr_authors = message.get("author") or []
     first_author = ""
     if cr_authors and isinstance(cr_authors[0], dict):
-        first_author = (cr_authors[0].get("family") or "").strip()
+        # A person carries `family`/`given`; an organisation carries `name`.
+        first = cr_authors[0]
+        first_author = (first.get("family") or first.get("name") or "").strip()
     # Crossref returns multiple container names — the full and abbreviated
     # journal names, plus for proceedings papers both the series ("Lecture
     # Notes in Computer Science") and the booktitle ("Detection of
@@ -66,7 +68,7 @@ def crossref_to_work(message: dict[str, Any] | None) -> Work | None:
     ct_full = list(message.get("container-title") or [])
     ct_short = list(message.get("short-container-title") or [])
     return Work(
-        title=_crossref_full_title(message),
+        title=crossref_full_title(message),
         year=_crossref_extract_year(message),
         first_author_surname=first_author or None,
         container_names=[c for c in (ct_full + ct_short) if c],
@@ -74,10 +76,6 @@ def crossref_to_work(message: dict[str, Any] | None) -> Work | None:
 
 
 # --- OpenAlex ---------------------------------------------------------------
-
-
-def _strip_braces(s: str) -> str:
-    return re.sub(r"[{}]", "", s).strip()
 
 
 def _openalex_surname(display_name: str) -> str:
@@ -92,14 +90,12 @@ def _openalex_surname(display_name: str) -> str:
     if not name:
         return ""
     parts = parse_single_name_into_parts(name)
-    return _strip_braces(" ".join(parts.von + parts.last)).strip()
+    return strip_braces(" ".join(parts.von + parts.last)).strip()
 
 
 def openalex_doi(doi_url: str | None) -> str:
     """OpenAlex returns DOIs as `https://doi.org/10.xxx`. Strip to bare DOI."""
-    if not doi_url:
-        return ""
-    return re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi_url).strip()
+    return normalize_doi(doi_url) if doi_url else ""
 
 
 def openalex_to_work(message: dict[str, Any] | None) -> Work | None:

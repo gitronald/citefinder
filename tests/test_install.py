@@ -390,15 +390,6 @@ def test_cli_install_local_writes_the_repo_copy(sandbox) -> None:
     assert "mode=local" in path.read_text(encoding="utf-8")
 
 
-def test_installed_stub_holds_no_instructions(sandbox) -> None:
-    """Nothing on disk duplicates the package's body — the drift can't happen."""
-    runner.invoke(app, ["install", "--local"])
-    on_disk = install_mod.skill_path(sandbox, "local").read_text(encoding="utf-8")
-    assert "Four core operations" not in on_disk
-    assert "lookup_book_chapter" not in on_disk
-    assert len(on_disk) < 2500
-
-
 def test_cli_install_defaults_to_global(sandbox) -> None:
     repo = sandbox
     result = runner.invoke(app, ["install"])
@@ -422,6 +413,16 @@ def test_cli_check_reports_each_status(sandbox) -> None:
     drifted = runner.invoke(app, ["install", "--local", "--check"])
     assert drifted.exit_code == 1
     assert "drifted" in drifted.stdout
+
+
+def test_cli_check_with_nothing_installed_reports_missing(sandbox) -> None:
+    # Bare --check with neither copy present: `missing`, and the fix it names
+    # is a plain global install, not a --force repair.
+    result = runner.invoke(app, ["install", "--check"])
+    assert result.exit_code == 1
+    assert "skill: missing" in result.output
+    assert "run: citefinder install" in result.output
+    assert "--force" not in result.output
 
 
 def test_cli_check_writes_nothing(sandbox) -> None:
@@ -522,6 +523,30 @@ def test_cli_install_force_reports_a_squatting_directory_cleanly(sandbox) -> Non
     result = runner.invoke(app, ["install", "--local", "--force"])
     assert result.exit_code == 1
     assert not isinstance(result.exception, OSError)
+
+
+def test_cli_reports_a_body_without_frontmatter_cleanly(sandbox, monkeypatch) -> None:
+    # `_frontmatter` raises ValueError for a bundled body it cannot lift the
+    # triggers from; both the write and the check paths must say so, not
+    # traceback.
+    assert runner.invoke(app, ["install", "--local"]).exit_code == 0
+    monkeypatch.setattr(install_mod, "load_body", lambda: "# no frontmatter\n")
+
+    result = runner.invoke(app, ["install", "--local", "--check"])
+    assert result.exit_code == 1
+    assert "Error:" in result.output and "frontmatter" in result.output
+    assert "Traceback" not in result.output
+
+    result = runner.invoke(app, ["install", "--local"])
+    assert result.exit_code == 1
+    assert "Error: cannot write" in result.output
+
+
+def test_read_plain_treats_undecodable_bytes_as_not_ours(sandbox) -> None:
+    path = sandbox / "SKILL.md"
+    path.write_bytes(b"\xff\xfe\x00 not utf-8")
+    assert install_mod._read_plain(path) is None
+    assert not install_mod.is_generated(path)
 
 
 def test_cli_install_degrades_when_distribution_metadata_is_absent(

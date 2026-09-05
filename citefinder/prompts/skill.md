@@ -21,8 +21,6 @@ description: Look up DOIs, search Crossref or OpenAlex, resolve book chapters, a
 - Sanity-checking a list of references produced by a research subagent or extracted from a PDF.
 - Building or enriching a bibliography (`.bib`, CSV) from an outline.
 
-If the user describes a multi-step Zotero/bibliography workflow, also load the `resolve-zotero-references` skill — it composes citefinder with Zotero matching and a verification loop.
-
 ## Install / availability check
 
 If citefinder isn't already a dependency:
