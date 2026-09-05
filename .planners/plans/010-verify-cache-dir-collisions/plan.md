@@ -1,8 +1,8 @@
 ---
 id: 10
 slug: verify-cache-dir-collisions
-status: draft
-branch:
+status: active
+branch: feature/verify-cache-dir-collisions
 created: 2026-09-04T12:51:36-07:00
 concluded:
 pr:
