@@ -697,17 +697,23 @@ def install(
         # resolves whichever copy is installed (global first, matching Claude
         # Code's own precedence) and judges it by where it sits.
         where: Path | None
-        if local:
-            where = install_mod.skill_path(root, mode)
-            status = install_mod.check_mode(root, version, mode)
-        else:
-            found = install_mod.resolve_installed(root)
-            where = found[0] if found else None
-            if found is not None:
-                mode = found[1]
+        try:
+            if local:
+                where = install_mod.skill_path(root, mode)
                 status = install_mod.check_mode(root, version, mode)
             else:
-                status = "missing"
+                found = install_mod.resolve_installed(root)
+                where = found[0] if found else None
+                if found is not None:
+                    mode = found[1]
+                    status = install_mod.check_mode(root, version, mode)
+                else:
+                    status = "missing"
+        except ValueError as exc:
+            # The bundled body cannot be rendered (no frontmatter): a broken
+            # package, reported as such rather than as a traceback.
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
         typer.echo(f"skill: {status}" + (f" ({where})" if where else ""))
         if status != "ok":
             # `missing` has nothing to overwrite, so it needs a plain install,
@@ -732,9 +738,10 @@ def install(
 
     try:
         written = install_mod.write_skill(root, version, mode)
-    except OSError as exc:
-        # e.g. a plain file squatting where `.claude/` should be, or a
-        # directory at SKILL.md itself — report it, don't traceback.
+    except (OSError, ValueError) as exc:
+        # e.g. a plain file squatting where `.claude/` should be, a directory
+        # at SKILL.md itself, or a bundled body with no frontmatter to lift —
+        # report it, don't traceback.
         typer.echo(f"Error: cannot write {path}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"wrote {written} (citefinder {version}, mode={mode})")

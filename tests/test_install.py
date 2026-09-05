@@ -524,6 +524,30 @@ def test_cli_install_force_reports_a_squatting_directory_cleanly(sandbox) -> Non
     assert not isinstance(result.exception, OSError)
 
 
+def test_cli_reports_a_body_without_frontmatter_cleanly(sandbox, monkeypatch) -> None:
+    # `_frontmatter` raises ValueError for a bundled body it cannot lift the
+    # triggers from; both the write and the check paths must say so, not
+    # traceback.
+    assert runner.invoke(app, ["install", "--local"]).exit_code == 0
+    monkeypatch.setattr(install_mod, "load_body", lambda: "# no frontmatter\n")
+
+    result = runner.invoke(app, ["install", "--local", "--check"])
+    assert result.exit_code == 1
+    assert "Error:" in result.output and "frontmatter" in result.output
+    assert "Traceback" not in result.output
+
+    result = runner.invoke(app, ["install", "--local"])
+    assert result.exit_code == 1
+    assert "Error: cannot write" in result.output
+
+
+def test_read_plain_treats_undecodable_bytes_as_not_ours(sandbox) -> None:
+    path = sandbox / "SKILL.md"
+    path.write_bytes(b"\xff\xfe\x00 not utf-8")
+    assert install_mod._read_plain(path) is None
+    assert not install_mod.is_generated(path)
+
+
 def test_cli_install_degrades_when_distribution_metadata_is_absent(
     sandbox, monkeypatch
 ) -> None:
