@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-05
+
 ### Fixed
 
 - `verify` no longer aborts the whole run on an entry whose `author` field
