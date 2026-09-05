@@ -420,7 +420,9 @@ rejected. Six commits, each gated; the review is posted on the PR.
 `MIN_TITLE_TOKENS` gates identical titles to `unknown` on the DOI path and
 `UNMATCHED` on the search path. Not a regression (`dev` gave `fail` /
 `UNMATCHED`) and the B06 changelog line is accurate as written; CJK word
-segmentation joins the follow-up list.
+segmentation joins the follow-up list. Fixed on `dev` right after the close:
+`title_tokens` expands each run of CJK ideographs or kana into character
+bigrams, so an identical title clears both short-title gates (`b235084`).
 
 **Final gate:** 304 passed (from 301); ruff, format, pyrefly, and
 `install --check` green; CI matrix green on 3.11–3.14.
