@@ -5,7 +5,7 @@ status: active
 branch: feature/verify-given-name-check
 created: 2026-09-05T15:54:41-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/52
 ---
 
 # Surface given-name and diacritic differences from cached author records
@@ -100,3 +100,25 @@ the finding in `summary.md` without an ad-hoc script, at the cost of extending
    `citefinder install --local --check` in a consumer to confirm drift is
    reported and resolves on reinstall.
 4. Changelog entry under `[Unreleased]`.
+
+## Log
+
+- 2026-09-05 — Added the "Given names and diacritics" subsection to
+  `citefinder/prompts/skill.md`, placed before the year-mismatch section, plus
+  a one-line pointer to it from the verify section's four-signals sentence.
+  The recipe reads both verify caches (unwrapping Crossref's `message`
+  envelope, skipping search pages and cached 404s), de-escapes the bib side
+  with `pylatexenc` (a bibtexparser dependency), NFC-normalizes both sides,
+  and compares the **first given-name token** only — comparing the full given
+  string flagged every middle initial OpenAlex's profile name carries.
+- Verified against a real cache: the 1991 law-review example prints
+  `Kimberle | Kimberle | Kimberlé W.` (bib and Crossref agree, the OpenAlex
+  profile name carries the diacritic); a bib written `Kimberl{\'e}` prints
+  `Kimberlé | Kimberle | Kimberlé W.`; a matched control entry stays quiet;
+  altering the control's given name in a copy flags exactly that entry. The
+  code block was also extracted from the rendered skill and run verbatim.
+- Step 4 (re-materialize the stub) is a no-op: `citefinder install --local
+  --check` reports `ok` after the change because the stub carries only the
+  frontmatter and a pointer, not the body; consumers see the new text as soon
+  as they upgrade the package. No version marker to bump.
+- Changelog entry added under `[Unreleased]`. Draft PR #52.
