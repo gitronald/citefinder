@@ -376,6 +376,14 @@ def _emit(result: object) -> None:
     typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
 
 
+def _emit_or_exit(result: object | None, label: str) -> None:
+    """Print a lookup result as JSON, or report `not found: <label>` and exit 1."""
+    if result is None:
+        typer.echo(f"not found: {label}", err=True)
+        raise typer.Exit(code=1)
+    _emit(result)
+
+
 @contextmanager
 def _report_errors(*kinds: type[Exception], prefix: str = "") -> Iterator[None]:
     """Turn a library exception into an `Error:` line and exit 1, no traceback."""
@@ -406,11 +414,7 @@ def doi(
         api_key=api_key,
         **_client_kwargs(max_retries, min_interval),
     )
-    result = client.lookup_doi(doi)
-    if result is None:
-        typer.echo(f"not found: {doi}", err=True)
-        raise typer.Exit(code=1)
-    _emit(result)
+    _emit_or_exit(client.lookup_doi(doi), doi)
 
 
 @app.command()
@@ -826,11 +830,7 @@ def crossref_doi(
         mailto=mailto,
         **_client_kwargs(max_retries, min_interval),
     )
-    result = client.lookup_doi(doi)
-    if result is None:
-        typer.echo(f"not found: {doi}", err=True)
-        raise typer.Exit(code=1)
-    _emit(result)
+    _emit_or_exit(client.lookup_doi(doi), doi)
 
 
 @crossref_app.command("search")
@@ -871,7 +871,4 @@ def crossref_chapter(
         **_client_kwargs(max_retries, min_interval),
     )
     result = client.lookup_book_chapter(book_doi, chapter_arg)
-    if result is None:
-        typer.echo(f"not found: {book_doi}.{chapter}", err=True)
-        raise typer.Exit(code=1)
-    _emit(result)
+    _emit_or_exit(result, f"{book_doi}.{chapter}")
