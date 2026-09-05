@@ -1,8 +1,8 @@
 ---
 id: 12
 slug: verify-given-name-check
-status: draft
-branch:
+status: active
+branch: feature/verify-given-name-check
 created: 2026-09-05T15:54:41-07:00
 concluded:
 pr:
