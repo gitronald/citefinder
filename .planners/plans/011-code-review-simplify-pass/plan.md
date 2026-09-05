@@ -261,3 +261,45 @@ single-token prefix matching disabled in `container_similarity`, `doi = {}`
 as `None`, and OpenAlex title normalisation moved to the client. It is stale
 against `dev` and is not merged here; each proposal is weighed on its own in
 the fix phase.
+
+### 2026-09-04 — pass C findings (surfaces)
+
+`/code-review high` over `cli.py`, `config.py`, `install.py`, `bib_table.py`,
+`__init__.py`, `prompts/skill.md` and their tests: 4 finders, 42 raw
+candidates, 23 after dedup, 5 verifiers, 20 verified (17 confirmed, 3
+plausible), 3 rejected.
+
+| # | Location | Finding | Verdict |
+|---|---|---|---|
+| C09 | `prompts/skill.md:24` | Skill body tells the agent to load a skill that exists only in a private repo; hard rule for a public package | CONFIRMED |
+| C01 | `cli.py:534` | `verify --source crossref` never passes `mailto` to `CrossrefClient`; flag, env, and config value all silently dropped | CONFIRMED |
+| C06 | `bib_table.py:43` | A bib field named `key` or `entry_type` is silently overwritten by the id columns and cannot round-trip | CONFIRMED |
+| C07 | `bib_table.py:75` | `table_to_bib` emits malformed BibTeX for a value with an unbalanced `}`; later fields vanish on re-parse; reachable from a quote-delimited bib value | CONFIRMED |
+| C03 | `cli.py:429` | `bib-to-table --fields key,title` raises polars `DuplicateError` | CONFIRMED |
+| C04 | `cli.py:120` | An empty env var counts as set in `_apply_config` but as unset everywhere else, so the config value is lost and nothing wins | CONFIRMED |
+| C02 | `cli.py:482` | `--source` is a `str`, so `case_sensitive=False` is a no-op; `--source OpenAlex` exits 2 | CONFIRMED |
+| C05 | `cli.py:49` | `_anchor`'s `expanduser` raises `RuntimeError` for `~nosuchuser`; from a config file that crashes `import citefinder.cli` | CONFIRMED |
+| C11 | `install.py:321` | `install.check()` called only by its own tests; the CLI re-implements it; docstring claims otherwise | CONFIRMED |
+| C10 | `bib_table.py:3` | "Designed for the editorial workflow" implies one specific consumer | CONFIRMED |
+| C15 | `bib_table.py:88` | Manual field union/fill duplicates `pl.DataFrame(list[dict])`; needs `infer_schema_length=None` or a late-appearing field is dropped | CONFIRMED |
+| C12 | `cli.py:371` | `doi`, `crossref doi`, `crossref chapter` repeat the not-found exit block | CONFIRMED |
+| C21 | `cli.py:378` | `search`, `crossref search`, `crossref chapter`, `bib-to-table`, `table-to-bib` bodies and several error branches are never exercised (cli.py 85% covered) | CONFIRMED |
+| C22 | `install.py:169` | `_frontmatter`'s `ValueError` is uncaught by `install`/`--check`; `_read_plain`'s except branch untested | CONFIRMED |
+| C20 | `tests/test_install.py:393` | `test_installed_stub_holds_no_instructions` adds no fact beyond two existing tests | CONFIRMED |
+| C19 | `tests/test_config.py:144` | `test_cache_dir_flag_beats_env` and `test_env_cache_dir_beats_user_config` are strict subsets of the precedence matrix; the `user_config_beats_default` one is not (covers the crossref path) | PLAUSIBLE |
+| C14 | `cli.py:476` | Extracting the verify loop is a redistribution, not a reduction; only worth it for testability | PLAUSIBLE |
+| C16 | `cli.py:147` | Paired Option objects could use per-shape helpers; modest | PLAUSIBLE |
+| C17 | `cli.py:709` | `"0"` for the Crossref `min_interval` default is hand-mirrored; deriving it would print `0.0` and break a locked test | CONFIRMED (leave) |
+| C23 | `README.md:407` | Crash-safe claim false today; true as written once A03 lands | CONFIRMED (no doc change) |
+
+Rejected: `install.py:141` CRLF frontmatter (every read path translates line
+endings first; unreachable in-package); `cli.py:60` moving config loading
+into `config.py` (that module is deliberately typer-free and documented as
+never loading config; a wash in lines with a worse boundary); `cli.py:743`
+`config` printing `mailto` (not a secret, sent in every request, local
+diagnostic).
+
+Pass C gap sweep (main loop): nothing additional.
+
+Review totals across the three passes: 105 raw candidates, 70 after dedup,
+60 verified findings (53 confirmed, 7 plausible), 12 rejected.
