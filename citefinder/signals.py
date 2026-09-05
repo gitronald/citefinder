@@ -221,14 +221,8 @@ def _surname_tokens(surname: str) -> set[str]:
     different authors can share one, so it must not count as agreement on
     its own. A surname that is nothing but such words keeps them all.
     """
-    words = surname.split()
-    core = {
-        token
-        for word in words
-        if not word[:1].islower()
-        for token in normalize_title(word).split()
-    }
-    return core or set(normalize_title(surname).split())
+    kept = [word for word in surname.split() if not word[:1].islower()]
+    return title_tokens(" ".join(kept)) or title_tokens(surname)
 
 
 def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str, Any]:
