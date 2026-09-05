@@ -1,5 +1,6 @@
 """Tests for the JSONL cache."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -59,6 +60,26 @@ def test_replay_skips_a_corrupt_line_and_keeps_the_rest(
     reloaded = JsonlCache(path)
     assert reloaded.get("c") == 3
     assert len(reloaded) == 2
+
+
+def test_replay_skips_a_line_torn_inside_a_multibyte_character(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Values are written with ensure_ascii=False, so a crash can leave the
+    # file ending on the first byte of a two-byte character. Decoding the
+    # whole file at once raised UnicodeDecodeError and lost every record.
+    path = tmp_path / "c.jsonl"
+    JsonlCache(path).put("a", 1)
+    record = json.dumps({"key": "b", "value": "café"}, ensure_ascii=False).encode()
+    with path.open("ab") as f:
+        f.write(record[: record.index("é".encode()) + 1])
+    with caplog.at_level(logging.WARNING, logger="citefinder"):
+        cache = JsonlCache(path)
+    assert cache.get("a") == 1
+    assert "b" not in cache
+    assert "skipping unreadable cache line" in caplog.text
+    cache.put("c", 3)
+    assert JsonlCache(path).get("c") == 3
 
 
 def test_replay_skips_a_record_without_key_or_value(tmp_path: Path) -> None:

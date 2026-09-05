@@ -31,13 +31,15 @@ class JsonlCache:
             self._replay()
 
     def _replay(self) -> None:
-        raw = ""
-        with self.path.open("r", encoding="utf-8") as f:
+        raw = b""
+        with self.path.open("rb") as f:
             for lineno, raw in enumerate(f, 1):
-                line = raw.strip()
-                if not line:
-                    continue
                 try:
+                    # Decoded per line, so a write torn inside a multi-byte
+                    # character is one unreadable line, not an unreadable file.
+                    line = raw.decode("utf-8").strip()
+                    if not line:
+                        continue
                     entry = json.loads(line)
                     key, value = entry["key"], entry["value"]
                 except (ValueError, KeyError, TypeError):
@@ -51,7 +53,7 @@ class JsonlCache:
                 self._store[key] = value
         # A last line with no newline is that interrupted write; the next
         # `put` has to start on a fresh line or both records are lost.
-        self._needs_newline = bool(raw) and not raw.endswith("\n")
+        self._needs_newline = bool(raw) and not raw.endswith(b"\n")
 
     def get(self, key: str) -> Any | None:
         return self._store.get(key)
