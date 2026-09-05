@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from citefinder.adapters import (
+    crossref_full_title,
     crossref_to_work,
     openalex_doi,
     openalex_to_work,
@@ -106,8 +107,9 @@ class Source:
 
     def candidate_title(self, item: dict[str, Any]) -> str:
         if self.name == "crossref":
-            titles = item.get("title") or []
-            return titles[0] if titles else ""
+            # Title and subtitle rejoined, as `crossref_to_work` does on the
+            # DOI path: a split record must score like the work it is.
+            return crossref_full_title(item) or ""
         return item.get("display_name") or ""
 
     def cache_size(self) -> int:
@@ -180,9 +182,8 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         base.note = f"search failed: {e}"
         return base
 
-    # Candidate selection still uses raw title-sim because the candidate
-    # report shows the source's stored title (not the reassembled one) and
-    # because it lets us short-circuit before paying the adapter cost.
+    # Candidate selection uses raw title similarity on each hit's title so
+    # the adapter runs only for the hit that is finally chosen.
     candidates: list[dict[str, str]] = []
     best_sim = 0.0
     best_item: dict[str, Any] | None = None

@@ -32,7 +32,7 @@ def _crossref_extract_year(work: dict[str, Any]) -> int | None:
     return None
 
 
-def _crossref_full_title(work: dict[str, Any]) -> str | None:
+def crossref_full_title(work: dict[str, Any]) -> str | None:
     """Crossref splits long titles across `title` and `subtitle` (e.g.
     Fang2022's main title is in `title` and the colon-after part is in
     `subtitle`). Concatenate so downstream comparison sees the full title.
@@ -68,7 +68,7 @@ def crossref_to_work(message: dict[str, Any] | None) -> Work | None:
     ct_full = list(message.get("container-title") or [])
     ct_short = list(message.get("short-container-title") or [])
     return Work(
-        title=_crossref_full_title(message),
+        title=crossref_full_title(message),
         year=_crossref_extract_year(message),
         first_author_surname=first_author or None,
         container_names=[c for c in (ct_full + ct_short) if c],
