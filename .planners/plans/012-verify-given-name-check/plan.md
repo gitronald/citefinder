@@ -1,10 +1,10 @@
 ---
 id: 12
 slug: verify-given-name-check
-status: active
+status: done
 branch: feature/verify-given-name-check
 created: 2026-09-05T15:54:41-07:00
-concluded:
+concluded: 2026-09-05T16:56:46-07:00
 pr: https://github.com/gitronald/citefinder/pull/52
 ---
 
@@ -122,3 +122,36 @@ the finding in `summary.md` without an ad-hoc script, at the cost of extending
   frontmatter and a pointer, not the body; consumers see the new text as soon
   as they upgrade the package. No version marker to bump.
 - Changelog entry added under `[Unreleased]`. Draft PR #52.
+- 2026-09-05 — Review follow-up (`/code-review 52 medium`, six confirmed
+  findings, all in the recipe): decoding the whole author field before
+  splitting broke corporate authors (split on the raw TeX, decode only the
+  given portion); direct indexing raised `KeyError` on an OpenAlex authorship
+  with no linked author; a Crossref organisational author with no `given` and
+  a bib author with no given part were both flagged as spurious mismatches
+  (`nfc` keeps `None`, empty bib positions are skipped); DOI-less entries were
+  skipped silently (a `checked N of M` line now closes the output); a torn
+  trailing cache line crashed the reader. Regression test
+  `tests/test_skill_recipe.py` extracts the code block from the rendered skill
+  and runs it against synthetic caches covering each shape. Conscious no-ops:
+  the recipe stays self-contained instead of reusing `JsonlCache`, and the
+  field-mapping bullets overlap the name-split paragraph but answer a
+  different question. Also: ruff formats python blocks inside markdown, so the
+  recipe had to be reformatted to pass `ruff format --check`.
+
+## Retrospective
+
+- The plan's example held up exactly as described: only the OpenAlex profile
+  `display_name` carried the diacritic, and no existing signal reads it.
+- Comparing the whole given string was wrong on first contact with real data —
+  OpenAlex profile names carry middle initials the bib never has. Comparing
+  the first token was the decision that made the output readable.
+- A doc-only recipe still needed a review pass: every confirmed finding was an
+  input shape (corporate author, unlinked authorship, organisational author)
+  the happy-path test could not surface. Extracting the code block from the
+  rendered skill into a test is cheap and keeps the snippet honest; do the
+  same for any future runnable recipe in `skill.md`.
+- The plan's stub re-materialize step was moot from the start: the stub
+  carries only frontmatter, so body changes never drift it. Future skill-body
+  plans can drop that step.
+- `ruff format --check` covers python fences in markdown here, which is easy
+  to forget locally and would have failed CI.
