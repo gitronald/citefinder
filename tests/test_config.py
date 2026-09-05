@@ -393,6 +393,24 @@ def test_empty_env_var_does_not_block_a_config_value(
     assert captured["mailto"] == "project@example.com"
 
 
+def test_verify_source_accepts_any_case_and_rejects_unknowns(
+    tmp_path: Path, captured
+) -> None:
+    # `case_sensitive=False` only takes effect on a choice-typed option; as a
+    # plain `str` it was a no-op and `--source OpenAlex` was refused.
+    bib = write_bib(tmp_path / "paper")
+    out = str(tmp_path / "out")
+    result = runner.invoke(
+        app, ["verify", str(bib), "--source", "OpenAlex", "--out", out]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Source: openalex" in result.output
+
+    result = runner.invoke(app, ["verify", str(bib), "--source", "bogus", "--out", out])
+    assert result.exit_code == 2
+    assert "bogus" in result.output
+
+
 def test_verify_mailto_follows_the_chosen_source(
     tmp_path: Path, monkeypatch, captured
 ) -> None:

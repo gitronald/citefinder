@@ -494,7 +494,7 @@ def table_to_bib_cmd(
 @app.command()
 def verify(
     bib_file: Path,
-    source: str = typer.Option(
+    source: Literal["crossref", "openalex"] = typer.Option(
         "openalex",
         "--source",
         help="Metadata source to verify against.",
@@ -534,9 +534,6 @@ def verify(
     otherwise search by author + title + year. Writes a JSONL response
     cache and a structured `results.json` to the output directory.
     """
-    if source not in ("crossref", "openalex"):
-        typer.echo("Error: --source must be 'crossref' or 'openalex'", err=True)
-        raise typer.Exit(code=2)
     if not bib_file.is_file():
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
