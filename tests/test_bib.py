@@ -1,5 +1,9 @@
 """Tests for citefinder.bib — parsing and bib-side query helpers."""
 
+import logging
+
+import pytest
+
 from citefinder.bib import (
     build_search_query,
     build_title_query,
@@ -43,6 +47,37 @@ def test_parse_entries_multiple() -> None:
     entries = parse_entries(text)
     assert [e.key for e in entries] == ["a", "b"]
     assert [e.etype for e in entries] == ["article", "inproceedings"]
+
+
+@pytest.mark.parametrize(
+    ("text", "kept", "reason"),
+    [
+        # A duplicated field key drops the whole entry.
+        ("@article{x, author = {A}, author = {B}, title = {T}}", [], "Duplicate field"),
+        # A repeated citation key drops the second entry.
+        (
+            "@article{x, title = {T1}}\n@article{x, title = {T2}}",
+            ["x"],
+            "Duplicate entry",
+        ),
+        # An unterminated brace aborts that block; earlier ones survive.
+        (
+            "@article{ok, title = {T}}\n@article{x, title = {Open",
+            ["ok"],
+            "BlockAborted",
+        ),
+    ],
+)
+def test_parse_entries_warns_on_dropped_blocks(
+    text: str, kept: list[str], reason: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    # bibtexparser files what it cannot parse under `failed_blocks` and moves
+    # on. Those entries must not vanish without a trace.
+    with caplog.at_level(logging.WARNING, logger="citefinder"):
+        entries = parse_entries(text)
+    assert [e.key for e in entries] == kept
+    assert "skipped unparsable bib block at line" in caplog.text
+    assert reason in caplog.text
 
 
 def test_strip_braces() -> None:

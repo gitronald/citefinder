@@ -9,6 +9,7 @@ a bib entry into something Crossref/OpenAlex can search for.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 
@@ -20,6 +21,8 @@ from bibtexparser.middlewares.names import (
 
 from citefinder.signals import BibCitation
 
+log = logging.getLogger("citefinder")
+
 
 @dataclass
 class Entry:
@@ -29,8 +32,19 @@ class Entry:
 
 
 def parse_entries(text: str) -> list[Entry]:
-    """Parse a BibTeX string into a list of `Entry` records."""
+    """Parse a BibTeX string into a list of `Entry` records.
+
+    A block bibtexparser cannot turn into an entry — a duplicated field key,
+    a repeated citation key, an unterminated brace — is left out of the
+    result and reported with a warning, so a shorter-than-expected entry
+    count has a visible cause rather than a silent one.
+    """
     library = parse_bib_string(text)
+    for block in library.failed_blocks:
+        reason = str(block.error) or type(block.error).__name__
+        line = block.start_line
+        where = f"line {line + 1}" if line is not None else "unknown line"
+        log.warning("skipped unparsable bib block at %s: %s", where, reason)
     entries: list[Entry] = []
     for e in library.entries:
         fields = {f.key.lower(): f.value for f in e.fields}
