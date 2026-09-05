@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-04
+
 ### Changed
 
 - `verify` names its default output directory after the directory holding
