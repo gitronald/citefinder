@@ -117,7 +117,10 @@ def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
                 err=True,
             )
             continue
-        if env_name in os.environ:
+        # An empty value is "unset" everywhere else the env is read (typer's
+        # `envvar`, `_env_number`, `_cache_dir`), so treat it the same here or
+        # `OPENALEX_MAILTO=""` would block the config value and win nothing.
+        if os.environ.get(env_name):
             continue
         if key == "cache_dir":
             # Anchored to the file, not the working directory, so a relative

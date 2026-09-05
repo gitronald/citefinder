@@ -377,6 +377,22 @@ def test_verify_out_expands_home_and_keeps_the_cache_beside_results(
 # --- user config file ---------------------------------------------------------
 
 
+def test_empty_env_var_does_not_block_a_config_value(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    # An exported-but-empty variable is "unset" to typer and to every other
+    # env read in the CLI; the config loader must agree or the value is lost.
+    monkeypatch.setenv("OPENALEX_MAILTO", "")
+    (tmp_path / PROJECT_CONFIG_NAME).write_text(
+        '[openalex]\nmailto = "project@example.com"\n', encoding="utf-8"
+    )
+    _load_configs()
+    assert os.environ["OPENALEX_MAILTO"] == "project@example.com"
+
+    runner.invoke(app, ["doi", "10.1/x", "--cache", str(tmp_path / "oa.jsonl")])
+    assert captured["mailto"] == "project@example.com"
+
+
 def test_verify_mailto_follows_the_chosen_source(
     tmp_path: Path, monkeypatch, captured
 ) -> None:
