@@ -204,7 +204,8 @@ def verify_entry(entry: Entry, source: Source) -> Result:
             best_item = item
     base.candidates = candidates
 
-    if entry.etype in SKIP_SOURCE_TYPES and best_sim < TITLE_MATCH_THRESHOLD:
+    skip_type = entry.etype in SKIP_SOURCE_TYPES
+    if skip_type and best_sim < TITLE_MATCH_THRESHOLD:
         base.status = Status.SKIP_SOURCE
         base.note = f"@{entry.etype}: not expected in source; verify via URL"
         return base
@@ -229,7 +230,7 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         # certainly a derived artifact (a reprinted policy, a chapter that
         # cites the report, etc.). Route those to skip-source so the
         # report doesn't suggest a misleading DOI.
-        if entry.etype in SKIP_SOURCE_TYPES and base.status != Status.MATCHED:
+        if skip_type and base.status != Status.MATCHED:
             signal_note = base.note
             failed = any(s["verdict"] == "fail" for s in base.signals.values())
             why = "signals disagree" if failed else "signals do not confirm"
@@ -239,19 +240,23 @@ def verify_entry(entry: Entry, source: Source) -> Result:
             base.matched_title = None
         return base
 
-    # Reaching here with a hit means the short title blocked it; say so and
-    # keep the skip-source framing for @online / @misc, whose canonical
-    # source is the URL either way.
+    if hit is None:
+        # Only a non-skip type gets here without a hit; the skip types
+        # returned above the moment their best hit fell short.
+        base.status = Status.UNMATCHED
+        base.note = "no plausible source hit"
+        return base
+
+    # The short title blocked the hit; say so, and keep the skip-source
+    # framing for @online / @misc, whose canonical source is the URL anyway.
     why = (
         f"title too short to match by search ({n_words} word(s), "
         f"need {MIN_TITLE_TOKENS})"
-        if hit is not None
-        else "no plausible source hit"
     )
-    if entry.etype in SKIP_SOURCE_TYPES:
+    if skip_type:
         base.status = Status.SKIP_SOURCE
         base.note = f"@{entry.etype}: {why}; verify via URL"
     else:
         base.status = Status.UNMATCHED
-        base.note = f"{why}; review candidates" if hit is not None else why
+        base.note = f"{why}; review candidates"
     return base
