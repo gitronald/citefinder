@@ -1,7 +1,7 @@
 ---
 id: 11
 slug: code-review-simplify-pass
-status: draft
+status: active
 branch: feature/code-review-simplify-pass
 created: 2026-09-04T19:18:10-07:00
 concluded:
