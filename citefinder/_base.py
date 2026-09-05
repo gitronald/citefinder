@@ -63,6 +63,18 @@ def _doi_path(doi: str) -> str:
     return doi.replace("%", "%25").replace("#", "%23").replace("?", "%3F")
 
 
+def validate_knob(name: str, value: float) -> float:
+    """`value` if it is a finite number >= 0, else `ValueError` naming `name`.
+
+    `inf`/`nan` and negatives would otherwise only surface later as an
+    OverflowError/ValueError out of `time.sleep`, mid-run. The CLI calls
+    this too, so the flag and the constructor enforce one bound.
+    """
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a finite number >= 0, got {value!r}")
+    return value
+
+
 def _strip_mailto(url: str) -> str:
     """Return `url` with any `mailto` query param removed."""
     parts = urlsplit(url)
@@ -161,10 +173,7 @@ class CachedJsonClient:
             ("max_wait", max_wait),
             ("min_interval", min_interval),
         ):
-            # `inf`/`nan` and negatives would only surface later as an
-            # OverflowError/ValueError out of `time.sleep`, mid-run.
-            if not math.isfinite(value) or value < 0:
-                raise ValueError(f"{name} must be a finite number >= 0, got {value!r}")
+            validate_knob(name, value)
         self.max_retries = max_retries
         self.backoff_base = backoff_base
         self.max_wait = max_wait

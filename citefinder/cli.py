@@ -10,7 +10,6 @@ remains accessible via the `crossref` subcommand for its own workflows
 from __future__ import annotations
 
 import json
-import math
 import os
 import sys
 import time
@@ -28,7 +27,7 @@ import typer
 from dotenv import find_dotenv, load_dotenv
 
 from citefinder import install as install_mod
-from citefinder._base import DEFAULT_MAX_RETRIES
+from citefinder._base import DEFAULT_MAX_RETRIES, validate_knob
 from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.client import CrossrefClient
@@ -271,14 +270,13 @@ def _checked_knob(name: str, value: float) -> float:
 
     Every CLI path funnels through here: click's `min=0` on the flags lets
     `inf`/`nan` through, and `verify`'s env fallback skips click's range
-    check entirely, so this is the one place the bound is enforced.
+    check entirely, so the client's own bound is applied up front.
     """
-    if not math.isfinite(value) or value < 0:
-        typer.echo(
-            f"Error: {name} must be a finite number >= 0, got {value!r}", err=True
-        )
-        raise typer.Exit(code=2)
-    return value
+    try:
+        return validate_knob(name, value)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
 
 
 def _source_client_kwargs(
