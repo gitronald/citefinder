@@ -267,23 +267,28 @@ from citefinder.bib import normalize_doi
 decode = LatexNodes2Text().latex_to_text  # Kimberl{\'e} -> Kimberlé
 
 
-def nfc(s: str | None) -> str:
-    return unicodedata.normalize("NFC", s or "").strip()
+def nfc(s: str | None) -> str | None:
+    """NFC-normalize, keeping None as "no value to compare"."""
+    return unicodedata.normalize("NFC", s).strip() if s else None
 
 
 def first_token(s: str) -> str:
-    return s.split(" ")[0] if s else ""
+    return s.split(" ")[0]
 
 
-def given(name: str) -> str:
-    """Given-name portion of a flat first-name-first string."""
-    return " ".join(parse_single_name_into_parts(name).first)
+def given(name: str | None) -> str | None:
+    """Given-name portion of a flat first-name-first string, or None."""
+    parts = parse_single_name_into_parts(name) if name else None
+    return " ".join(parts.first) if parts and parts.first else None
 
 
 def works_by_doi(path: str, unwrap=lambda v: v) -> dict:
     out = {}
     for line in Path(path).open(encoding="utf-8"):
-        rec = json.loads(line)
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue  # a line torn by a crash mid-write; JsonlCache skips it too
         if "/works/" not in rec["key"] or rec["value"] is None:
             continue  # a search page, or a cached 404
         work = unwrap(rec["value"])
@@ -293,29 +298,41 @@ def works_by_doi(path: str, unwrap=lambda v: v) -> dict:
     return out
 
 
-crossref = works_by_doi("data/citefinder/paper/crossref/crossref.jsonl", lambda v: v["message"])
+crossref = works_by_doi(
+    "data/citefinder/paper/crossref/crossref.jsonl", lambda v: v["message"]
+)
 openalex = works_by_doi("data/citefinder/paper/openalex/openalex.jsonl")
 
 df = bib_to_table(open("paper/refs.bib", encoding="utf-8").read())
+checked = 0
 print("key\tpos\tbib\tcrossref\topenalex")
 for r in df.iter_rows(named=True):
     doi = normalize_doi(r.get("doi") or "").lower()
     if not doi or not r.get("author"):
         continue
-    bib_authors = split_multiple_persons_names(decode(r["author"]))
+    checked += 1
     cr = (crossref.get(doi) or {}).get("author") or []
     oa = (openalex.get(doi) or {}).get("authorships") or []
-    for i, person in enumerate(bib_authors):
-        b = nfc(given(person))
+    # Split on the raw TeX so `{Corporate, Author and Sons}` stays one person;
+    # decode only the given-name portion.
+    for i, person in enumerate(split_multiple_persons_names(r["author"])):
+        b = nfc(decode(given(person) or ""))
+        if not b:
+            continue  # corporate author, `others`, or no given name in the bib
         c = nfc(cr[i].get("given")) if i < len(cr) else None
-        o = nfc(given(oa[i]["author"]["display_name"])) if i < len(oa) else None
-        if (c is not None and first_token(c) != first_token(b)) or (
-            o is not None and first_token(o) != first_token(b)
+        o = (
+            nfc(given((oa[i].get("author") or {}).get("display_name")))
+            if i < len(oa)
+            else None
+        )
+        if (c and first_token(c) != first_token(b)) or (
+            o and first_token(o) != first_token(b)
         ):
             print(r["key"], i + 1, b, c, o, sep="\t")
+print(f"checked {checked} of {len(df)} entries (those with a DOI and an author field)")
 ```
 
-A row means the bib and at least one source disagree; an empty `crossref` or `openalex` column means that source has no record for the DOI, or fewer authors than the bib. Read the output as a **byline check, never an auto-fix**: a record that lacks a diacritic the author uses today is common for older articles, and the editor decides which form the citation carries. Do not rewrite the bib to match the record, and do not rewrite it to match the profile name either without checking the printed byline.
+A row means the bib and at least one source disagree; an empty `crossref` or `openalex` column means that source has no record for the DOI, fewer authors than the bib, or no given name at that position (a corporate author, say). Positions where the bib itself has no given name are skipped, and the last line says how many entries were actually compared — a bib whose entries mostly lack DOIs produces a clean-looking empty result for the wrong reason. Read the output as a **byline check, never an auto-fix**: a record that lacks a diacritic the author uses today is common for older articles, and the editor decides which form the citation carries. Do not rewrite the bib to match the record, and do not rewrite it to match the profile name either without checking the printed byline.
 
 **Validate a zero.** Before trusting an empty result, copy the bib, alter one given name (`Virginia` → `Virgina`), and re-run: the altered entry must appear, and only that entry. A recipe that stays silent on the altered copy is reading the wrong cache path or joining on DOIs that never match (a `https://doi.org/` prefix left on one side, say), not reporting a clean bib.
 
