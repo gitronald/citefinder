@@ -69,6 +69,16 @@ def test_replay_skips_a_record_without_key_or_value(tmp_path: Path) -> None:
     assert len(cache) == 1
 
 
+def test_put_of_an_unserialisable_value_leaves_no_trace(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    cache = JsonlCache(path)
+    with pytest.raises(TypeError):
+        cache.put("k", {1, 2})  # a set is not JSON
+    assert "k" not in cache
+    assert len(cache) == 0
+    assert not path.exists() or path.read_text() == ""
+
+
 def test_caches_none_for_misses(tmp_path: Path) -> None:
     cache = JsonlCache(tmp_path / "c.jsonl")
     cache.put("missing-doi", None)

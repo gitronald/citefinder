@@ -60,14 +60,18 @@ class JsonlCache:
         return key in self._store
 
     def put(self, key: str, value: Any) -> None:
-        self._store[key] = value
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Serialise first: a value json can't encode must not land in the
+        # dict while nothing reaches disk, or memory and file disagree until
+        # the next reload silently drops the key.
         record = {"key": key, "value": value, "ts": time.time()}
+        line = json.dumps(record, ensure_ascii=False) + "\n"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as f:
             if self._needs_newline:
                 f.write("\n")
                 self._needs_newline = False
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            f.write(line)
+        self._store[key] = value
 
     def __len__(self) -> int:
         return len(self._store)
