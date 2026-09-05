@@ -15,6 +15,8 @@ import os
 import sys
 import time
 import tomllib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
@@ -376,6 +378,16 @@ def _emit(result: object) -> None:
     typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
 
 
+@contextmanager
+def _report_errors(*kinds: type[Exception], prefix: str = "") -> Iterator[None]:
+    """Turn a library exception into an `Error:` line and exit 1, no traceback."""
+    try:
+        yield
+    except kinds as exc:
+        typer.echo(f"Error: {prefix}{exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 # --- top-level (OpenAlex) ---------------------------------------------------
 
 
@@ -453,11 +465,8 @@ def bib_to_table_cmd(
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
 
-    try:
+    with _report_errors(ValueError):
         df = bib_to_table(bib_file.read_text())
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
 
     if fields:
         # `dict.fromkeys` keeps order and drops repeats, so naming `key` or
@@ -501,11 +510,8 @@ def table_to_bib_cmd(
     # volume, etc. are bib values, not numbers, and downstream consumers
     # expect them to round-trip verbatim.
     df = pl.read_csv(csv_file, infer_schema_length=0)
-    try:
+    with _report_errors(ValueError):
         bib = table_to_bib(df)
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
     if out:
         out.write_text(bib)
     else:
@@ -655,6 +661,26 @@ def skill() -> None:
     typer.echo(install_mod.skill_body(), nl=False)
 
 
+def _installed_status(
+    root: Path, version: str, mode: install_mod.Mode, local: bool
+) -> tuple[Path | None, Literal["ok", "drifted", "missing"], install_mod.Mode]:
+    """Where the checked stub sits, its drift status, and the mode it was judged by.
+
+    `--local` narrows the check to the per-repo copy; otherwise whichever copy
+    is installed (global first, matching Claude Code's own precedence) is
+    judged by where it sits. Raises `ValueError` when the bundled body cannot
+    be rendered to compare against.
+    """
+    if local:
+        where = install_mod.skill_path(root, mode)
+        return where, install_mod.check_mode(root, version, mode), mode
+    found = install_mod.resolve_installed(root)
+    if found is None:
+        return None, "missing", mode
+    where, mode = found
+    return where, install_mod.check_mode(root, version, mode), mode
+
+
 @app.command()
 def install(
     local: bool = typer.Option(
@@ -693,27 +719,8 @@ def install(
     mode: install_mod.Mode = "local" if local else "global"
 
     if check:
-        # `--local` narrows the check to the per-repo location; bare `--check`
-        # resolves whichever copy is installed (global first, matching Claude
-        # Code's own precedence) and judges it by where it sits.
-        where: Path | None
-        try:
-            if local:
-                where = install_mod.skill_path(root, mode)
-                status = install_mod.check_mode(root, version, mode)
-            else:
-                found = install_mod.resolve_installed(root)
-                where = found[0] if found else None
-                if found is not None:
-                    mode = found[1]
-                    status = install_mod.check_mode(root, version, mode)
-                else:
-                    status = "missing"
-        except ValueError as exc:
-            # The bundled body cannot be rendered (no frontmatter): a broken
-            # package, reported as such rather than as a traceback.
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(code=1) from exc
+        with _report_errors(ValueError):
+            where, status, mode = _installed_status(root, version, mode, local)
         typer.echo(f"skill: {status}" + (f" ({where})" if where else ""))
         if status != "ok":
             # `missing` has nothing to overwrite, so it needs a plain install,
@@ -736,14 +743,10 @@ def install(
         )
         raise typer.Exit(code=1)
 
-    try:
+    # OSError: a plain file squatting where `.claude/` should be, a directory at
+    # SKILL.md itself. ValueError: a bundled body with no frontmatter to lift.
+    with _report_errors(OSError, ValueError, prefix=f"cannot write {path}: "):
         written = install_mod.write_skill(root, version, mode)
-    except (OSError, ValueError) as exc:
-        # e.g. a plain file squatting where `.claude/` should be, a directory
-        # at SKILL.md itself, or a bundled body with no frontmatter to lift —
-        # report it, don't traceback.
-        typer.echo(f"Error: cannot write {path}: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
     typer.echo(f"wrote {written} (citefinder {version}, mode={mode})")
 
 
