@@ -5,7 +5,7 @@ status: active
 branch: feature/verify-cache-dir-collisions
 created: 2026-09-04T12:51:36-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/48
 ---
 
 # Derive the verify cache directory from the source directory, not the bib stem
@@ -95,3 +95,26 @@ Recommend **A**, optionally with **D** as a guard.
 - The shared top-level lookup caches (`<cache_dir>/<source>.jsonl`), which are
   keyed by source, not by input file, and are unaffected.
 - Any change to `--out`, which stays an explicit escape hatch.
+
+## Log
+
+- 2026-09-04T17:21:15-07:00 — Activated on `dev`; work on `feature/verify-cache-dir-collisions`,
+  draft PR https://github.com/gitronald/citefinder/pull/48.
+- Implemented option A: a `_verify_out_dir` helper in `cli.py` derives
+  `<root>/<bib-dir>[-<bib-stem>]/<source>/` from the resolved bib path.
+  `refs.bib` output is byte-identical to before; any other file moves from
+  `<bib-stem>/` to `<bib-dir>-<bib-stem>/`. Regression tests cover the
+  sibling-directory collision and the unchanged `refs.bib` case.
+- Found along the way: a bare relative `verify refs.bib` (the form the
+  skill's own examples use) had an empty parent name and filed its output
+  under `<root>/<source>/`. Resolving the path first fixes it; regression
+  test added and the fix noted in the changelog.
+- Step 3 check: no other entry point derives the per-bib directory.
+  `resolve_cache_path` only builds `<dir>/<source>.jsonl`, and no wrapper
+  scripts live in this repo, so the rule lives in the one helper.
+- Option D (refuse when the directory holds another bib's `results.json`)
+  left out. The residual collision under A is two bib files with the same
+  directory name *and* stem under different parents (`a/paper/refs.bib`
+  vs `b/paper/refs.bib`), which the old scheme already had for `refs.bib`.
+  Guarding it would need the resolved path stored in `results.json` and
+  would refuse after an innocent directory rename, so it is a separate call.
