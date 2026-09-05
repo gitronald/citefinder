@@ -1,5 +1,6 @@
 """Tests for the JSONL cache."""
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,34 @@ def test_latest_value_wins(tmp_path: Path) -> None:
 
     reloaded = JsonlCache(path)
     assert reloaded.get("k") == "second"
+
+
+def test_replay_skips_a_corrupt_line_and_keeps_the_rest(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "c.jsonl"
+    JsonlCache(path).put("a", 1)
+    with path.open("a", encoding="utf-8") as f:
+        f.write('{"key": "b", "val')  # a write interrupted mid-append
+    with caplog.at_level(logging.WARNING, logger="citefinder"):
+        cache = JsonlCache(path)
+    assert cache.get("a") == 1
+    assert "b" not in cache
+    assert "skipping unreadable cache line" in caplog.text
+
+    # The next record starts on a fresh line, so it survives a reload too.
+    cache.put("c", 3)
+    reloaded = JsonlCache(path)
+    assert reloaded.get("c") == 3
+    assert len(reloaded) == 2
+
+
+def test_replay_skips_a_record_without_key_or_value(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    path.write_text('{"key": "a", "value": 1}\n{"nope": true}\n42\n', encoding="utf-8")
+    cache = JsonlCache(path)
+    assert cache.get("a") == 1
+    assert len(cache) == 1
 
 
 def test_caches_none_for_misses(tmp_path: Path) -> None:
