@@ -374,6 +374,29 @@ def test_search_finds_matching_hit() -> None:
     assert r.matched_doi == "10.1/found"
 
 
+def test_search_matches_a_cjk_title_through_the_short_title_gate() -> None:
+    # A CJK title is one whitespace token; the gate read it as a one-word
+    # title and refused to select the exact hit. Bigram tokens clear it.
+    text = """@article{x,
+      author = {Wang, Wei},
+      title = {深度学习综述},
+      year = {2020},
+      journal = {Journal of Things}
+    }"""
+    src = _fake_source(
+        search_items=[{"DOI": "10.1/cjk", "title": ["深度学习综述"]}],
+        work_for_search=Work(
+            title="深度学习综述",
+            year=2020,
+            first_author_surname="Wang",
+            container_names=["Journal of Things"],
+        ),
+    )
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.MATCHED
+    assert r.matched_doi == "10.1/cjk"
+
+
 def test_search_match_without_a_doi_reports_none() -> None:
     # The DOI path uses None for "no DOI"; the search path used to leave "".
     text = """@article{x,

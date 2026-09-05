@@ -118,9 +118,33 @@ def normalize_title(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# Scripts written without spaces between words. A title in them is a single
+# whitespace token however long, so it is compared by character bigrams — the
+# usual CJK tokenisation for overlap scoring — and each bigram counts as one
+# token against `MIN_TITLE_TOKENS`.
+_CJK_RUN = re.compile(
+    r"[\u3040-\u30ff"  # hiragana, katakana
+    r"\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"  # CJK ideographs, compatibility
+    r"\U00020000-\U0002ffff]+"  # CJK ideograph extensions B-F
+)
+
+
+def _tokens(normalized: str) -> list[str]:
+    """Whitespace tokens of a `normalize_title` string, with each run of CJK
+    ideographs or kana expanded into its character bigrams (a lone character
+    stays whole)."""
+    out: list[str] = []
+    for token in _CJK_RUN.sub(r" \g<0> ", normalized).split():
+        if len(token) > 1 and _CJK_RUN.fullmatch(token):
+            out.extend(token[i : i + 2] for i in range(len(token) - 1))
+        else:
+            out.append(token)
+    return out
+
+
 def title_tokens(s: str) -> set[str]:
     """The normalized word set a title check compares."""
-    return set(normalize_title(s).split())
+    return set(_tokens(normalize_title(s)))
 
 
 def _jaccard(sa: set[str], sb: set[str]) -> float:
@@ -261,8 +285,8 @@ def container_similarity(a: str, b: str) -> float:
     matching, since bibs frequently abbreviate venue names while
     metadata sources keep the full form.
     """
-    sa = list(dict.fromkeys(normalize_title(a).split()))
-    sb = list(dict.fromkeys(normalize_title(b).split()))
+    sa = list(dict.fromkeys(_tokens(normalize_title(a))))
+    sb = list(dict.fromkeys(_tokens(normalize_title(b))))
     if not sa or not sb:
         return 0.0
     # Pair each token at most once. Without that a short token prefix-matches

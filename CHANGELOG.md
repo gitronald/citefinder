@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Titles in scripts that NFKD cannot fold to ASCII (CJK, Cyrillic, Arabic)
   keep their words in the title check; identical titles used to score 0 and
   fail.
+- Titles in scripts written without word spaces (Chinese, Japanese) are
+  compared by character bigrams, so an identical title confirms a match
+  instead of being held back as a one-word title.
 - The author check no longer passes on a shared name particle alone
   (`van de Rijt` vs `van der Berg`).
 - The container check pairs each venue word at most once, so a short word no

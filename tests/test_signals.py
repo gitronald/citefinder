@@ -42,6 +42,20 @@ def test_check_title_identical_non_latin_titles_pass() -> None:
     assert check_title(title, title)["verdict"] == "pass"
 
 
+def test_title_tokens_bigram_scripts_written_without_spaces() -> None:
+    # CJK text has no word spaces, so a whole title used to be one token: too
+    # short to confirm a match and too coarse to compare against anything.
+    assert title_tokens("深度学习综述") == {"深度", "度学", "学习", "习综", "综述"}
+    assert title_tokens("Deep 学習 survey") == {"deep", "学習", "survey"}
+    assert title_tokens("王") == {"王"}  # a lone character stays whole
+
+
+def test_check_title_identical_cjk_titles_pass() -> None:
+    # Five bigrams clear MIN_TITLE_TOKENS; one whitespace token did not.
+    assert check_title("深度学习综述", "深度学习综述")["verdict"] == "pass"
+    assert check_title("深度学习综述", "量子计算导论")["verdict"] == "fail"
+
+
 def test_title_similarity_identical_is_one() -> None:
     assert title_similarity("Hello World", "Hello World") == 1.0
 
