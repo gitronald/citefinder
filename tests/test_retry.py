@@ -219,6 +219,15 @@ def test_retry_after_is_capped_at_max_wait(
     assert clock.sleeps == [60.0]
 
 
+def test_backoff_stays_capped_at_extreme_attempt_counts(
+    tmp_path: Path, clock: FakeClock, mock_response
+) -> None:
+    # `--max-retries` has no upper bound; past attempt 1023 the doubling used
+    # to overflow before the `max_wait` cap could apply.
+    client, _ = make_client(tmp_path, clock, max_wait=60.0)
+    assert client._retry_wait(mock_response(429), 1100) == 60.0
+
+
 def test_max_retries_zero_disables_retrying(
     tmp_path: Path, clock: FakeClock, mock_response
 ) -> None:

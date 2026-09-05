@@ -204,7 +204,9 @@ class CachedJsonClient:
         """Seconds to wait before retrying `response`, `attempt` retries in."""
         wait = retry_after_seconds(response.headers.get("Retry-After"), self._clock())
         if wait is None:
-            step = self.backoff_base * 2**attempt
+            # Cap the exponent: 2**60 s already dwarfs any real `max_wait`,
+            # and `2**1024` would overflow the float multiplication.
+            step = self.backoff_base * 2 ** min(attempt, 60)
             wait = step + random.uniform(0, step / 2)
         return min(wait, self.max_wait)
 
