@@ -220,9 +220,11 @@ def _surname_tokens(surname: str) -> set[str]:
     BibTeX's convention, which bibtexparser follows, is that a lower-case
     word before the last name is a particle: `van`, `de`, `der`. Two
     different authors can share one, so it must not count as agreement on
-    its own. A surname that is nothing but such words keeps them all.
+    its own. The whole word must be lower-case: `eBay` in an organisation's
+    name is a name, not a particle. A surname that is nothing but such
+    words keeps them all.
     """
-    kept = [word for word in surname.split() if not word[:1].islower()]
+    kept = [word for word in surname.split() if not word.islower()]
     return title_tokens(" ".join(kept)) or title_tokens(surname)
 
 
@@ -265,10 +267,13 @@ def container_similarity(a: str, b: str) -> float:
         return 0.0
     # Pair each token at most once. Without that a short token prefix-matches
     # every longer token on the other side ("data" against "data database
-    # dataset") and the score outruns the real overlap.
-    unmatched_b = list(sb)
-    pairs = 0
-    for ta in sa:
+    # dataset") and the score outruns the real overlap. Exact pairs go first
+    # so a prefix ("comp") cannot take the token its own twin ("computer")
+    # needed and leave that twin unpaired.
+    exact = set(sa) & set(sb)
+    unmatched_b = [tb for tb in sb if tb not in exact]
+    pairs = len(exact)
+    for ta in (ta for ta in sa if ta not in exact):
         for i, tb in enumerate(unmatched_b):
             if _container_token_match(ta, tb):
                 del unmatched_b[i]
