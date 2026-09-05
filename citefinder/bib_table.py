@@ -61,6 +61,19 @@ def bib_to_table(text: str) -> pl.DataFrame:
     return df.select(["key", "entry_type", *other])
 
 
+def _braces_balanced(s: str) -> bool:
+    """Whether every `}` in `s` closes an earlier `{` and none stay open."""
+    depth = 0
+    for ch in s:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
 def table_to_bib(df: pl.DataFrame, indent: str = "  ") -> str:
     """Serialize a `bib_to_table`-shaped DataFrame back to a `.bib` string.
 
@@ -79,6 +92,14 @@ def table_to_bib(df: pl.DataFrame, indent: str = "  ") -> str:
     chunks: list[str] = []
     for row in df.iter_rows(named=True):
         fields = [(c, row[c]) for c in field_cols if row[c] is not None]
+        for c, v in fields:
+            # Values are emitted verbatim inside `{...}`. BibTeX requires the
+            # braces inside any value to balance; a stray `}` would close the
+            # field early and swallow the ones after it on re-parse.
+            if not _braces_balanced(str(v)):
+                raise ValueError(
+                    f"field {c!r} in entry {row['key']!r} has unbalanced braces: {v!r}"
+                )
         header = f"@{row['entry_type']}{{{row['key']},"
         if fields:
             body = ",\n".join(f"{indent}{c} = {{{v}}}" for c, v in fields)

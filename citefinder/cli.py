@@ -469,7 +469,11 @@ def table_to_bib_cmd(
     # volume, etc. are bib values, not numbers, and downstream consumers
     # expect them to round-trip verbatim.
     df = pl.read_csv(csv_file, infer_schema_length=0)
-    bib = table_to_bib(df)
+    try:
+        bib = table_to_bib(df)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     if out:
         out.write_text(bib)
     else:
