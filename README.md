@@ -254,7 +254,7 @@ for entry in parse_entries(open("refs.bib").read()):
     print(result.key, result.status, result.matched_doi)
 ```
 
-Each `Result` reports a `Status` (matched / probable / mismatch / unmatched / doi-not-found / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
+Each `Result` reports a `Status` (matched / probable / mismatch / doi-not-found / unmatched / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
 
 ### Bib ↔ table
 
@@ -333,7 +333,9 @@ Read `results.json` by `method` × `status`:
 - `--mailto EMAIL` — Opts the request into the source's polite pool (both
   OpenAlex and Crossref honor it): faster responses and a higher quota.
   Sent as a `?mailto=…` query param; stripped from the cache key, so
-  rotating the email doesn't invalidate prior entries.
+  rotating the email doesn't invalidate prior entries. Also `OPENALEX_MAILTO`
+  / `CROSSREF_MAILTO` in the env or `mailto` in `config.toml`; `verify`
+  reads the one for whichever `--source` it runs against.
 - `--api-key KEY` *(OpenAlex only)* — OpenAlex API key for higher
   rate limits and tier-specific endpoints. Also read from `OPENALEX_API_KEY`
   in the env or a `.env` file (loaded from cwd or any parent). Sent as

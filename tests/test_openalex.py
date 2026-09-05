@@ -5,12 +5,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from citefinder._base import _strip_mailto
 from citefinder.cache import JsonlCache
 from citefinder.openalex import (
     OpenAlexClient,
-    _normalize_title_query,
-    _strip_mailto,
     is_arxiv_doi,
+    normalize_title_query,
     reconstruct_abstract,
 )
 
@@ -41,13 +41,17 @@ def test_lookup_doi_returns_work(
     }
 
 
-def test_lookup_doi_404_returns_none(
+def test_lookup_doi_encodes_url_structural_characters(
     setup: tuple[OpenAlexClient, MagicMock],
     mock_response,
 ) -> None:
     client, session = setup
-    session.get.return_value = mock_response(404)
-    assert client.lookup_doi("10.1/missing") is None
+    session.get.return_value = mock_response(200, {"display_name": "X"})
+    client.lookup_doi("10.1/a#b?c")
+    called_url = session.get.call_args[0][0]
+    assert called_url.startswith("https://api.openalex.org/works/doi:10.1/a%23b%3Fc?")
+    client.lookup_doi("10.1/a#b?c")
+    assert session.get.call_count == 1
 
 
 def test_lookup_doi_uses_cache_on_repeat(
@@ -147,10 +151,10 @@ def test_search_title_404_returns_empty(
 
 
 def test_normalize_title_query() -> None:
-    assert _normalize_title_query("Backstabber's") == "Backstabber’s"
-    assert _normalize_title_query("a, b: c|d!e?") == "a b c d e"
-    assert _normalize_title_query("  spaced   out  ") == "spaced out"
-    assert _normalize_title_query("") == ""
+    assert normalize_title_query("Backstabber's") == "Backstabber’s"
+    assert normalize_title_query("a, b: c|d!e?") == "a b c d e"
+    assert normalize_title_query("  spaced   out  ") == "spaced out"
+    assert normalize_title_query("") == ""
 
 
 def test_polite_pool_mailto_added_to_url(
@@ -199,6 +203,12 @@ def test_reconstruct_abstract_missing_returns_none() -> None:
 def test_strip_mailto_preserves_other_params() -> None:
     url = "https://api.openalex.org/works?search=foo&per-page=3&mailto=x@y.com"
     assert _strip_mailto(url) == "https://api.openalex.org/works?search=foo&per-page=3"
+
+
+def test_strip_mailto_alone_leaves_no_dangling_query() -> None:
+    # The shape of every `lookup_doi` request: mailto is the only param.
+    url = "https://api.crossref.org/works/10.1/test?mailto=x@example.com"
+    assert _strip_mailto(url) == "https://api.crossref.org/works/10.1/test"
 
 
 def test_strip_mailto_no_query_passthrough() -> None:

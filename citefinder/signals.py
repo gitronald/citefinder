@@ -27,10 +27,10 @@ from typing import Any
 class Status(StrEnum):
     """Verdict for a single bib entry after metadata verification.
 
-    Each member carries a `header` for the report. StrEnum members are
-    also `str`, so existing string comparisons, JSON serialization, and
-    dict keys keep working unchanged. Iteration order is declaration
-    order, and `render_summary` uses it directly as section order.
+    Each member carries a `header`, a one-line description of the verdict
+    for reports; nothing in the package renders it yet. StrEnum members are
+    also `str`, so string comparisons, JSON serialization, and dict keys
+    keep working unchanged, and iteration order is declaration order.
 
     Note: the per-member attribute is named `header`, not `title`, to
     avoid shadowing `str.title()` (the built-in title-case method).
@@ -99,15 +99,22 @@ class Work:
 MIN_TITLE_TOKENS = 3
 
 
-def _strip_braces(s: str) -> str:
+def strip_braces(s: str) -> str:
+    """`s` with BibTeX's protective braces removed and the ends trimmed."""
     return re.sub(r"[{}]", "", s).strip()
 
 
 def normalize_title(s: str) -> str:
+    """Lower-case word characters only, diacritics folded, one space apart.
+
+    `\\w` rather than `[a-z0-9]`, so a title in a script NFKD cannot reduce
+    to ASCII (CJK, Cyrillic, Arabic) keeps its words instead of vanishing —
+    two identical such titles used to score 0.0 and fail the title check.
+    """
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
-    s = _strip_braces(s).lower()
-    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = strip_braces(s).lower()
+    s = re.sub(r"[^\w ]+|_", " ", s)
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -190,7 +197,7 @@ def check_title(bib_title: str | None, work_title: str | None) -> dict[str, Any]
 
 
 def check_year(bib_year_raw: str | None, work_year: int | None) -> dict[str, Any]:
-    bib_year_str = _strip_braces(bib_year_raw or "")
+    bib_year_str = strip_braces(bib_year_raw or "")
     try:
         by = int(bib_year_str)
     except (TypeError, ValueError):
@@ -207,6 +214,20 @@ def check_year(bib_year_raw: str | None, work_year: int | None) -> dict[str, Any
     return {"verdict": v, "bib": str(by), "crossref": str(work_year), "diff": diff}
 
 
+def _surname_tokens(surname: str) -> set[str]:
+    """Normalized tokens of a surname, minus its name particles.
+
+    BibTeX's convention, which bibtexparser follows, is that a lower-case
+    word before the last name is a particle: `van`, `de`, `der`. Two
+    different authors can share one, so it must not count as agreement on
+    its own. The whole word must be lower-case: `eBay` in an organisation's
+    name is a name, not a particle. A surname that is nothing but such
+    words keeps them all.
+    """
+    kept = [word for word in surname.split() if not word.islower()]
+    return title_tokens(" ".join(kept)) or title_tokens(surname)
+
+
 def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str, Any]:
     if not bib_surname or not work_surname:
         return {
@@ -218,8 +239,8 @@ def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str,
     # the compound surname ("Larios Vargas") while the other gives only
     # the last token ("Vargas"). Real author conflicts (Petty vs Marquart,
     # Cai vs Fang) still fail because no tokens overlap.
-    bib_tokens = set(normalize_title(bib_surname).split())
-    work_tokens = set(normalize_title(work_surname).split())
+    bib_tokens = _surname_tokens(bib_surname)
+    work_tokens = _surname_tokens(work_surname)
     v = "pass" if (bib_tokens & work_tokens) else "fail"
     return {"verdict": v, "bib": bib_surname, "crossref": work_surname}
 
@@ -240,19 +261,25 @@ def container_similarity(a: str, b: str) -> float:
     matching, since bibs frequently abbreviate venue names while
     metadata sources keep the full form.
     """
-    sa = normalize_title(a).split()
-    sb = normalize_title(b).split()
+    sa = list(dict.fromkeys(normalize_title(a).split()))
+    sb = list(dict.fromkeys(normalize_title(b).split()))
     if not sa or not sb:
         return 0.0
-    matched_a: set[str] = set()
-    matched_b: set[str] = set()
-    for ta in sa:
-        for tb in sb:
+    # Pair each token at most once. Without that a short token prefix-matches
+    # every longer token on the other side ("data" against "data database
+    # dataset") and the score outruns the real overlap. Exact pairs go first
+    # so a prefix ("comp") cannot take the token its own twin ("computer")
+    # needed and leave that twin unpaired.
+    exact = set(sa) & set(sb)
+    unmatched_b = [tb for tb in sb if tb not in exact]
+    pairs = len(exact)
+    for ta in (ta for ta in sa if ta not in exact):
+        for i, tb in enumerate(unmatched_b):
             if _container_token_match(ta, tb):
-                matched_a.add(ta)
-                matched_b.add(tb)
-    union_size = len(set(sa) | set(sb))
-    return max(len(matched_a), len(matched_b)) / union_size if union_size else 0.0
+                del unmatched_b[i]
+                pairs += 1
+                break
+    return pairs / len(set(sa) | set(sb))
 
 
 def check_container(

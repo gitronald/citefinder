@@ -3,7 +3,6 @@
 import importlib
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -47,31 +46,6 @@ def clean_env(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("citefinder.cli._config_sources", {})
-
-
-@pytest.fixture
-def captured(monkeypatch) -> dict[str, Any]:
-    """Swap both clients for a stub that records its constructor kwargs."""
-    seen: dict[str, Any] = {}
-
-    class FakeClient:
-        def __init__(self, **kwargs: Any) -> None:
-            seen.update(kwargs)
-            self.cache = None
-            self.retries = 0
-
-        def lookup_doi(self, doi: str) -> dict[str, str]:
-            return {"id": doi}
-
-        def search_title(self, title: str, rows: int = 3) -> list[Any]:
-            return []
-
-        def search_bibliographic(self, query: str, rows: int = 3) -> list[Any]:
-            return []
-
-    monkeypatch.setattr("citefinder.cli.OpenAlexClient", FakeClient)
-    monkeypatch.setattr("citefinder.cli.CrossrefClient", FakeClient)
-    return seen
 
 
 def write_user_config(tmp_path: Path, body: str) -> Path:
@@ -139,26 +113,6 @@ def test_cache_flag_beats_cache_dir(tmp_path: Path, captured) -> None:
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
     assert captured["cache_path"] == explicit
-
-
-def test_cache_dir_flag_beats_env(tmp_path: Path, monkeypatch, captured) -> None:
-    monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "env"))
-    result = runner.invoke(
-        app, ["doi", "10.1/x", "--cache-dir", str(tmp_path / "flag")]
-    )
-    assert result.exit_code == 0, result.output
-    assert captured["cache_path"] == tmp_path / "flag" / "openalex.jsonl"
-
-
-def test_env_cache_dir_beats_user_config(tmp_path: Path, monkeypatch, captured) -> None:
-    write_user_config(tmp_path, f'cache_dir = "{tmp_path / "user"}"\n')
-    monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "env"))
-
-    _load_configs()
-    result = runner.invoke(app, ["doi", "10.1/x"])
-
-    assert result.exit_code == 0, result.output
-    assert captured["cache_path"] == tmp_path / "env" / "openalex.jsonl"
 
 
 def test_user_config_cache_dir_beats_default(tmp_path: Path, captured) -> None:
@@ -375,6 +329,81 @@ def test_verify_out_expands_home_and_keeps_the_cache_beside_results(
 
 
 # --- user config file ---------------------------------------------------------
+
+
+def test_empty_env_var_does_not_block_a_config_value(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    # An exported-but-empty variable is "unset" to typer and to every other
+    # env read in the CLI; the config loader must agree or the value is lost.
+    monkeypatch.setenv("OPENALEX_MAILTO", "")
+    (tmp_path / PROJECT_CONFIG_NAME).write_text(
+        '[openalex]\nmailto = "project@example.com"\n', encoding="utf-8"
+    )
+    _load_configs()
+    assert os.environ["OPENALEX_MAILTO"] == "project@example.com"
+
+    runner.invoke(app, ["doi", "10.1/x", "--cache", str(tmp_path / "oa.jsonl")])
+    assert captured["mailto"] == "project@example.com"
+
+
+def test_unknown_home_user_in_a_flag_is_a_usage_error() -> None:
+    # `Path.expanduser` raises a bare RuntimeError for `~user` with no such
+    # account; the CLI turns that into exit 2, not a traceback.
+    result = runner.invoke(app, ["config", "--cache-dir", "~nosuchuser12345/x"])
+    assert result.exit_code == 2
+    assert "Error: cannot expand '~nosuchuser12345/x'" in result.output
+
+
+def test_unknown_home_user_in_a_config_file_is_ignored_with_a_warning(
+    tmp_path: Path, capsys
+) -> None:
+    # Config files load at import, so this one must never raise.
+    (tmp_path / PROJECT_CONFIG_NAME).write_text(
+        'cache_dir = "~nosuchuser12345/x"\n', encoding="utf-8"
+    )
+    _load_configs()
+    assert "CITEFINDER_CACHE_DIR" not in os.environ
+    assert "warning: ignoring cache_dir" in capsys.readouterr().err
+
+
+def test_verify_source_accepts_any_case_and_rejects_unknowns(
+    tmp_path: Path, captured
+) -> None:
+    # `case_sensitive=False` only takes effect on a choice-typed option; as a
+    # plain `str` it was a no-op and `--source OpenAlex` was refused.
+    bib = write_bib(tmp_path / "paper")
+    out = str(tmp_path / "out")
+    result = runner.invoke(
+        app, ["verify", str(bib), "--source", "OpenAlex", "--out", out]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Source: openalex" in result.output
+
+    result = runner.invoke(app, ["verify", str(bib), "--source", "bogus", "--out", out])
+    assert result.exit_code == 2
+    assert "bogus" in result.output
+
+
+def test_verify_mailto_follows_the_chosen_source(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    # `verify` used to hand `--mailto` only to OpenAlex; Crossref runs sent
+    # no polite-pool email at all, whatever the flag, env, or config said.
+    bib = write_bib(tmp_path / "paper")
+    out = str(tmp_path / "out")
+    monkeypatch.setenv("OPENALEX_MAILTO", "oa@example.com")
+    monkeypatch.setenv("CROSSREF_MAILTO", "cr@example.com")
+
+    runner.invoke(app, ["verify", str(bib), "--source", "crossref", "--out", out])
+    assert captured["mailto"] == "cr@example.com"
+
+    runner.invoke(app, ["verify", str(bib), "--source", "openalex", "--out", out])
+    assert captured["mailto"] == "oa@example.com"
+
+    args = ["verify", str(bib), "--source", "crossref", "--out", out]
+    runner.invoke(app, [*args, "--mailto", "flag@example.com"])
+    assert captured["mailto"] == "flag@example.com"
 
 
 def test_load_configs_populates_env(tmp_path: Path) -> None:

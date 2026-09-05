@@ -1,5 +1,7 @@
 """Tests for the JSONL cache."""
 
+import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -38,6 +40,64 @@ def test_latest_value_wins(tmp_path: Path) -> None:
 
     reloaded = JsonlCache(path)
     assert reloaded.get("k") == "second"
+
+
+def test_replay_skips_a_corrupt_line_and_keeps_the_rest(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "c.jsonl"
+    JsonlCache(path).put("a", 1)
+    with path.open("a", encoding="utf-8") as f:
+        f.write('{"key": "b", "val')  # a write interrupted mid-append
+    with caplog.at_level(logging.WARNING, logger="citefinder"):
+        cache = JsonlCache(path)
+    assert cache.get("a") == 1
+    assert "b" not in cache
+    assert "skipping unreadable cache line" in caplog.text
+
+    # The next record starts on a fresh line, so it survives a reload too.
+    cache.put("c", 3)
+    reloaded = JsonlCache(path)
+    assert reloaded.get("c") == 3
+    assert len(reloaded) == 2
+
+
+def test_replay_skips_a_line_torn_inside_a_multibyte_character(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Values are written with ensure_ascii=False, so a crash can leave the
+    # file ending on the first byte of a two-byte character. Decoding the
+    # whole file at once raised UnicodeDecodeError and lost every record.
+    path = tmp_path / "c.jsonl"
+    JsonlCache(path).put("a", 1)
+    record = json.dumps({"key": "b", "value": "café"}, ensure_ascii=False).encode()
+    with path.open("ab") as f:
+        f.write(record[: record.index("é".encode()) + 1])
+    with caplog.at_level(logging.WARNING, logger="citefinder"):
+        cache = JsonlCache(path)
+    assert cache.get("a") == 1
+    assert "b" not in cache
+    assert "skipping unreadable cache line" in caplog.text
+    cache.put("c", 3)
+    assert JsonlCache(path).get("c") == 3
+
+
+def test_replay_skips_a_record_without_key_or_value(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    path.write_text('{"key": "a", "value": 1}\n{"nope": true}\n42\n', encoding="utf-8")
+    cache = JsonlCache(path)
+    assert cache.get("a") == 1
+    assert len(cache) == 1
+
+
+def test_put_of_an_unserialisable_value_leaves_no_trace(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    cache = JsonlCache(path)
+    with pytest.raises(TypeError):
+        cache.put("k", {1, 2})  # a set is not JSON
+    assert "k" not in cache
+    assert len(cache) == 0
+    assert not path.exists() or path.read_text() == ""
 
 
 def test_caches_none_for_misses(tmp_path: Path) -> None:

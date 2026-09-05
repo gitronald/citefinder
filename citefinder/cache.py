@@ -8,9 +8,12 @@ audit trail of every lookup without needing a database.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("citefinder")
 
 
 class JsonlCache:
@@ -23,17 +26,34 @@ class JsonlCache:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser()
         self._store: dict[str, Any] = {}
+        self._needs_newline = False
         if self.path.exists():
             self._replay()
 
     def _replay(self) -> None:
-        with self.path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
+        raw = b""
+        with self.path.open("rb") as f:
+            for lineno, raw in enumerate(f, 1):
+                try:
+                    # Decoded per line, so a write torn inside a multi-byte
+                    # character is one unreadable line, not an unreadable file.
+                    line = raw.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    entry = json.loads(line)
+                    key, value = entry["key"], entry["value"]
+                except (ValueError, KeyError, TypeError):
+                    # A write interrupted mid-append (crash, disk full) leaves
+                    # a partial line. Losing that one record is the documented
+                    # failure mode; losing the whole cache to it is not.
+                    log.warning(
+                        "%s:%d: skipping unreadable cache line", self.path, lineno
+                    )
                     continue
-                entry = json.loads(line)
-                self._store[entry["key"]] = entry["value"]
+                self._store[key] = value
+        # A last line with no newline is that interrupted write; the next
+        # `put` has to start on a fresh line or both records are lost.
+        self._needs_newline = bool(raw) and not raw.endswith(b"\n")
 
     def get(self, key: str) -> Any | None:
         return self._store.get(key)
@@ -42,11 +62,18 @@ class JsonlCache:
         return key in self._store
 
     def put(self, key: str, value: Any) -> None:
-        self._store[key] = value
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Serialise first: a value json can't encode must not land in the
+        # dict while nothing reaches disk, or memory and file disagree until
+        # the next reload silently drops the key.
         record = {"key": key, "value": value, "ts": time.time()}
+        line = json.dumps(record, ensure_ascii=False) + "\n"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            if self._needs_newline:
+                f.write("\n")
+                self._needs_newline = False
+            f.write(line)
+        self._store[key] = value
 
     def __len__(self) -> int:
         return len(self._store)

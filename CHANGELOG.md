@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `verify` no longer aborts the whole run on an entry whose `author` field
+  bibtexparser cannot parse (a trailing comma, say); the entry lands in
+  `error` with the reason and the run continues.
+- `parse_entries` warns about every block bibtexparser drops — a duplicated
+  field key, a repeated citation key, an unterminated brace — instead of
+  letting the entry vanish from the count silently.
+- A corrupt or truncated trailing line in a JSONL cache no longer makes the
+  cache unreadable: the line is skipped with a warning, the rest loads, and
+  the next write starts on a fresh line. `JsonlCache.put` also serialises
+  before it stores, so a value JSON cannot encode leaves no half-written
+  state behind.
+- DOIs containing `#`, `?`, or `%` are percent-encoded in the request path;
+  they used to be sent truncated at the `#` or `?` while the wrong result was
+  cached under the full DOI. Cache keys for every other DOI are unchanged.
+- Titles in scripts that NFKD cannot fold to ASCII (CJK, Cyrillic, Arabic)
+  keep their words in the title check; identical titles used to score 0 and
+  fail.
+- The author check no longer passes on a shared name particle alone
+  (`van de Rijt` vs `van der Berg`).
+- The container check pairs each venue word at most once, so a short word no
+  longer prefix-matches every longer word on the other side and inflates the
+  score.
+- Crossref search candidates include the subtitle, as the DOI path already
+  did, so a record whose title Crossref splits in two scores like the work
+  it is instead of going `unmatched`.
+- Crossref records with an organisational first author (`name` rather than
+  `family`) now feed the author signal.
+- A bib `doi` written as `https://doi.org/...`, `dx.doi.org/...`, or `doi:...`
+  is normalised to the bare DOI before lookup; an empty `doi = {}` is treated
+  as absent.
+- A search match whose record has no DOI reports `matched_doi` as `null`, as
+  the DOI path does, rather than `""`.
+- The skip-source note for `@online`/`@misc` says "signals do not confirm"
+  when nothing disagreed and too few fields could be checked, instead of
+  claiming a disagreement.
+- `verify --source crossref` now passes `--mailto` (or `CROSSREF_MAILTO`, or
+  the `[crossref]` config section) to the Crossref client; it was silently
+  dropped. The flag is source-neutral and falls back to `<SOURCE>_MAILTO`.
+- `verify --source` accepts any letter case, as its help implied.
+- `bib-to-table --fields key,...` no longer crashes on a duplicate column.
+- An exported-but-empty environment variable (`OPENALEX_MAILTO=""`) counts as
+  unset for config loading, so the config file's value is used rather than
+  nothing.
+- A `~user` path naming an unknown account in `--cache-dir`, `--out`, or a
+  config file's `cache_dir` is a clean error or warning, not a traceback; from
+  a config file it used to crash every command at import.
+- `bib_to_table` refuses a bib field literally named `key` or `entry_type`
+  instead of silently overwriting it, and `table_to_bib` refuses a value with
+  unbalanced braces instead of emitting BibTeX that drops later fields.
+- Exponential backoff caps its exponent, so an extreme `--max-retries` can no
+  longer overflow before the `max_wait` cap applies.
+- `citefinder install` and `install --check` report a bundled skill body with
+  no frontmatter as an error rather than a traceback.
+
+### Changed
+
+- The bundled skill body no longer refers to any skill outside this package.
+
 ## [0.9.0] - 2026-09-04
 
 ### Changed

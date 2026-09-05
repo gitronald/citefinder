@@ -32,7 +32,7 @@ from citefinder._base import (
     DEFAULT_MAX_WAIT,
     DEFAULT_TIMEOUT,
     CachedJsonClient,
-    _strip_mailto,
+    _doi_path,
 )
 from citefinder.cache import JsonlCache
 
@@ -55,8 +55,8 @@ __all__ = [
     "DEFAULT_MIN_INTERVAL",
     "OPENALEX_BASE",
     "OpenAlexClient",
-    "_strip_mailto",
     "is_arxiv_doi",
+    "normalize_title_query",
     "reconstruct_abstract",
 ]
 
@@ -87,7 +87,7 @@ def reconstruct_abstract(work: dict[str, Any]) -> str | None:
     return " ".join(word for _, word in positions)
 
 
-def _normalize_title_query(title: str) -> str:
+def normalize_title_query(title: str) -> str:
     """Prepare a title for OpenAlex's `filter=title.search:` syntax.
 
     Two known quirks:
@@ -147,7 +147,7 @@ class OpenAlexClient(CachedJsonClient):
 
     def lookup_doi(self, doi: str) -> dict[str, Any] | None:
         """Fetch OpenAlex metadata for a DOI. Returns None if not found."""
-        return self._get(f"{OPENALEX_BASE}/works/doi:{doi}")
+        return self._get(f"{OPENALEX_BASE}/works/doi:{_doi_path(doi)}")
 
     def search(self, query: str, rows: int = 3) -> list[dict[str, Any]]:
         """Search OpenAlex by free-text query (title + abstract)."""
@@ -167,7 +167,7 @@ class OpenAlexClient(CachedJsonClient):
         OpenAlex's curly-apostrophe quirk and to drop filter-reserved
         punctuation that would 400 the request.
         """
-        normalized = _normalize_title_query(title)
+        normalized = normalize_title_query(title)
         if not normalized:
             return []
         url = (

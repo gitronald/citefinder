@@ -3,6 +3,8 @@
 from typing import Any
 
 from citefinder.bib import parse_entries
+from citefinder.client import CrossrefClient
+from citefinder.openalex import OpenAlexClient
 from citefinder.signals import Status, Work
 from citefinder.verify import Source, verify_entry
 
@@ -168,6 +170,37 @@ def test_doi_lookup_signals_disagree_is_mismatch() -> None:
     assert r.status == Status.MISMATCH
 
 
+def test_bib_doi_in_url_form_is_normalized_before_lookup() -> None:
+    # Exported bibs often carry `https://doi.org/...`; the sources 404 on it.
+    seen: list[str] = []
+
+    class Client:
+        def lookup_doi(self, doi: str) -> dict[str, Any]:
+            seen.append(doi)
+            return {"any": "shape"}
+
+    src = Source(name="crossref", client=Client())  # type: ignore[arg-type]
+    src.to_work = lambda raw: _matching_work()  # type: ignore[assignment]
+    text = """@article{x,
+      author = {Smith, Jane},
+      title = {A Study of Things},
+      year = {2020},
+      journal = {Journal of Things},
+      doi = {https://doi.org/10.1/test}
+    }"""
+    r = verify_entry(_make_entry(text), src)
+    assert seen == ["10.1/test"]
+    assert r.bib_doi == "10.1/test"
+    assert r.matched_doi == "10.1/test"
+
+
+def test_empty_doi_field_takes_the_search_path() -> None:
+    text = "@article{x, title = {A Study of Things}, doi = {}}"
+    r = verify_entry(_make_entry(text), _fake_source(search_items=[]))
+    assert r.bib_doi is None
+    assert r.method == "search"
+
+
 def test_doi_404_returns_doi_not_found() -> None:
     text = "@article{x, title = {T}, year = {2020}, doi = {10.1/missing}}"
     entry = _make_entry(text)
@@ -183,6 +216,24 @@ def test_doi_lookup_exception_yields_error() -> None:
     r = verify_entry(entry, src)
     assert r.status == Status.ERROR
     assert "DOI lookup failed" in r.note
+
+
+def test_malformed_author_field_yields_error_not_exception() -> None:
+    # bibtexparser's name parser raises on a trailing comma. One bad entry
+    # must land in `error` with a reason, not abort the whole run.
+    text = """@article{x,
+      author = {Smith, Jane,},
+      title = {A Study of Things},
+      year = {2020},
+      doi = {10.1/test}
+    }"""
+    entry = _make_entry(text)
+    src = _fake_source(doi_record={"any": "shape"}, work_for_doi=_matching_work())
+    r = verify_entry(entry, src)
+    assert r.status == Status.ERROR
+    assert r.method == "doi"  # the path it would have taken, never ""
+    assert r.note.startswith("could not parse bib fields:")
+    assert "Trailing comma" in r.note
 
 
 # --- OpenAlex quirks: real records through the real adapter -----------------
@@ -323,6 +374,23 @@ def test_search_finds_matching_hit() -> None:
     assert r.matched_doi == "10.1/found"
 
 
+def test_search_match_without_a_doi_reports_none() -> None:
+    # The DOI path uses None for "no DOI"; the search path used to leave "".
+    text = """@article{x,
+      author = {Smith, Jane},
+      title = {A Study of Things},
+      year = {2020},
+      journal = {Journal of Things}
+    }"""
+    src = _fake_source(
+        search_items=[{"title": ["A Study of Things"]}],
+        work_for_search=_matching_work(),
+    )
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.MATCHED
+    assert r.matched_doi is None
+
+
 def test_search_short_title_cannot_select_a_candidate() -> None:
     # cialdini2003influence: the one-word title "Influence" scores 1.0
     # against an unrelated 1985 paper titled "Influence". Title similarity
@@ -372,6 +440,79 @@ def test_search_with_no_query_fields_is_error() -> None:
     assert "no author/title/year" in r.note
 
 
+# --- search path through the real Source dispatch ---------------------------
+# `_fake_source` replaces `Source`'s methods; these two keep them and swap only
+# the HTTP client, so the crossref/openalex branches themselves are exercised.
+
+
+class _FakeCrossref(CrossrefClient):
+    def __init__(self, items: list[dict[str, Any]]) -> None:  # no session, no cache
+        self.items = items
+
+    # `typing.override` is 3.12+ and the package supports 3.11.
+    def search_bibliographic(  # pyrefly: ignore[missing-override-decorator]
+        self, query: str, rows: int = 3
+    ) -> list[dict[str, Any]]:
+        return self.items
+
+
+class _FakeOpenAlex(OpenAlexClient):
+    def __init__(self, items: list[dict[str, Any]]) -> None:
+        self.items = items
+
+    def search_title(  # pyrefly: ignore[missing-override-decorator]
+        self, title: str, rows: int = 3
+    ) -> list[dict[str, Any]]:
+        return self.items
+
+
+def test_crossref_search_candidate_title_includes_the_subtitle() -> None:
+    # Crossref splits `title` and `subtitle`. The DOI path already rejoins
+    # them; candidate scoring must see the same full title, or a split record
+    # scores about 0.24 against its own bib entry and goes unmatched.
+    text = """@inproceedings{x,
+      author = {Ohm, Marc},
+      title = {Backstabber's Knife Collection: A Review of Open Source Software Supply Chain Attacks},
+      booktitle = {Detection of Intrusions and Malware, and Vulnerability Assessment},
+      year = {2020}
+    }"""  # noqa: E501
+    hit = {
+        "DOI": "10.1/split",
+        "title": ["Backstabber's Knife Collection"],
+        "subtitle": ["A Review of Open Source Software Supply Chain Attacks"],
+        "author": [{"family": "Ohm", "given": "Marc"}],
+        "issued": {"date-parts": [[2020]]},
+        "container-title": [
+            "Detection of Intrusions and Malware, and Vulnerability Assessment"
+        ],
+    }
+    src = Source(name="crossref", client=_FakeCrossref([hit]))
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.MATCHED
+    assert r.matched_doi == "10.1/split"
+    assert r.candidates[0]["title"].startswith("Backstabber's Knife Collection: A")
+
+
+def test_openalex_search_path_through_the_real_source() -> None:
+    text = """@article{x,
+      author = {Smith, Jane},
+      title = {A Study of Things},
+      journal = {Journal of Things},
+      year = {2020}
+    }"""
+    hit = {
+        "doi": "https://doi.org/10.1/oa",
+        "display_name": "A Study of Things",
+        "publication_year": 2020,
+        "authorships": [{"author": {"display_name": "Jane Smith"}}],
+        "primary_location": {"source": {"display_name": "Journal of Things"}},
+    }
+    src = Source(name="openalex", client=_FakeOpenAlex([hit]))
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.MATCHED
+    assert r.matched_doi == "10.1/oa"  # the URL prefix is stripped
+
+
 # --- @online / @misc skip-source bucket ------------------------------------
 
 
@@ -404,6 +545,22 @@ def test_online_with_disagreeing_match_routes_to_skip_source() -> None:
     r = verify_entry(entry, src)
     assert r.status == Status.SKIP_SOURCE
     assert r.matched_doi is None
+
+
+def test_online_unconfirmed_match_says_signals_do_not_confirm() -> None:
+    # Nothing disagreed here; too few fields could be checked. The note must
+    # not claim a disagreement it then quotes as "rest unknown".
+    text = "@online{x, title = {A Study of Things}}"
+    src = _fake_source(
+        search_items=[{"DOI": "10.1/x", "title": ["A Study of Things"]}],
+        work_for_search=Work(title="A Study of Things"),
+    )
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.SKIP_SOURCE
+    assert r.note == (
+        "@online: signals do not confirm (only 1 signal(s) confirm; rest unknown); "
+        "verify via URL"
+    )
 
 
 def test_online_short_title_hit_is_skip_source_with_url_note() -> None:

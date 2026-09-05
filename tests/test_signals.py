@@ -1,5 +1,7 @@
 """Tests for citefinder.signals — signal checks and status reduction."""
 
+import pytest
+
 from citefinder.signals import (
     MIN_TITLE_TOKENS,
     BibCitation,
@@ -20,11 +22,24 @@ from citefinder.signals import (
 
 def test_normalize_title_lowercases_and_strips_punctuation() -> None:
     assert normalize_title("Hello, World!") == "hello world"
+    # `\w` keeps underscores; the regex has to strip them on its own.
+    assert normalize_title("snake_case_title") == "snake case title"
 
 
 def test_normalize_title_handles_unicode_diacritics() -> None:
     # NFKD decomposition + dropping combining marks: "café" → "cafe".
     assert normalize_title("Café Résumé") == "cafe resume"
+
+
+def test_normalize_title_keeps_non_latin_scripts() -> None:
+    # NFKD cannot fold these to ASCII; deleting them left no tokens at all.
+    assert normalize_title("深度学习综述") == "深度学习综述"
+    assert normalize_title("Глубокое, обучение!") == "глубокое обучение"
+
+
+def test_check_title_identical_non_latin_titles_pass() -> None:
+    title = "Глубокое обучение для текста"
+    assert check_title(title, title)["verdict"] == "pass"
 
 
 def test_title_similarity_identical_is_one() -> None:
@@ -147,6 +162,19 @@ def test_check_author_no_overlap_fails() -> None:
     assert check_author("Smith", "Jones")["verdict"] == "fail"
 
 
+def test_check_author_shared_particle_alone_is_not_agreement() -> None:
+    # `van` is a particle, not a name; two unrelated Dutch surnames share it.
+    assert check_author("van de Rijt", "van der Berg")["verdict"] == "fail"
+    assert check_author("van de Rijt", "van de Rijt")["verdict"] == "pass"
+    # OpenAlex may capitalise the particle the bib keeps lower-case.
+    assert check_author("de Wolf", "De Wolf")["verdict"] == "pass"
+    # An all-lower-case surname has no particles to drop.
+    assert check_author("bell hooks", "hooks")["verdict"] == "pass"
+    # A mixed-case word is a name, not a particle: Crossref hands corporate
+    # authors over whole, and the bib side keeps them in braces.
+    assert check_author("eBay Inc", "eBay")["verdict"] == "pass"
+
+
 def test_check_author_missing_is_unknown() -> None:
     assert check_author(None, "Smith")["verdict"] == "unknown"
 
@@ -157,6 +185,28 @@ def test_container_similarity_prefix_matches_abbreviations() -> None:
     assert sim > 0.0
 
 
+def test_container_similarity_pairs_each_token_once() -> None:
+    # One short token used to prefix-match every longer token on the other
+    # side and score a perfect match against an unrelated venue.
+    assert container_similarity("Data Database Dataset", "Data") < 0.50
+    assert container_similarity("proc", "proceedings procedure procession") < 0.50
+    # Genuine abbreviations still clear the pass threshold.
+    assert container_similarity("Proc ICML", "Proceedings of ICML") >= 0.50
+
+
+def test_container_similarity_pairs_exact_tokens_before_prefixes() -> None:
+    # Greedy first-match let "comp" take "computer", stranding the exact
+    # "computer" twin: one pair where two exist. The score must not depend
+    # on token order either.
+    assert container_similarity("comp computer", "computer compile") == pytest.approx(
+        2 / 3
+    )
+    assert container_similarity("computer compile", "comp computer") == pytest.approx(
+        2 / 3
+    )
+    assert container_similarity("Journal of Things", "Journal of Things") == 1.0
+
+
 def test_check_container_full_overlap_passes() -> None:
     r = check_container("Journal of Things", ["Journal of Things"])
     assert r["verdict"] == "pass"
@@ -165,6 +215,14 @@ def test_check_container_full_overlap_passes() -> None:
 def test_check_container_unrelated_fails() -> None:
     r = check_container("Nature", ["Annual Review of Sociology"])
     assert r["verdict"] == "fail"
+
+
+def test_check_container_without_candidates_is_unknown() -> None:
+    # Sparse records carry no venue at all; that is a gap, not a mismatch.
+    for candidates in ([], ["", ""]):
+        r = check_container("Journal of Things", candidates)
+        assert r["verdict"] == "unknown"
+        assert r["crossref"] is None
 
 
 def test_check_container_picks_best_alias() -> None:

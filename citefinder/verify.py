@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from citefinder.adapters import (
+    crossref_full_title,
     crossref_to_work,
     openalex_doi,
     openalex_to_work,
@@ -22,6 +23,7 @@ from citefinder.bib import (
     build_search_query,
     build_title_query,
     citation_from_entry,
+    normalize_doi,
     strip_braces,
 )
 from citefinder.client import CrossrefClient
@@ -54,7 +56,7 @@ class Result:
     title: str
     year: str
     bib_doi: str | None
-    method: str  # "doi" | "search" | "skipped"
+    method: str  # "doi" | "search"
     status: Status
     matched_doi: str | None = None
     matched_title: str | None = None
@@ -106,8 +108,9 @@ class Source:
 
     def candidate_title(self, item: dict[str, Any]) -> str:
         if self.name == "crossref":
-            titles = item.get("title") or []
-            return titles[0] if titles else ""
+            # Title and subtitle rejoined, as `crossref_to_work` does on the
+            # DOI path: a split record must score like the work it is.
+            return crossref_full_title(item) or ""
         return item.get("display_name") or ""
 
     def cache_size(self) -> int:
@@ -118,8 +121,8 @@ class Source:
 def verify_entry(entry: Entry, source: Source) -> Result:
     title = strip_braces(entry.fields.get("title", ""))
     year = strip_braces(entry.fields.get("year", ""))
-    bib_doi = strip_braces(entry.fields["doi"]) if "doi" in entry.fields else None
-    citation = citation_from_entry(entry)
+    # `or None` folds an empty `doi = {}` into "no DOI", like a missing field.
+    bib_doi = normalize_doi(entry.fields.get("doi", "")) or None
 
     base = Result(
         key=entry.key,
@@ -127,15 +130,23 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         title=title,
         year=year,
         bib_doi=bib_doi,
-        method="",
+        method="doi" if bib_doi else "search",
         status=Status.ERROR,
     )
+
+    # The author field goes through bibtexparser's name parser, which raises
+    # on malformed input (`Smith, Jane,`). Report that on the entry rather
+    # than letting one typo abort a whole `verify` run.
+    try:
+        citation = citation_from_entry(entry)
+    except Exception as e:
+        base.note = f"could not parse bib fields: {e}"
+        return base
 
     # If a DOI is in the bib, resolve it AND check four signals (title / year /
     # first-author / container) against the source record. DOI existence
     # isn't enough — a typoed or wrong DOI can resolve to a different work.
     if bib_doi:
-        base.method = "doi"
         try:
             raw = source.lookup_doi(bib_doi)
         except Exception as e:
@@ -159,7 +170,6 @@ def verify_entry(entry: Entry, source: Source) -> Result:
 
     # No DOI — bibliographic search. Skip-source types still get tried but
     # are reported under their own bucket.
-    base.method = "search"
     if not entry.fields.get("title") and not entry.fields.get("author"):
         base.status = Status.ERROR
         base.note = "no author/title/year to query"
@@ -172,9 +182,8 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         base.note = f"search failed: {e}"
         return base
 
-    # Candidate selection still uses raw title-sim because the candidate
-    # report shows the source's stored title (not the reassembled one) and
-    # because it lets us short-circuit before paying the adapter cost.
+    # Candidate selection uses raw title similarity on each hit's title so
+    # the adapter runs only for the hit that is finally chosen.
     candidates: list[dict[str, str]] = []
     best_sim = 0.0
     best_item: dict[str, Any] | None = None
@@ -193,7 +202,8 @@ def verify_entry(entry: Entry, source: Source) -> Result:
             best_item = item
     base.candidates = candidates
 
-    if entry.etype in SKIP_SOURCE_TYPES and best_sim < TITLE_MATCH_THRESHOLD:
+    skip_type = entry.etype in SKIP_SOURCE_TYPES
+    if skip_type and best_sim < TITLE_MATCH_THRESHOLD:
         base.status = Status.SKIP_SOURCE
         base.note = f"@{entry.etype}: not expected in source; verify via URL"
         return base
@@ -207,7 +217,8 @@ def verify_entry(entry: Entry, source: Source) -> Result:
     if hit is not None and not short_title:
         work = source.to_work(hit)
         assert work is not None  # hit is a real record
-        base.matched_doi = source.candidate_doi(hit)
+        # `or None`: a hit without a DOI is "no DOI", as on the DOI path.
+        base.matched_doi = source.candidate_doi(hit) or None
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = best_sim
@@ -217,29 +228,33 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         # certainly a derived artifact (a reprinted policy, a chapter that
         # cites the report, etc.). Route those to skip-source so the
         # report doesn't suggest a misleading DOI.
-        if entry.etype in SKIP_SOURCE_TYPES and base.status != Status.MATCHED:
+        if skip_type and base.status != Status.MATCHED:
             signal_note = base.note
+            failed = any(s["verdict"] == "fail" for s in base.signals.values())
+            why = "signals disagree" if failed else "signals do not confirm"
             base.status = Status.SKIP_SOURCE
-            base.note = (
-                f"@{entry.etype}: signals disagree ({signal_note}); verify via URL"
-            )
+            base.note = f"@{entry.etype}: {why} ({signal_note}); verify via URL"
             base.matched_doi = None
             base.matched_title = None
         return base
 
-    # Reaching here with a hit means the short title blocked it; say so and
-    # keep the skip-source framing for @online / @misc, whose canonical
-    # source is the URL either way.
+    if hit is None:
+        # Only a non-skip type gets here without a hit; the skip types
+        # returned above the moment their best hit fell short.
+        base.status = Status.UNMATCHED
+        base.note = "no plausible source hit"
+        return base
+
+    # The short title blocked the hit; say so, and keep the skip-source
+    # framing for @online / @misc, whose canonical source is the URL anyway.
     why = (
         f"title too short to match by search ({n_words} word(s), "
         f"need {MIN_TITLE_TOKENS})"
-        if hit is not None
-        else "no plausible source hit"
     )
-    if entry.etype in SKIP_SOURCE_TYPES:
+    if skip_type:
         base.status = Status.SKIP_SOURCE
         base.note = f"@{entry.etype}: {why}; verify via URL"
     else:
         base.status = Status.UNMATCHED
-        base.note = f"{why}; review candidates" if hit is not None else why
+        base.note = f"{why}; review candidates"
     return base

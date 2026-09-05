@@ -90,6 +90,7 @@ def cache_lines(tmp_path: Path) -> list[str]:
         ("-5", 0.0),
         ("garbage", None),
         ("inf", None),
+        ("nan", None),
     ],
 )
 def test_retry_after_seconds_delta_form(
@@ -103,6 +104,14 @@ def test_retry_after_seconds_http_date_form() -> None:
         90.0
     )
     assert retry_after_seconds(http_date(WALL_NOW - 90), now=WALL_NOW) == 0.0
+
+
+def test_retry_after_seconds_zone_less_http_date_is_read_as_utc() -> None:
+    # RFC 5322's `-0000` means "zone unknown"; `parsedate_to_datetime` hands
+    # back a naive datetime for it, which the parser must treat as UTC.
+    when = formatdate(WALL_NOW + 90, usegmt=False)
+    assert when.endswith("-0000")
+    assert retry_after_seconds(when, now=WALL_NOW) == pytest.approx(90.0)
 
 
 # --- retry loop -------------------------------------------------------------
@@ -217,6 +226,15 @@ def test_retry_after_is_capped_at_max_wait(
     ]
     client.lookup_doi("10.1/x")
     assert clock.sleeps == [60.0]
+
+
+def test_backoff_stays_capped_at_extreme_attempt_counts(
+    tmp_path: Path, clock: FakeClock, mock_response
+) -> None:
+    # `--max-retries` has no upper bound; past attempt 1023 the doubling used
+    # to overflow before the `max_wait` cap could apply.
+    client, _ = make_client(tmp_path, clock, max_wait=60.0)
+    assert client._retry_wait(mock_response(429), 1100) == 60.0
 
 
 def test_max_retries_zero_disables_retrying(
