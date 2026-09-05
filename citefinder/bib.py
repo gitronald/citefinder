@@ -19,6 +19,7 @@ from bibtexparser.middlewares.names import (
     split_multiple_persons_names,
 )
 
+from citefinder.openalex import normalize_title_query
 from citefinder.signals import BibCitation, strip_braces
 
 log = logging.getLogger("citefinder")
@@ -104,20 +105,11 @@ def build_title_query(entry: Entry) -> str:
     queries. Restricting to title-only via the filter syntax matches
     what verifies search hits in the first place: title similarity.
 
-    OpenAlex filter syntax reserves `,` (filter separator), `|` (OR),
-    `:` (field separator), and `!` (negation), so titles containing
-    them return HTTP 400. Strip those out — `title.search` is fuzzy
-    anyway, so dropping punctuation doesn't hurt recall.
-
-    Straight apostrophes are also remapped to U+2019 because OpenAlex's
-    title index stores the curly form (e.g., Ohm2020 is indexed as
-    `Backstabber’s Knife Collection`); a query with `Backstabber's`
-    returns zero hits while `Backstabber’s` finds the paper.
+    The OpenAlex-specific normalisation (curly apostrophes, reserved
+    filter punctuation) lives with the client in `normalize_title_query`;
+    this adds only the bib side, dropping the protective braces.
     """
-    title = strip_braces(entry.fields.get("title", ""))
-    title = title.replace("'", "’")
-    title = re.sub(r"[,:|!?]", " ", title)
-    return re.sub(r"\s+", " ", title).strip()
+    return normalize_title_query(strip_braces(entry.fields.get("title", "")))
 
 
 def citation_from_entry(entry: Entry) -> BibCitation:

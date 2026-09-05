@@ -8,9 +8,9 @@ import pytest
 from citefinder.cache import JsonlCache
 from citefinder.openalex import (
     OpenAlexClient,
-    _normalize_title_query,
     _strip_mailto,
     is_arxiv_doi,
+    normalize_title_query,
     reconstruct_abstract,
 )
 
@@ -159,11 +159,11 @@ def test_search_title_404_returns_empty(
     assert client.search_title("Some Title") == []
 
 
-def test_normalize_title_query() -> None:
-    assert _normalize_title_query("Backstabber's") == "Backstabber’s"
-    assert _normalize_title_query("a, b: c|d!e?") == "a b c d e"
-    assert _normalize_title_query("  spaced   out  ") == "spaced out"
-    assert _normalize_title_query("") == ""
+def testnormalize_title_query() -> None:
+    assert normalize_title_query("Backstabber's") == "Backstabber’s"
+    assert normalize_title_query("a, b: c|d!e?") == "a b c d e"
+    assert normalize_title_query("  spaced   out  ") == "spaced out"
+    assert normalize_title_query("") == ""
 
 
 def test_polite_pool_mailto_added_to_url(

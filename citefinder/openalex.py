@@ -58,6 +58,7 @@ __all__ = [
     "OpenAlexClient",
     "_strip_mailto",
     "is_arxiv_doi",
+    "normalize_title_query",
     "reconstruct_abstract",
 ]
 
@@ -88,7 +89,7 @@ def reconstruct_abstract(work: dict[str, Any]) -> str | None:
     return " ".join(word for _, word in positions)
 
 
-def _normalize_title_query(title: str) -> str:
+def normalize_title_query(title: str) -> str:
     """Prepare a title for OpenAlex's `filter=title.search:` syntax.
 
     Two known quirks:
@@ -168,7 +169,7 @@ class OpenAlexClient(CachedJsonClient):
         OpenAlex's curly-apostrophe quirk and to drop filter-reserved
         punctuation that would 400 the request.
         """
-        normalized = _normalize_title_query(title)
+        normalized = normalize_title_query(title)
         if not normalized:
             return []
         url = (
