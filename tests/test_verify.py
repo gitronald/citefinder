@@ -185,6 +185,23 @@ def test_doi_lookup_exception_yields_error() -> None:
     assert "DOI lookup failed" in r.note
 
 
+def test_malformed_author_field_yields_error_not_exception() -> None:
+    # bibtexparser's name parser raises on a trailing comma. One bad entry
+    # must land in `error` with a reason, not abort the whole run.
+    text = """@article{x,
+      author = {Smith, Jane,},
+      title = {A Study of Things},
+      year = {2020},
+      doi = {10.1/test}
+    }"""
+    entry = _make_entry(text)
+    src = _fake_source(doi_record={"any": "shape"}, work_for_doi=_matching_work())
+    r = verify_entry(entry, src)
+    assert r.status == Status.ERROR
+    assert r.note.startswith("could not parse bib fields:")
+    assert "Trailing comma" in r.note
+
+
 # --- OpenAlex quirks: real records through the real adapter -----------------
 # Trimmed to the fields `openalex_to_work` reads, values as returned by the
 # OpenAlex API on 2026-09-02. Each is a bib entry whose own DOI resolved to

@@ -119,7 +119,6 @@ def verify_entry(entry: Entry, source: Source) -> Result:
     title = strip_braces(entry.fields.get("title", ""))
     year = strip_braces(entry.fields.get("year", ""))
     bib_doi = strip_braces(entry.fields["doi"]) if "doi" in entry.fields else None
-    citation = citation_from_entry(entry)
 
     base = Result(
         key=entry.key,
@@ -130,6 +129,15 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         method="",
         status=Status.ERROR,
     )
+
+    # The author field goes through bibtexparser's name parser, which raises
+    # on malformed input (`Smith, Jane,`). Report that on the entry rather
+    # than letting one typo abort a whole `verify` run.
+    try:
+        citation = citation_from_entry(entry)
+    except Exception as e:
+        base.note = f"could not parse bib fields: {e}"
+        return base
 
     # If a DOI is in the bib, resolve it AND check four signals (title / year /
     # first-author / container) against the source record. DOI existence
