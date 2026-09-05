@@ -332,10 +332,11 @@ def _verify_out_dir(bib_file: Path, source: str, cache_dir: Path | None) -> Path
     directories apart even when they name their bibliographies alike
     (`refs.bib` everywhere, or an `extra.bib` in each); keying on the stem
     alone funnelled them into one directory, the later run overwriting the
-    earlier. The path is resolved first: a bare `verify refs.bib` has no
-    parent component to name the directory by otherwise.
+    earlier. The path is made absolute first, since a bare `verify refs.bib`
+    has no parent component to name the directory by; symlinks are left
+    alone so a linked directory keeps its own name and its existing cache.
     """
-    bib = bib_file.resolve()
+    bib = Path(os.path.normpath(bib_file.absolute()))
     name = bib.parent.name
     if bib.stem != _PRIMARY_BIB_STEM:
         name = f"{name}-{bib.stem}"
@@ -516,8 +517,7 @@ def verify(
         typer.echo(f"Error: {bib_file} is not a file", err=True)
         raise typer.Exit(code=1)
 
-    # Default output: <cache_dir>/<bib-dir>[-<bib-stem>]/<source>/, with
-    # cache_dir falling back to cwd/data/citefinder. Per-source subdir lets
+    # Default output comes from `_verify_out_dir`; its per-source subdir lets
     # crossref and openalex outputs coexist for side-by-side comparison
     # without collision. `--out` is anchored to cwd like `--cache-dir`, so a
     # quoted `~` expands and the cache below lands beside `results.json`.

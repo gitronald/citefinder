@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `verify` given a bare relative `refs.bib` (`citefinder verify refs.bib`)
   filed its output under `<cache_dir>/<source>/`, since the parent of a
-  relative path has no name. The path is resolved before the directory is
-  named.
+  relative path has no name. The path is made absolute before the directory
+  is named; symlinks are left alone, so a linked directory keeps its own name.
 
 ## [0.8.0] - 2026-09-03
 

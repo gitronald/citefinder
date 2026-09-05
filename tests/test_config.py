@@ -262,12 +262,12 @@ def test_verify_keeps_same_named_bibs_in_sibling_directories_apart(
     assert not (caches / "extra").exists()
 
 
-def test_verify_resolves_a_relative_bib_path_before_naming_its_directory(
+def test_verify_anchors_a_relative_bib_path_before_naming_its_directory(
     tmp_path: Path, monkeypatch, captured
 ) -> None:
-    """A bare `verify refs.bib` has no parent component; without resolving,
-    the directory name came out empty and the output collapsed into
-    `<root>/<source>/`.
+    """A bare `verify refs.bib` has no parent component; without anchoring
+    it to the working directory first, the directory name came out empty and
+    the output collapsed into `<root>/<source>/`.
     """
     write_bib(tmp_path / "paper")
     monkeypatch.chdir(tmp_path / "paper")
@@ -278,6 +278,47 @@ def test_verify_resolves_a_relative_bib_path_before_naming_its_directory(
     out = tmp_path / "paper" / "data" / "citefinder" / "paper" / "openalex"
     assert (out / "results.json").is_file()
     assert captured["cache_path"] == out / "openalex.jsonl"
+
+
+def test_verify_collapses_dot_dot_before_naming_the_directory(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    """`verify ../refs.bib` from a subdirectory names the output after the
+    bib's real directory, not `..`.
+    """
+    write_bib(tmp_path / "paper")
+    (tmp_path / "paper" / "sub").mkdir()
+    monkeypatch.chdir(tmp_path / "paper" / "sub")
+    caches = tmp_path / "caches"
+
+    result = runner.invoke(app, ["verify", "../refs.bib", "--cache-dir", str(caches)])
+
+    assert result.exit_code == 0, result.output
+    assert (caches / "paper" / "openalex" / "results.json").is_file()
+    assert [p.name for p in caches.iterdir()] == ["paper"]
+
+
+def test_verify_keeps_a_symlinked_directory_under_its_own_name(
+    tmp_path: Path, captured
+) -> None:
+    """A bib reached through a symlinked directory is keyed on the name the
+    user pointed at, not the link's target, so the cache written under that
+    name before this layout change is the one that is read.
+    """
+    write_bib(tmp_path / "2026-foo-final")
+    link = tmp_path / "paper"
+    link.symlink_to(tmp_path / "2026-foo-final", target_is_directory=True)
+    caches = tmp_path / "caches"
+
+    result = runner.invoke(
+        app, ["verify", str(link / "refs.bib"), "--cache-dir", str(caches)]
+    )
+
+    assert result.exit_code == 0, result.output
+    out = caches / "paper" / "openalex"
+    assert (out / "results.json").is_file()
+    assert captured["cache_path"] == out / "openalex.jsonl"
+    assert not (caches / "2026-foo-final").exists()
 
 
 def test_verify_output_derives_from_cache_dir(tmp_path: Path, captured) -> None:
