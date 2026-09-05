@@ -60,13 +60,26 @@ def _anchor(path: str | Path, base: Path) -> Path:
     return base / expanded
 
 
+@contextmanager
+def _report_errors(
+    *kinds: type[Exception], prefix: str = "", code: int = 1
+) -> Iterator[None]:
+    """Turn a library exception into an `Error:` line and exit, no traceback.
+
+    Exit 1 for a failure in the work itself; `code=2` for a usage error (a
+    bad flag or env value), the code click itself uses for those.
+    """
+    try:
+        yield
+    except kinds as exc:
+        typer.echo(f"Error: {prefix}{exc}", err=True)
+        raise typer.Exit(code=code) from exc
+
+
 def _anchor_or_exit(path: str | Path, base: Path) -> Path:
     """`_anchor` for a flag or env value, where a bad `~user` is a usage error."""
-    try:
+    with _report_errors(ValueError, code=2):
         return _anchor(path, base)
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=2) from exc
 
 
 # Env name -> which config file `_load_configs` took its value from
@@ -272,11 +285,8 @@ def _checked_knob(name: str, value: float) -> float:
     `inf`/`nan` through, and `verify`'s env fallback skips click's range
     check entirely, so the client's own bound is applied up front.
     """
-    try:
+    with _report_errors(ValueError, code=2):
         return validate_knob(name, value)
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=2) from exc
 
 
 def _source_client_kwargs(
@@ -382,16 +392,6 @@ def _emit_or_exit(result: object | None, label: str) -> None:
         typer.echo(f"not found: {label}", err=True)
         raise typer.Exit(code=1)
     _emit(result)
-
-
-@contextmanager
-def _report_errors(*kinds: type[Exception], prefix: str = "") -> Iterator[None]:
-    """Turn a library exception into an `Error:` line and exit 1, no traceback."""
-    try:
-        yield
-    except kinds as exc:
-        typer.echo(f"Error: {prefix}{exc}", err=True)
-        raise typer.Exit(code=1) from exc
 
 
 # --- top-level (OpenAlex) ---------------------------------------------------
