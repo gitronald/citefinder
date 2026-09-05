@@ -58,7 +58,9 @@ def crossref_to_work(message: dict[str, Any] | None) -> Work | None:
     cr_authors = message.get("author") or []
     first_author = ""
     if cr_authors and isinstance(cr_authors[0], dict):
-        first_author = (cr_authors[0].get("family") or "").strip()
+        # A person carries `family`/`given`; an organisation carries `name`.
+        first = cr_authors[0]
+        first_author = (first.get("family") or first.get("name") or "").strip()
     # Crossref returns multiple container names — the full and abbreviated
     # journal names, plus for proceedings papers both the series ("Lecture
     # Notes in Computer Science") and the booktitle ("Detection of
