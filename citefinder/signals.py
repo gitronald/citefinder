@@ -104,10 +104,16 @@ def _strip_braces(s: str) -> str:
 
 
 def normalize_title(s: str) -> str:
+    """Lower-case word characters only, diacritics folded, one space apart.
+
+    `\\w` rather than `[a-z0-9]`, so a title in a script NFKD cannot reduce
+    to ASCII (CJK, Cyrillic, Arabic) keeps its words instead of vanishing —
+    two identical such titles used to score 0.0 and fail the title check.
+    """
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = _strip_braces(s).lower()
-    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = re.sub(r"[^\w ]+|_", " ", s)
     return re.sub(r"\s+", " ", s).strip()
 
 

@@ -27,6 +27,17 @@ def test_normalize_title_handles_unicode_diacritics() -> None:
     assert normalize_title("Café Résumé") == "cafe resume"
 
 
+def test_normalize_title_keeps_non_latin_scripts() -> None:
+    # NFKD cannot fold these to ASCII; deleting them left no tokens at all.
+    assert normalize_title("深度学习综述") == "深度学习综述"
+    assert normalize_title("Глубокое, обучение!") == "глубокое обучение"
+
+
+def test_check_title_identical_non_latin_titles_pass() -> None:
+    title = "Глубокое обучение для текста"
+    assert check_title(title, title)["verdict"] == "pass"
+
+
 def test_title_similarity_identical_is_one() -> None:
     assert title_similarity("Hello World", "Hello World") == 1.0
 
