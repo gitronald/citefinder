@@ -131,7 +131,7 @@ citefinder verify refs.bib --out path/to/dir/    # custom output directory
 citefinder verify refs.bib --min-interval 0.5 --max-retries 5   # slow down for a strict rate limit
 ```
 
-Output lands in `<cache_dir>/<bib-stem>/<source>/` — `data/citefinder/` under the working directory when no `cache_dir` is configured (`citefinder config` shows which):
+Output lands in `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/` — `data/citefinder/` under the working directory when no `cache_dir` is configured (`citefinder config` shows which). `<bib-dir>` is the directory holding the `.bib`; the `-<bib-stem>` suffix is added for a file not named `refs.bib` (`paper/refs.bib` → `paper/`, `paper/extra.bib` → `paper-extra/`):
 
 - `<source>.jsonl` — append-only response cache; re-running is cheap.
 - `results.json` — structured per-entry result (status, matched DOI, signals).
@@ -180,7 +180,7 @@ Field order within each entry is not preserved (it follows the CSV's column orde
 
 ## Key behaviors to know
 
-- **Cache path:** check for a project config before passing `--cache`. A repo that sets `cache_dir` in `citefinder.toml` (or `[tool.citefinder]` in `pyproject.toml`) already routes every command's cache there — lookups to `<cache_dir>/<source>.jsonl`, `verify` to `<cache_dir>/<bib-stem>/<source>/` — from any working directory inside it. `citefinder config` prints where a lookup will write and why (`flag`, `env`, `project`, `user`, or `default`). Without a config the default is `~/.cache/citefinder/<source>.jsonl`; pass `--cache-dir` (or `--cache` for one file) only when there is no project config and you want results committed alongside an outline so collaborators don't re-query.
+- **Cache path:** check for a project config before passing `--cache`. A repo that sets `cache_dir` in `citefinder.toml` (or `[tool.citefinder]` in `pyproject.toml`) already routes every command's cache there — lookups to `<cache_dir>/<source>.jsonl`, `verify` to `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/` — from any working directory inside it. `citefinder config` prints where a lookup will write and why (`flag`, `env`, `project`, `user`, or `default`). Without a config the default is `~/.cache/citefinder/<source>.jsonl`; pass `--cache-dir` (or `--cache` for one file) only when there is no project config and you want results committed alongside an outline so collaborators don't re-query.
 - **Latest value wins on replay.** Re-querying after a fix transparently overwrites — no manual cache invalidation needed.
 - **`None` is a real cache value.** A cached `None` means "Crossref returned 404 for this DOI" — citefinder uses it to avoid re-hitting known-missing DOIs. If you suspect Crossref has now indexed a paper it didn't before, delete that line from the JSONL or use a fresh cache path.
 - **`lookup_doi` returns the `message` payload directly,** not the full Crossref envelope. So you access `work["title"][0]`, not `work["message"]["title"][0]`.
