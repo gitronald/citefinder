@@ -393,6 +393,26 @@ def test_empty_env_var_does_not_block_a_config_value(
     assert captured["mailto"] == "project@example.com"
 
 
+def test_unknown_home_user_in_a_flag_is_a_usage_error() -> None:
+    # `Path.expanduser` raises a bare RuntimeError for `~user` with no such
+    # account; the CLI turns that into exit 2, not a traceback.
+    result = runner.invoke(app, ["config", "--cache-dir", "~nosuchuser12345/x"])
+    assert result.exit_code == 2
+    assert "Error: cannot expand '~nosuchuser12345/x'" in result.output
+
+
+def test_unknown_home_user_in_a_config_file_is_ignored_with_a_warning(
+    tmp_path: Path, capsys
+) -> None:
+    # Config files load at import, so this one must never raise.
+    (tmp_path / PROJECT_CONFIG_NAME).write_text(
+        'cache_dir = "~nosuchuser12345/x"\n', encoding="utf-8"
+    )
+    _load_configs()
+    assert "CITEFINDER_CACHE_DIR" not in os.environ
+    assert "warning: ignoring cache_dir" in capsys.readouterr().err
+
+
 def test_verify_source_accepts_any_case_and_rejects_unknowns(
     tmp_path: Path, captured
 ) -> None:

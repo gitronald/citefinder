@@ -47,8 +47,25 @@ load_dotenv(find_dotenv(usecwd=True))
 
 
 def _anchor(path: str | Path, base: Path) -> Path:
-    """`path` made absolute against `base`; a leading `~` expands first."""
-    return base / Path(path).expanduser()
+    """`path` made absolute against `base`; a leading `~` expands first.
+
+    Raises `ValueError` for a `~user` form naming an unknown account, which
+    `Path.expanduser` reports as a bare `RuntimeError`.
+    """
+    try:
+        expanded = Path(path).expanduser()
+    except RuntimeError as exc:
+        raise ValueError(f"cannot expand {str(path)!r}: {exc}") from exc
+    return base / expanded
+
+
+def _anchor_or_exit(path: str | Path, base: Path) -> Path:
+    """`_anchor` for a flag or env value, where a bad `~user` is a usage error."""
+    try:
+        return _anchor(path, base)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
 
 
 # Env name -> which config file `_load_configs` took its value from
@@ -125,7 +142,11 @@ def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
         if key == "cache_dir":
             # Anchored to the file, not the working directory, so a relative
             # `cache_dir` names the same place whatever the command's cwd.
-            value = _anchor(str(value), path.parent)
+            try:
+                value = _anchor(str(value), path.parent)
+            except ValueError as exc:
+                typer.echo(f"warning: ignoring {key} in {path}: {exc}", err=True)
+                continue
         os.environ[env_name] = str(value)
         _config_sources[env_name] = kind
 
@@ -306,11 +327,11 @@ def _cache_dir(flag: Path | None) -> Path | None:
     anchored to the file's directory when it was loaded.
     """
     if flag is not None:
-        return _anchor(flag, Path.cwd())
+        return _anchor_or_exit(flag, Path.cwd())
     env = os.environ.get("CITEFINDER_CACHE_DIR")
     if not env:
         return None
-    return _anchor(env, Path.cwd())
+    return _anchor_or_exit(env, Path.cwd())
 
 
 def _cache_path(source: str, cache: Path | None, cache_dir: Path | None) -> Path:
@@ -543,7 +564,7 @@ def verify(
     # without collision. `--out` is anchored to cwd like `--cache-dir`, so a
     # quoted `~` expands and the cache below lands beside `results.json`.
     if out is not None:
-        out_dir = _anchor(out, Path.cwd())
+        out_dir = _anchor_or_exit(out, Path.cwd())
     else:
         out_dir = _verify_out_dir(bib_file, source, cache_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
