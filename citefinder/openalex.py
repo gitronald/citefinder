@@ -33,7 +33,6 @@ from citefinder._base import (
     DEFAULT_TIMEOUT,
     CachedJsonClient,
     _doi_path,
-    _strip_mailto,
 )
 from citefinder.cache import JsonlCache
 
@@ -56,7 +55,6 @@ __all__ = [
     "DEFAULT_MIN_INTERVAL",
     "OPENALEX_BASE",
     "OpenAlexClient",
-    "_strip_mailto",
     "is_arxiv_doi",
     "normalize_title_query",
     "reconstruct_abstract",

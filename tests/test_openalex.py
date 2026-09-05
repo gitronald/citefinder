@@ -5,10 +5,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from citefinder._base import _strip_mailto
 from citefinder.cache import JsonlCache
 from citefinder.openalex import (
     OpenAlexClient,
-    _strip_mailto,
     is_arxiv_doi,
     normalize_title_query,
     reconstruct_abstract,
