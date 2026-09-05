@@ -1,10 +1,10 @@
 ---
 id: 11
 slug: code-review-simplify-pass
-status: active
+status: done
 branch: feature/code-review-simplify-pass
 created: 2026-09-04T19:18:10-07:00
-concluded:
+concluded: 2026-09-05T00:07:08-07:00
 pr: https://github.com/gitronald/citefinder/pull/50
 ---
 
@@ -386,6 +386,45 @@ unit-testable tallies; drop or wire `install.check()`; single-token prefix
 matching in `container_similarity` (from the stale prior branch, which the
 user may delete).
 
+### 2026-09-05 — close review follow-up
+
+`/planners close` ran `/code-review high` over the PR diff (#50): 4 finders,
+12 raw candidates, 11 after dedup, 6 verifiers, 9 confirmed, 2 plausible, 0
+rejected. Six commits, each gated; the review is posted on the PR.
+
+**Raised and actioned (with tests):**
+
+- `cache.py` — the A03 replay fix decoded the whole file, so a write torn
+  inside a multi-byte character still raised `UnicodeDecodeError` and lost
+  every record; `_replay` now reads bytes and decodes per line inside the
+  existing `try` (`282eb36`).
+- `verify.py` — the B16 early return left `Result.method` as `""`; `method`
+  is set at construction from `bib_doi`, and the two later assignments are
+  gone (`6fabcaf`).
+- `signals.py` — B05's greedy one-to-one pairing let a prefix (`comp`) take
+  the token its exact twin (`computer`) needed; exact pairs go first, so the
+  score is order-independent. B04's particle rule dropped any lower-initial
+  word, misreading `eBay` in an organisation name; a particle is now a fully
+  lower-case word (`9a883c8`).
+- Tests — the unclosed-`{` branch of `_braces_balanced`, underscore
+  stripping in `normalize_title`, and the 1-based line number in the
+  dropped-block warning were unpinned; pinned. `testnormalize_title_query`
+  got its underscore back (`e4ee8ba`, `9a883c8`).
+- README — the `--mailto` bullet now names the `<SOURCE>_MAILTO` / config
+  fallback that `verify --help` advertises (`58da94e`).
+- `cli.py` — `_anchor_or_exit` and `_checked_knob` repeated the exit-2
+  wrapper; `_report_errors` took a `code` parameter and both use it
+  (`d03e3d4`).
+
+**Conscious no-op:** space-less scripts (CJK) still tokenise to one word, so
+`MIN_TITLE_TOKENS` gates identical titles to `unknown` on the DOI path and
+`UNMATCHED` on the search path. Not a regression (`dev` gave `fail` /
+`UNMATCHED`) and the B06 changelog line is accurate as written; CJK word
+segmentation joins the follow-up list.
+
+**Final gate:** 304 passed (from 301); ruff, format, pyrefly, and
+`install --check` green; CI matrix green on 3.11–3.14.
+
 ## Retrospective
 
 - Three passes of `/code-review high` produced 105 candidates, 60 verified,
@@ -403,3 +442,8 @@ user may delete).
   verify loop) failed verification on the "smaller and clearer" test the
   plan itself set, and one (collapse four command bodies) was blocked by
   the framework; recording why is as useful as the four that landed.
+- The close gate paid for itself: reviewing the fix diff found a hole in one
+  of the fixes (the cache replay decoded the whole file, so a variant of the
+  torn-line case it targeted still aborted) and a state a fix introduced (an
+  empty `method`). A fix's own diff deserves the same adversarial pass as
+  the code it repairs.
