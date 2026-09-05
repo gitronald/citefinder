@@ -99,7 +99,8 @@ class Work:
 MIN_TITLE_TOKENS = 3
 
 
-def _strip_braces(s: str) -> str:
+def strip_braces(s: str) -> str:
+    """`s` with BibTeX's protective braces removed and the ends trimmed."""
     return re.sub(r"[{}]", "", s).strip()
 
 
@@ -112,7 +113,7 @@ def normalize_title(s: str) -> str:
     """
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
-    s = _strip_braces(s).lower()
+    s = strip_braces(s).lower()
     s = re.sub(r"[^\w ]+|_", " ", s)
     return re.sub(r"\s+", " ", s).strip()
 
@@ -196,7 +197,7 @@ def check_title(bib_title: str | None, work_title: str | None) -> dict[str, Any]
 
 
 def check_year(bib_year_raw: str | None, work_year: int | None) -> dict[str, Any]:
-    bib_year_str = _strip_braces(bib_year_raw or "")
+    bib_year_str = strip_braces(bib_year_raw or "")
     try:
         by = int(bib_year_str)
     except (TypeError, ValueError):

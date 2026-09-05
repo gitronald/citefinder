@@ -19,7 +19,7 @@ from bibtexparser.middlewares.names import (
     split_multiple_persons_names,
 )
 
-from citefinder.signals import BibCitation
+from citefinder.signals import BibCitation, strip_braces
 
 log = logging.getLogger("citefinder")
 
@@ -50,10 +50,6 @@ def parse_entries(text: str) -> list[Entry]:
         fields = {f.key.lower(): f.value for f in e.fields}
         entries.append(Entry(etype=e.entry_type.lower(), key=e.key, fields=fields))
     return entries
-
-
-def strip_braces(s: str) -> str:
-    return re.sub(r"[{}]", "", s).strip()
 
 
 _DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)

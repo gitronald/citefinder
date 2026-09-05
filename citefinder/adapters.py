@@ -8,13 +8,12 @@ an analogous `<source>_to_work` function — the rest of the verifier
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from bibtexparser.middlewares.names import parse_single_name_into_parts
 
 from citefinder.bib import normalize_doi
-from citefinder.signals import Work
+from citefinder.signals import Work, strip_braces
 
 # --- Crossref ---------------------------------------------------------------
 
@@ -79,10 +78,6 @@ def crossref_to_work(message: dict[str, Any] | None) -> Work | None:
 # --- OpenAlex ---------------------------------------------------------------
 
 
-def _strip_braces(s: str) -> str:
-    return re.sub(r"[{}]", "", s).strip()
-
-
 def _openalex_surname(display_name: str) -> str:
     """Extract a surname from OpenAlex's `display_name` ("Arnout van de Rijt").
 
@@ -95,7 +90,7 @@ def _openalex_surname(display_name: str) -> str:
     if not name:
         return ""
     parts = parse_single_name_into_parts(name)
-    return _strip_braces(" ".join(parts.von + parts.last)).strip()
+    return strip_braces(" ".join(parts.von + parts.last)).strip()
 
 
 def openalex_doi(doi_url: str | None) -> str:
