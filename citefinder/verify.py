@@ -23,6 +23,7 @@ from citefinder.bib import (
     build_search_query,
     build_title_query,
     citation_from_entry,
+    normalize_doi,
     strip_braces,
 )
 from citefinder.client import CrossrefClient
@@ -120,7 +121,8 @@ class Source:
 def verify_entry(entry: Entry, source: Source) -> Result:
     title = strip_braces(entry.fields.get("title", ""))
     year = strip_braces(entry.fields.get("year", ""))
-    bib_doi = strip_braces(entry.fields["doi"]) if "doi" in entry.fields else None
+    # `or None` folds an empty `doi = {}` into "no DOI", like a missing field.
+    bib_doi = normalize_doi(entry.fields.get("doi", "")) or None
 
     base = Result(
         key=entry.key,

@@ -9,6 +9,7 @@ from citefinder.bib import (
     build_title_query,
     citation_from_entry,
     first_author_surname,
+    normalize_doi,
     parse_entries,
     strip_braces,
 )
@@ -84,6 +85,22 @@ def test_strip_braces() -> None:
     assert strip_braces("{Hello World}") == "Hello World"
     assert strip_braces("  {a {b} c}  ") == "a b c"
     assert strip_braces("") == ""
+
+
+@pytest.mark.parametrize(
+    ("raw", "bare"),
+    [
+        ("10.1234/abc", "10.1234/abc"),
+        ("{https://doi.org/10.1234/abc}", "10.1234/abc"),
+        ("http://dx.doi.org/10.1234/abc", "10.1234/abc"),
+        ("HTTPS://DOI.ORG/10.1234/ABC", "10.1234/ABC"),
+        ("doi:10.1234/abc", "10.1234/abc"),
+        ("DOI: 10.1234/abc ", "10.1234/abc"),
+        ("{}", ""),
+    ],
+)
+def test_normalize_doi(raw: str, bare: str) -> None:
+    assert normalize_doi(raw) == bare
 
 
 def test_first_author_surname_simple() -> None:

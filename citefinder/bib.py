@@ -56,6 +56,19 @@ def strip_braces(s: str) -> str:
     return re.sub(r"[{}]", "", s).strip()
 
 
+_DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)
+
+
+def normalize_doi(s: str) -> str:
+    """A bare DOI from the forms a `.bib` or a source may carry.
+
+    Braces and whitespace go, as does a `https://doi.org/` (or `dx.doi.org`)
+    URL prefix or a `doi:` label — exported bibs use all three, and a source
+    given the URL form 404s on a DOI it does index.
+    """
+    return _DOI_PREFIX_RE.sub("", strip_braces(s).strip()).strip()
+
+
 def first_author_surname(author_field: str) -> str:
     """Surname of the first author in a BibTeX `author = {...}` value.
 

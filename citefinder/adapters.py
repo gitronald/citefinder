@@ -13,6 +13,7 @@ from typing import Any
 
 from bibtexparser.middlewares.names import parse_single_name_into_parts
 
+from citefinder.bib import normalize_doi
 from citefinder.signals import Work
 
 # --- Crossref ---------------------------------------------------------------
@@ -99,9 +100,7 @@ def _openalex_surname(display_name: str) -> str:
 
 def openalex_doi(doi_url: str | None) -> str:
     """OpenAlex returns DOIs as `https://doi.org/10.xxx`. Strip to bare DOI."""
-    if not doi_url:
-        return ""
-    return re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi_url).strip()
+    return normalize_doi(doi_url) if doi_url else ""
 
 
 def openalex_to_work(message: dict[str, Any] | None) -> Work | None:

@@ -170,6 +170,37 @@ def test_doi_lookup_signals_disagree_is_mismatch() -> None:
     assert r.status == Status.MISMATCH
 
 
+def test_bib_doi_in_url_form_is_normalized_before_lookup() -> None:
+    # Exported bibs often carry `https://doi.org/...`; the sources 404 on it.
+    seen: list[str] = []
+
+    class Client:
+        def lookup_doi(self, doi: str) -> dict[str, Any]:
+            seen.append(doi)
+            return {"any": "shape"}
+
+    src = Source(name="crossref", client=Client())  # type: ignore[arg-type]
+    src.to_work = lambda raw: _matching_work()  # type: ignore[assignment]
+    text = """@article{x,
+      author = {Smith, Jane},
+      title = {A Study of Things},
+      year = {2020},
+      journal = {Journal of Things},
+      doi = {https://doi.org/10.1/test}
+    }"""
+    r = verify_entry(_make_entry(text), src)
+    assert seen == ["10.1/test"]
+    assert r.bib_doi == "10.1/test"
+    assert r.matched_doi == "10.1/test"
+
+
+def test_empty_doi_field_takes_the_search_path() -> None:
+    text = "@article{x, title = {A Study of Things}, doi = {}}"
+    r = verify_entry(_make_entry(text), _fake_source(search_items=[]))
+    assert r.bib_doi is None
+    assert r.method == "search"
+
+
 def test_doi_404_returns_doi_not_found() -> None:
     text = "@article{x, title = {T}, year = {2020}, doi = {10.1/missing}}"
     entry = _make_entry(text)
