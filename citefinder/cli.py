@@ -754,7 +754,8 @@ def install(
 
 # --- config ------------------------------------------------------------------
 
-# What a setting is when nothing sets it: the clients' own defaults.
+# What a setting is when nothing sets it: the clients' own defaults. Crossref
+# has no named min_interval constant; "0" mirrors `CachedJsonClient`'s `0.0`.
 _SETTING_DEFAULTS = {
     "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
     "OPENALEX_MIN_INTERVAL": str(DEFAULT_MIN_INTERVAL),

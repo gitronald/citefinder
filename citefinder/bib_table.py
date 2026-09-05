@@ -1,9 +1,9 @@
 """Tabulate a `.bib` file into a wide DataFrame for visual inspection.
 
-Designed for the editorial workflow: before running any cleanup, see the
-bib at a glance — which entries have abstracts, who has uppercase field
-keys, where the URLs sit, which titles need title-case work, etc. Reading
-a flat tabular view is faster than scrolling through `.bib` source.
+Designed for a first look before any cleanup: see the bib at a glance —
+which entries have abstracts, who has uppercase field keys, where the URLs
+sit, which titles need title-case work, etc. Reading a flat tabular view is
+faster than scrolling through `.bib` source.
 
 Note: citefinder lowercases all field keys on read, so this view normalizes
 `DOI` -> `doi`. To inspect the original case, look at the `.bib` source.

@@ -2,8 +2,8 @@
 
 Everything that knows the Crossref or OpenAlex JSON shape lives here.
 To wire a new metadata source (Semantic Scholar, DataCite, ...), write
-an analogous `<source>_to_work` function — the rest of the verifier
-(signal checks, status reduction, rendering) doesn't need to change.
+an analogous `<source>_to_work` function and teach `verify.Source` the
+new name — the signal checks and status reduction don't need to change.
 """
 
 from __future__ import annotations

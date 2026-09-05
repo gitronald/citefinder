@@ -56,7 +56,7 @@ class Result:
     title: str
     year: str
     bib_doi: str | None
-    method: str  # "doi" | "search" | "skipped"
+    method: str  # "doi" | "search"
     status: Status
     matched_doi: str | None = None
     matched_title: str | None = None

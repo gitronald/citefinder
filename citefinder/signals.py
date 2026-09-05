@@ -27,10 +27,10 @@ from typing import Any
 class Status(StrEnum):
     """Verdict for a single bib entry after metadata verification.
 
-    Each member carries a `header` for the report. StrEnum members are
-    also `str`, so existing string comparisons, JSON serialization, and
-    dict keys keep working unchanged. Iteration order is declaration
-    order, and `render_summary` uses it directly as section order.
+    Each member carries a `header`, a one-line description of the verdict
+    for reports; nothing in the package renders it yet. StrEnum members are
+    also `str`, so string comparisons, JSON serialization, and dict keys
+    keep working unchanged, and iteration order is declaration order.
 
     Note: the per-member attribute is named `header`, not `title`, to
     avoid shadowing `str.title()` (the built-in title-case method).
