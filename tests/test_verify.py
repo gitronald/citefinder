@@ -373,6 +373,23 @@ def test_search_finds_matching_hit() -> None:
     assert r.matched_doi == "10.1/found"
 
 
+def test_search_match_without_a_doi_reports_none() -> None:
+    # The DOI path uses None for "no DOI"; the search path used to leave "".
+    text = """@article{x,
+      author = {Smith, Jane},
+      title = {A Study of Things},
+      year = {2020},
+      journal = {Journal of Things}
+    }"""
+    src = _fake_source(
+        search_items=[{"title": ["A Study of Things"]}],
+        work_for_search=_matching_work(),
+    )
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.MATCHED
+    assert r.matched_doi is None
+
+
 def test_search_short_title_cannot_select_a_candidate() -> None:
     # cialdini2003influence: the one-word title "Influence" scores 1.0
     # against an unrelated 1985 paper titled "Influence". Title similarity

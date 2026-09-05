@@ -218,7 +218,8 @@ def verify_entry(entry: Entry, source: Source) -> Result:
     if hit is not None and not short_title:
         work = source.to_work(hit)
         assert work is not None  # hit is a real record
-        base.matched_doi = source.candidate_doi(hit)
+        # `or None`: a hit without a DOI is "no DOI", as on the DOI path.
+        base.matched_doi = source.candidate_doi(hit) or None
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = best_sim
