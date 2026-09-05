@@ -50,6 +50,19 @@ def test_lookup_doi_404_returns_none(
     assert client.lookup_doi("10.1/missing") is None
 
 
+def test_lookup_doi_encodes_url_structural_characters(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, {"display_name": "X"})
+    client.lookup_doi("10.1/a#b?c")
+    called_url = session.get.call_args[0][0]
+    assert called_url.startswith("https://api.openalex.org/works/doi:10.1/a%23b%3Fc?")
+    client.lookup_doi("10.1/a#b?c")
+    assert session.get.call_count == 1
+
+
 def test_lookup_doi_uses_cache_on_repeat(
     setup: tuple[OpenAlexClient, MagicMock],
     mock_response,

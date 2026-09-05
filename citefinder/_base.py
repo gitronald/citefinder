@@ -51,6 +51,18 @@ def _default_user_agent() -> str:
     return f"citefinder/{ver} (https://github.com/gitronald/citefinder)"
 
 
+def _doi_path(doi: str) -> str:
+    """`doi` made safe to interpolate into a URL path.
+
+    Only the three characters that change URL structure are encoded: a raw
+    `#` starts a fragment (nothing after it is ever sent), a raw `?` starts a
+    query, and a raw `%` would be read as an existing escape. Everything else
+    `requests` already transmits correctly, and leaving it alone keeps the
+    cache keys built from these URLs identical for every ordinary DOI.
+    """
+    return doi.replace("%", "%25").replace("#", "%23").replace("?", "%3F")
+
+
 def _strip_mailto(url: str) -> str:
     """Return `url` with any `mailto` query param removed."""
     parts = urlsplit(url)

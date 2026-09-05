@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from citefinder.cache import JsonlCache
 from citefinder.client import CrossrefClient
@@ -37,6 +38,24 @@ def test_lookup_doi_404_returns_none(
     client, session = setup
     session.get.return_value = mock_response(404)
     assert client.lookup_doi("10.1/missing") is None
+
+
+def test_lookup_doi_encodes_url_structural_characters(
+    setup: tuple[CrossrefClient, MagicMock],
+    mock_response,
+) -> None:
+    # A raw `#` or `?` in the path is a fragment or query to the HTTP layer,
+    # so the request used to go out truncated while the cache kept the full DOI.
+    client, session = setup
+    session.get.return_value = mock_response(200, {"message": {"DOI": "10.1/a#b"}})
+    client.lookup_doi("10.1/a#b?c%d")
+    called_url = session.get.call_args[0][0]
+    assert called_url == "https://api.crossref.org/works/10.1/a%23b%3Fc%25d"
+    prepared = requests.Request("GET", called_url).prepare()
+    assert prepared.path_url == "/works/10.1/a%23b%3Fc%25d"
+    # The encoded URL is also the cache key, so a repeat is a hit.
+    client.lookup_doi("10.1/a#b?c%d")
+    assert session.get.call_count == 1
 
 
 def test_lookup_doi_uses_cache_on_repeat(

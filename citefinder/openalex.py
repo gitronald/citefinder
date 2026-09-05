@@ -32,6 +32,7 @@ from citefinder._base import (
     DEFAULT_MAX_WAIT,
     DEFAULT_TIMEOUT,
     CachedJsonClient,
+    _doi_path,
     _strip_mailto,
 )
 from citefinder.cache import JsonlCache
@@ -147,7 +148,7 @@ class OpenAlexClient(CachedJsonClient):
 
     def lookup_doi(self, doi: str) -> dict[str, Any] | None:
         """Fetch OpenAlex metadata for a DOI. Returns None if not found."""
-        return self._get(f"{OPENALEX_BASE}/works/doi:{doi}")
+        return self._get(f"{OPENALEX_BASE}/works/doi:{_doi_path(doi)}")
 
     def search(self, query: str, rows: int = 3) -> list[dict[str, Any]]:
         """Search OpenAlex by free-text query (title + abstract)."""
