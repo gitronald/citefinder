@@ -205,6 +205,12 @@ def test_strip_mailto_preserves_other_params() -> None:
     assert _strip_mailto(url) == "https://api.openalex.org/works?search=foo&per-page=3"
 
 
+def test_strip_mailto_alone_leaves_no_dangling_query() -> None:
+    # The shape of every `lookup_doi` request: mailto is the only param.
+    url = "https://api.crossref.org/works/10.1/test?mailto=x@example.com"
+    assert _strip_mailto(url) == "https://api.crossref.org/works/10.1/test"
+
+
 def test_strip_mailto_no_query_passthrough() -> None:
     url = "https://api.openalex.org/works/doi:10.1/test"
     assert _strip_mailto(url) == url

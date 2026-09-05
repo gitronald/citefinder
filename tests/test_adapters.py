@@ -1,5 +1,7 @@
 """Tests for citefinder.adapters — Crossref/OpenAlex JSON to Work."""
 
+import pytest
+
 from citefinder.adapters import (
     crossref_to_work,
     openalex_doi,
@@ -45,6 +47,13 @@ def test_crossref_to_work_year_falls_back_through_keys() -> None:
     }
     work = crossref_to_work(record)
     assert work is not None and work.year == 2019
+
+
+@pytest.mark.parametrize("date_parts", [[[None]], [], [[]]])
+def test_crossref_to_work_tolerates_empty_date_parts(date_parts: list) -> None:
+    work = crossref_to_work({"title": ["X"], "issued": {"date-parts": date_parts}})
+    assert work is not None
+    assert work.year is None
 
 
 def test_crossref_to_work_returns_none_for_missing_record() -> None:

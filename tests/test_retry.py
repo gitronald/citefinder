@@ -90,6 +90,7 @@ def cache_lines(tmp_path: Path) -> list[str]:
         ("-5", 0.0),
         ("garbage", None),
         ("inf", None),
+        ("nan", None),
     ],
 )
 def test_retry_after_seconds_delta_form(
@@ -103,6 +104,14 @@ def test_retry_after_seconds_http_date_form() -> None:
         90.0
     )
     assert retry_after_seconds(http_date(WALL_NOW - 90), now=WALL_NOW) == 0.0
+
+
+def test_retry_after_seconds_zone_less_http_date_is_read_as_utc() -> None:
+    # RFC 5322's `-0000` means "zone unknown"; `parsedate_to_datetime` hands
+    # back a naive datetime for it, which the parser must treat as UTC.
+    when = formatdate(WALL_NOW + 90, usegmt=False)
+    assert when.endswith("-0000")
+    assert retry_after_seconds(when, now=WALL_NOW) == pytest.approx(90.0)
 
 
 # --- retry loop -------------------------------------------------------------

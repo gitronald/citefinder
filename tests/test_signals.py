@@ -198,6 +198,14 @@ def test_check_container_unrelated_fails() -> None:
     assert r["verdict"] == "fail"
 
 
+def test_check_container_without_candidates_is_unknown() -> None:
+    # Sparse records carry no venue at all; that is a gap, not a mismatch.
+    for candidates in ([], ["", ""]):
+        r = check_container("Journal of Things", candidates)
+        assert r["verdict"] == "unknown"
+        assert r["crossref"] is None
+
+
 def test_check_container_picks_best_alias() -> None:
     # Crossref returns multiple aliases; the check should pick the closest.
     r = check_container("Journal of Things", ["Random Other", "Journal of Things"])
