@@ -436,7 +436,10 @@ def bib_to_table_cmd(
         raise typer.Exit(code=1) from exc
 
     if fields:
-        wanted = ["key", "entry_type", *(f.strip() for f in fields.split(","))]
+        # `dict.fromkeys` keeps order and drops repeats, so naming `key` or
+        # `entry_type` again does not become a duplicate projection.
+        requested = (f.strip() for f in fields.split(","))
+        wanted = dict.fromkeys(["key", "entry_type", *requested])
         present = [c for c in wanted if c in df.columns]
         df = df.select(present)
 
