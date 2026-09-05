@@ -231,6 +231,7 @@ def test_malformed_author_field_yields_error_not_exception() -> None:
     src = _fake_source(doi_record={"any": "shape"}, work_for_doi=_matching_work())
     r = verify_entry(entry, src)
     assert r.status == Status.ERROR
+    assert r.method == "doi"  # the path it would have taken, never ""
     assert r.note.startswith("could not parse bib fields:")
     assert "Trailing comma" in r.note
 

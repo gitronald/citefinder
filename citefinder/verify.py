@@ -130,7 +130,7 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         title=title,
         year=year,
         bib_doi=bib_doi,
-        method="",
+        method="doi" if bib_doi else "search",
         status=Status.ERROR,
     )
 
@@ -147,7 +147,6 @@ def verify_entry(entry: Entry, source: Source) -> Result:
     # first-author / container) against the source record. DOI existence
     # isn't enough — a typoed or wrong DOI can resolve to a different work.
     if bib_doi:
-        base.method = "doi"
         try:
             raw = source.lookup_doi(bib_doi)
         except Exception as e:
@@ -171,7 +170,6 @@ def verify_entry(entry: Entry, source: Source) -> Result:
 
     # No DOI — bibliographic search. Skip-source types still get tried but
     # are reported under their own bucket.
-    base.method = "search"
     if not entry.fields.get("title") and not entry.fields.get("author"):
         base.status = Status.ERROR
         base.note = "no author/title/year to query"
