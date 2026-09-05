@@ -256,21 +256,26 @@ def _checked_knob(name: str, value: float) -> float:
 
 
 def _source_client_kwargs(
-    source: str, max_retries: int | None, min_interval: float | None
+    source: str,
+    max_retries: int | None,
+    min_interval: float | None,
+    mailto: str | None,
 ) -> dict[str, Any]:
     """Like `_client_kwargs`, falling back to the chosen source's env vars.
 
     `verify` picks its source at runtime, so its flags can't bind a single
     `envvar`; an unset flag reads `<SOURCE>_MAX_RETRIES` /
-    `<SOURCE>_MIN_INTERVAL` (which config.toml also feeds) so
-    `verify --source crossref` honors the `[crossref]` section.
+    `<SOURCE>_MIN_INTERVAL` / `<SOURCE>_MAILTO` (which config.toml also
+    feeds) so `verify --source crossref` honors the `[crossref]` section.
     """
     prefix = source.upper()
     if max_retries is None:
         max_retries = _env_number(f"{prefix}_MAX_RETRIES", int)
     if min_interval is None:
         min_interval = _env_number(f"{prefix}_MIN_INTERVAL", float)
-    return _client_kwargs(max_retries, min_interval)
+    kwargs = _client_kwargs(max_retries, min_interval)
+    kwargs["mailto"] = mailto or os.environ.get(f"{prefix}_MAILTO") or None
+    return kwargs
 
 
 def _env_number(name: str, cast: type[int] | type[float]) -> Any:
@@ -489,7 +494,12 @@ def verify(
         help="Metadata source to verify against.",
         case_sensitive=False,
     ),
-    mailto: str | None = OpenAlexMailtoOption,
+    mailto: str | None = typer.Option(
+        None,
+        "--mailto",
+        help="Email for the source's polite pool "
+        "(also <SOURCE>_MAILTO env or config.toml).",
+    ),
     out: Path | None = typer.Option(
         None,
         "--out",
@@ -536,15 +546,14 @@ def verify(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cache_path = resolve_cache_path(source, out_dir)
-    knobs = _source_client_kwargs(source, max_retries, min_interval)
+    knobs = _source_client_kwargs(source, max_retries, min_interval, mailto)
     if source == "crossref":
         src = Source(
             name="crossref", client=CrossrefClient(cache_path=cache_path, **knobs)
         )
     else:
         src = Source(
-            name="openalex",
-            client=OpenAlexClient(cache_path=cache_path, mailto=mailto, **knobs),
+            name="openalex", client=OpenAlexClient(cache_path=cache_path, **knobs)
         )
 
     entries = parse_entries(bib_file.read_text())

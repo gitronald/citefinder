@@ -377,6 +377,27 @@ def test_verify_out_expands_home_and_keeps_the_cache_beside_results(
 # --- user config file ---------------------------------------------------------
 
 
+def test_verify_mailto_follows_the_chosen_source(
+    tmp_path: Path, monkeypatch, captured
+) -> None:
+    # `verify` used to hand `--mailto` only to OpenAlex; Crossref runs sent
+    # no polite-pool email at all, whatever the flag, env, or config said.
+    bib = write_bib(tmp_path / "paper")
+    out = str(tmp_path / "out")
+    monkeypatch.setenv("OPENALEX_MAILTO", "oa@example.com")
+    monkeypatch.setenv("CROSSREF_MAILTO", "cr@example.com")
+
+    runner.invoke(app, ["verify", str(bib), "--source", "crossref", "--out", out])
+    assert captured["mailto"] == "cr@example.com"
+
+    runner.invoke(app, ["verify", str(bib), "--source", "openalex", "--out", out])
+    assert captured["mailto"] == "oa@example.com"
+
+    args = ["verify", str(bib), "--source", "crossref", "--out", out]
+    runner.invoke(app, [*args, "--mailto", "flag@example.com"])
+    assert captured["mailto"] == "flag@example.com"
+
+
 def test_load_configs_populates_env(tmp_path: Path) -> None:
     write_user_config(tmp_path, '[openalex]\nmailto = "you@example.com"\n')
 
