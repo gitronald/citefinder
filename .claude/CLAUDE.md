@@ -65,11 +65,11 @@ shell env, then project `.env` (`CITEFINDER_CACHE_DIR`, `OPENALEX_API_KEY`,
 `OPENALEX_MAILTO`, `CROSSREF_MAILTO`, `<SOURCE>_MAX_RETRIES`,
 `<SOURCE>_MIN_INTERVAL`) → project config → user config → default
 (`~/.cache/citefinder/<source>.jsonl` for lookups,
-`data/citefinder/<bib-stem>/<source>/` under cwd for `verify`). Config files
-populate the env names at CLI import (`_load_configs` in `cli.py`), so the
-commands read one source; `citefinder config` prints the resolved values with
-their sources. Library users pass values to the client constructors
-explicitly — config files are CLI-only.
+`data/citefinder/<bib-dir>[-<bib-stem>]/<source>/` under cwd for `verify`).
+Config files populate the env names at CLI import (`_load_configs` in
+`cli.py`), so the commands read one source; `citefinder config` prints the
+resolved values with their sources. Library users pass values to the client
+constructors explicitly — config files are CLI-only.
 
 ## Development
 

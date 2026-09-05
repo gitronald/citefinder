@@ -67,8 +67,9 @@ Precedence, highest first:
 
 **`cache_dir`** is the one directory every cache path derives from. `doi`,
 `search`, and the `crossref` subcommands write `<cache_dir>/<source>.jsonl`;
-`verify` writes its output under `<cache_dir>/<bib-stem>/<source>/`. When
-nothing sets it, lookups use `~/.cache/citefinder/` and `verify` uses
+`verify` writes its output under `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/`
+(`<bib-dir>` is the directory holding the `.bib`; see [CLI usage](#cli-usage)).
+When nothing sets it, lookups use `~/.cache/citefinder/` and `verify` uses
 `data/citefinder/` under the working directory. A relative `cache_dir` in a
 config file resolves against that file's directory, so `data/citefinder` in a
 repo's `citefinder.toml` means the repo's `data/citefinder` from any working
@@ -302,7 +303,7 @@ citefinder install --local                                  # ...or the current 
 citefinder install --check                                  # ok | drifted | missing
 ```
 
-`verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `<cache_dir>/<bib-stem>/<source>/` — `data/citefinder/` under the working directory when no `cache_dir` is set (see [Configuration](#configuration)): a `<source>.jsonl` cache and a structured `results.json`. Re-running is cheap — every cache hit is served from disk.
+`verify` walks each entry: if a `doi` field is present it resolves the DOI; otherwise it searches by author + title + year. Each result is checked against four signals (title, year, first-author surname, container) and bucketed by status. Output goes to `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/` — `data/citefinder/` under the working directory when no `cache_dir` is set (see [Configuration](#configuration)): a `<source>.jsonl` cache and a structured `results.json`. `<bib-dir>` is the name of the directory holding the `.bib`, and the `-<bib-stem>` suffix is added for any file not named `refs.bib`, so `paper/refs.bib` lands in `paper/` and `paper/extra.bib` in `paper-extra/` — same-named bibliographies in different directories never share an output directory. Re-running is cheap — every cache hit is served from disk.
 
 Read `results.json` by `method` × `status`:
 
@@ -323,7 +324,7 @@ Read `results.json` by `method` × `status`:
   subcommands, with `cache_dir` falling back to `~/.cache/citefinder/`.
   Separate files so sources don't mix. Overrides `--cache-dir`.
 - `--cache-dir DIR` — Directory the cache path derives from; for `verify`,
-  the directory its `<bib-stem>/<source>/` output goes under. Also
+  the directory its `<bib-dir>[-<bib-stem>]/<source>/` output goes under. Also
   `CITEFINDER_CACHE_DIR` in the env or `cache_dir` in a project or user
   config. For per-project caches, set it once in the project config rather
   than passing a flag on every command — see
