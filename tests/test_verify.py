@@ -546,6 +546,22 @@ def test_online_with_disagreeing_match_routes_to_skip_source() -> None:
     assert r.matched_doi is None
 
 
+def test_online_unconfirmed_match_says_signals_do_not_confirm() -> None:
+    # Nothing disagreed here; too few fields could be checked. The note must
+    # not claim a disagreement it then quotes as "rest unknown".
+    text = "@online{x, title = {A Study of Things}}"
+    src = _fake_source(
+        search_items=[{"DOI": "10.1/x", "title": ["A Study of Things"]}],
+        work_for_search=Work(title="A Study of Things"),
+    )
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.SKIP_SOURCE
+    assert r.note == (
+        "@online: signals do not confirm (only 1 signal(s) confirm; rest unknown); "
+        "verify via URL"
+    )
+
+
 def test_online_short_title_hit_is_skip_source_with_url_note() -> None:
     # A short title blocks candidate selection for @online / @misc too, and
     # the note keeps the skip-source framing: the canonical source is the URL.

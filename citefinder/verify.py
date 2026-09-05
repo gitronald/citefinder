@@ -231,10 +231,10 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         # report doesn't suggest a misleading DOI.
         if entry.etype in SKIP_SOURCE_TYPES and base.status != Status.MATCHED:
             signal_note = base.note
+            failed = any(s["verdict"] == "fail" for s in base.signals.values())
+            why = "signals disagree" if failed else "signals do not confirm"
             base.status = Status.SKIP_SOURCE
-            base.note = (
-                f"@{entry.etype}: signals disagree ({signal_note}); verify via URL"
-            )
+            base.note = f"@{entry.etype}: {why} ({signal_note}); verify via URL"
             base.matched_doi = None
             base.matched_title = None
         return base
