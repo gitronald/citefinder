@@ -5,7 +5,7 @@ status: active
 branch: feature/code-review-simplify-pass
 created: 2026-09-04T19:18:10-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/50
 ---
 
 # Review and simplify the whole package at max effort
