@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
+from functools import cache
 from typing import Any, Literal, TypedDict, get_args, get_type_hints, is_typeddict
 
 __all__ = [
@@ -494,6 +495,17 @@ def _nested_model(hint: Any) -> type | None:
     return None
 
 
+@cache
+def _hints(model: type) -> dict[str, Any]:
+    """Resolved annotations of a TypedDict, computed once per class.
+
+    `get_type_hints` evaluates the string annotations every call; the walker
+    visits every nested dict of every record, so without this a drift run
+    over a large cache would resolve the same few classes thousands of times.
+    """
+    return get_type_hints(model)
+
+
 def undeclared_keys(record: Any, model: type, prefix: str = "") -> list[str]:
     """Dotted paths in `record` that `model` does not declare.
 
@@ -508,7 +520,7 @@ def undeclared_keys(record: Any, model: type, prefix: str = "") -> list[str]:
     """
     if not isinstance(record, dict):
         return []
-    hints = get_type_hints(model)
+    hints = _hints(model)
     out: set[str] = set()
     for key, value in record.items():
         path = f"{prefix}{key}"

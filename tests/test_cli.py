@@ -111,6 +111,26 @@ def test_drift_reports_undeclared_paths_per_kind(tmp_path: Path) -> None:
     ]
 
 
+def test_drift_skips_a_line_torn_inside_a_multibyte_character(tmp_path: Path) -> None:
+    # The cache loader survives this; the report must too, rather than dying
+    # on a UnicodeDecodeError before it reads a single row.
+    cache = tmp_path / "openalex.jsonl"
+    good = {
+        "key": "https://api.openalex.org/works/doi:10.1/a",
+        "value": {"x": 1},
+        "ts": 0,
+    }
+    torn = '{"key": "https://api.openalex.org/works/doi:10.1/\u00e9'.encode("utf-8")[
+        :-1
+    ]
+    cache.write_bytes(json.dumps(good).encode("utf-8") + b"\n" + torn)
+    result = runner.invoke(app, ["drift", str(cache)])
+    assert result.exit_code == 0, result.output
+    assert (
+        result.output.splitlines()[0] == "openalex-work (1 records): 1 undeclared paths"
+    )
+
+
 def test_drift_with_no_work_records_says_so(tmp_path: Path) -> None:
     cache = tmp_path / "empty.jsonl"
     cache.write_text("", encoding="utf-8")
