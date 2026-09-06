@@ -1,11 +1,11 @@
 ---
 id: 15
 slug: template-upgrade
-status: active
+status: done
 branch: feature/template-upgrade
 created: 2026-09-06T14:01:05-07:00
-concluded:
-pr:
+concluded: 2026-09-06T14:05:05-07:00
+pr: https://github.com/gitronald/citefinder/pull/56
 ---
 
 # Sync tooling with proj-template 0.8
