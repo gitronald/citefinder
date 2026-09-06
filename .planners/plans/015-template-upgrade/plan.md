@@ -39,3 +39,28 @@ Most rows are already in sync from earlier upgrades. Per-row decisions:
 Verification gate before the PR: `uv sync --all-groups`, ruff check + format
 check, pyrefly, `pre-commit run --all-files`, and `uv run pytest` (which now
 runs with coverage and the floor).
+
+## Log
+
+- Classified as a package; applied the package column of the sync matrix.
+- `pyproject.toml`: added `addopts = "--cov --cov-report=term-missing"` and
+  the `[tool.coverage.*]` sections with `source = ["citefinder"]`, branch
+  coverage, and `fail_under = 97` (the current total was 97.02%, so the floor
+  holds the line; raise it as coverage grows). Merged the `pyrefly>=1.0.0` and
+  `ruff>=0.15` floors; the lock only gained the two specifiers.
+- CI `test.yml`: the pytest step is now bare `uv run pytest`; `addopts` carries
+  the coverage flags. SHA-pinned actions and the newer `setup-uv` kept as is.
+- `publish.yml`: both jobs gated on `vars.PUBLISH_ENABLED == 'true'`. The
+  repository variable is set to `true` alongside the PR so releases keep
+  publishing.
+- `.claude/settings.json` added and tracked (template copy). The
+  machine-local settings file duplicated the Stop hook, so its hooks block was
+  removed on disk to avoid running the gate twice; that file is ignored and
+  not part of the branch.
+- `.claude/CLAUDE.md`: refreshed the Tests and Type checking bullets only.
+- Skipped: the template's `.gitignore` blanket `.claude/` entry (repo tracks
+  its Claude payload deliberately), template `project-includes = ["."]`
+  (repo's explicit list is narrower), and the older template ruff/`setup-uv`
+  pins. Dependabot repo toggles were already alerts on, security updates off.
+- Gate: ruff check, ruff format check, pyrefly, `pre-commit run --all-files`,
+  and pytest (321 passed, 97.02% coverage) all green before the PR.
