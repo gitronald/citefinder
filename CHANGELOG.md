@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-09-06
+
+### Changed
+
+- Tooling synced with the project template: `pytest` now runs with coverage by
+  default (`--cov` via `addopts`, branch coverage on the `citefinder` package)
+  and fails below a `fail_under` floor pinned at the current total, the CI
+  test step drops its inline coverage flags, the publish workflow is gated on
+  the `PUBLISH_ENABLED` repository variable, and the shared Claude Code
+  settings (Stop hook + permission profile) are now tracked in
+  `.claude/settings.json`.
+
 ## [0.9.3] - 2026-09-05
 
 ### Added
