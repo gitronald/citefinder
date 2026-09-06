@@ -1,8 +1,8 @@
 ---
 id: 14
 slug: source-record-models
-status: draft
-branch:
+status: active
+branch: feature/source-record-models
 created: 2026-09-05T17:54:22-07:00
 concluded:
 pr:
