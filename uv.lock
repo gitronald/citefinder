@@ -132,7 +132,7 @@ wheels = [
 
 [[package]]
 name = "citefinder"
-version = "0.9.4a0"
+version = "0.9.4"
 source = { editable = "." }
 dependencies = [
     { name = "bibtexparser" },

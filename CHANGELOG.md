@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-09-06
+
 ### Changed
 
 - Tooling synced with the project template: `pytest` now runs with coverage by
