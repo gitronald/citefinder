@@ -60,6 +60,14 @@ key prefix distinguishes the record kind (works are keyed by DOI today, so use
 the resolved `https://openalex.org/A…` URL as the key). A 404 is cached like a
 missing DOI so a merged or deleted profile is not re-fetched every run.
 
+**Record shape.** Plan [[source-record-models]] (014) added `citefinder/models.py`
+with `TypedDict`s for the raw records; the embedded authorship stub is
+`OpenAlexAuthor`. Declare the full `/authors/{id}` record there as
+`OpenAlexAuthorProfile` (the keys the client reads, with coverage comments from
+a survey of fetched profiles), teach `models.cache_drift` to route
+`/authors/` keys to it so `citefinder drift` covers profiles too, and type
+`lookup_author` with it. Do not open a second models module.
+
 **Projection.** A small `AuthorProfile` dataclass in `adapters.py` for the
 fields callers actually use: `id`, `display_name`, `display_name_alternatives`,
 `orcid`, `works_count`, `last_known_institutions` (names only). The raw record

@@ -30,6 +30,7 @@ from citefinder import install as install_mod
 from citefinder._base import DEFAULT_MAX_RETRIES, validate_knob
 from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
+from citefinder.cache import read_records
 from citefinder.client import CrossrefClient
 from citefinder.config import (
     ENV_KEYS,
@@ -38,6 +39,7 @@ from citefinder.config import (
     resolve_cache_path,
     user_config_path,
 )
+from citefinder.models import cache_drift
 from citefinder.openalex import DEFAULT_MIN_INTERVAL, OpenAlexClient
 from citefinder.verify import Result, Source, verify_entry
 
@@ -762,6 +764,31 @@ _SETTING_DEFAULTS = {
     "CROSSREF_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
     "CROSSREF_MIN_INTERVAL": "0",
 }
+
+
+@app.command()
+def drift(cache: Path) -> None:
+    """Report keys the records in a JSONL cache carry that the models lack.
+
+    Read-only. Rows are routed by the request host in their key (never by the
+    file name) and grouped by kind: `crossref-work`, `crossref-search`,
+    `openalex-work`, `openalex-search`. Each undeclared dotted path is printed
+    with the share of records that carried it, most common first. A path that
+    shows up on most records is a candidate for the model; a rare one is the
+    tail the model leaves out on purpose. Unreadable lines are skipped the way
+    the cache loader skips them.
+    """
+    if not cache.is_file():
+        typer.echo(f"Error: {cache}: not a file", err=True)
+        raise typer.Exit(code=1)
+    drift_by_kind = cache_drift(read_records(cache))
+    if not drift_by_kind:
+        typer.echo("no crossref or openalex work records found")
+        return
+    for kind, (count, paths) in sorted(drift_by_kind.items()):
+        typer.echo(f"{kind} ({count} records): {len(paths)} undeclared paths")
+        for path, n in paths.most_common():
+            typer.echo(f"  {n / count:4.0%}  {path}")
 
 
 @app.command("config")

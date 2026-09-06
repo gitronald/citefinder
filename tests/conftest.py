@@ -55,7 +55,7 @@ def captured(monkeypatch) -> dict[str, Any]:
 
         def lookup_doi(  # pyrefly: ignore[missing-override-decorator]
             self, doi: str
-        ) -> dict[str, str] | None:
+        ) -> Any:
             # A DOI ending in `/missing` plays the 404 so not-found paths run.
             return None if doi.endswith("/missing") else {"id": doi}
 

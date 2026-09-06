@@ -23,7 +23,6 @@ import re
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 from urllib.parse import quote, urlencode
 
 from citefinder._base import (
@@ -35,6 +34,7 @@ from citefinder._base import (
     _doi_path,
 )
 from citefinder.cache import JsonlCache
+from citefinder.models import OpenAlexWork
 
 OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
@@ -71,7 +71,7 @@ def is_arxiv_doi(doi: str) -> bool:
     return doi.lower().startswith("10.48550/arxiv.")
 
 
-def reconstruct_abstract(work: dict[str, Any]) -> str | None:
+def reconstruct_abstract(work: OpenAlexWork) -> str | None:
     """Reassemble OpenAlex's `abstract_inverted_index` into plain text.
 
     OpenAlex stores abstracts as `{word: [positions, ...]}` rather than a
@@ -145,11 +145,11 @@ class OpenAlexClient(CachedJsonClient):
             # logs, or HTTP referer trails.
             self.session.headers["Authorization"] = f"Bearer {self.api_key}"
 
-    def lookup_doi(self, doi: str) -> dict[str, Any] | None:
+    def lookup_doi(self, doi: str) -> OpenAlexWork | None:
         """Fetch OpenAlex metadata for a DOI. Returns None if not found."""
         return self._get(f"{OPENALEX_BASE}/works/doi:{_doi_path(doi)}")
 
-    def search(self, query: str, rows: int = 3) -> list[dict[str, Any]]:
+    def search(self, query: str, rows: int = 3) -> list[OpenAlexWork]:
         """Search OpenAlex by free-text query (title + abstract)."""
         params = {"search": query, "per-page": str(rows)}
         payload = self._get(f"{OPENALEX_BASE}/works?{urlencode(params)}")
@@ -157,7 +157,7 @@ class OpenAlexClient(CachedJsonClient):
             return []
         return payload.get("results", [])
 
-    def search_title(self, title: str, rows: int = 3) -> list[dict[str, Any]]:
+    def search_title(self, title: str, rows: int = 3) -> list[OpenAlexWork]:
         """Search OpenAlex by title only (`filter=title.search:`).
 
         Title-restricted matching is the right shape for citation

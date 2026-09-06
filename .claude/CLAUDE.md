@@ -14,12 +14,13 @@ citefinder/
 ├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
 ├── bib.py              # Entry, parse_entries, bib-side query helpers
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
+├── models.py           # TypedDicts for raw Crossref/OpenAlex records + undeclared_keys/cache_drift drift check
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
 ├── install.py          # stub render/stamp/drift-check for the Claude Code skill
 ├── prompts/skill.md    # canonical `use-citefinder` skill body (package data)
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, config, skill, install, crossref subcommand
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, skill, install, crossref subcommand
 ```
 
 The `use-citefinder` skill follows the
@@ -35,7 +36,14 @@ The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan
 [`001-absorb-bib-verification-scripts.md`](.planners/plans/001-absorb-bib-verification-scripts/plan.md)
 — `signals.py` is shape-independent, `adapters.py` is the per-source JSON
-boundary, `verify.py` orchestrates lookups against a `Source`.
+boundary, `verify.py` orchestrates lookups against a `Source`. The raw record
+shapes those adapters read are declared in `models.py` as deliberately
+incomplete `TypedDict`s (plan
+[`014-source-record-models`](.planners/plans/014-source-record-models/plan.md)):
+every key is optional, coverage comments say how often a surveyed record
+carried it, and `citefinder drift <cache.jsonl>` (`cache_drift` in the
+library) reports what real records carry that the model does not. Add a key
+when a consumer starts reading it, or when drift shows it on most records.
 
 ## Configuration
 
