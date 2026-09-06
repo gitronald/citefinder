@@ -54,10 +54,10 @@ only-include = [
 dev = [
     "hatchling>=1.32.0",
     "pre-commit",
-    "pyrefly",
+    "pyrefly>=1.0.0",
     "pytest>=9.1.1",
     "pytest-cov",
-    "ruff",
+    "ruff>=0.15",
     "types-requests>=2.33.0.20260518",
 ]
 
@@ -89,3 +89,18 @@ implicit-any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["citefinder"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
+fail_under = 97
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
