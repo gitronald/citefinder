@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-05
+
 ### Added
 
 - `citefinder.models` declares the raw Crossref and OpenAlex record shapes as
