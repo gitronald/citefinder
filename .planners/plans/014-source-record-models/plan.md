@@ -5,7 +5,7 @@ status: active
 branch: feature/source-record-models
 created: 2026-09-05T17:54:22-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/54
 ---
 
 # Model the Crossref and OpenAlex record shapes
@@ -138,3 +138,26 @@ The skill prompt's field tables point at the module as the reference.
    `verify.py`; run pyrefly and fix what it now sees.
 4. Docs: CLAUDE.md package map, README field-map pointer, skill prompt
    pointer, changelog entry.
+
+## Log
+
+- Survey: a scratch script walked every JSONL cache written by real verify
+  runs and tallied dotted paths with coverage and value types, up to three
+  levels deep; the Evidence section is its summary. The same script, turned
+  into `undeclared_keys`, was then folded over every record against the first
+  draft of the model. It found 28 undeclared paths on Crossref works and 2 on
+  OpenAlex works; the ones above about 5% (`indexed.version`,
+  `countries_distinct_count`, `institutions_distinct_count`, `relevance_score`
+  on search hits, `reference[].edition`, `funder[].award-info`) went into the
+  model and the tail was left out on purpose.
+- Decision: no `Required[...]` keys after all. Marking even the 100%-coverage
+  keys required would force every test fixture and every hand-built record to
+  carry them, which the adapters' defensive `.get` style never assumed. The
+  coverage comment carries the information instead; the docstring says so.
+- Decision: `verify.Source` keeps one `SourceRecord = CrossrefWork |
+  OpenAlexWork` alias and narrows with `cast` inside the `self.name` branches,
+  because a `TypedDict` cannot be narrowed by `isinstance`.
+- Wiring surfaced no runtime change. pyrefly flagged only test fixtures, which
+  now carry `CrossrefWork` / `OpenAlexWork` annotations; the CLI conftest
+  stub's `lookup_doi` returns `Any` since it stands in for both clients.
+- PR: https://github.com/gitronald/citefinder/pull/54
