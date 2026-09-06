@@ -83,3 +83,42 @@ def test_verify_rejects_a_missing_bib_file(
     )
     assert result.exit_code == 1
     assert "is not a file" in result.output
+
+
+def test_drift_reports_undeclared_paths_per_kind(tmp_path: Path) -> None:
+    cache = tmp_path / "openalex.jsonl"
+    rows = [
+        {
+            "key": "https://api.openalex.org/works/doi:10.1/a",
+            "value": {"id": "W1", "brand_new": 1},
+            "ts": 0,
+        },
+        {
+            "key": "https://api.openalex.org/works/doi:10.1/b",
+            "value": {"id": "W2"},
+            "ts": 0,
+        },
+        {"key": "https://api.openalex.org/works/doi:10.1/c", "value": None, "ts": 0},
+    ]
+    cache.write_text(
+        "".join(json.dumps(r) + "\n" for r in rows) + '{"key": "torn', encoding="utf-8"
+    )
+    result = runner.invoke(app, ["drift", str(cache)])
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "openalex-work (2 records): 1 undeclared paths",
+        "   50%  brand_new",
+    ]
+
+
+def test_drift_with_no_work_records_says_so(tmp_path: Path) -> None:
+    cache = tmp_path / "empty.jsonl"
+    cache.write_text("", encoding="utf-8")
+    result = runner.invoke(app, ["drift", str(cache)])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "no crossref or openalex work records found"
+
+
+def test_drift_rejects_a_missing_file(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["drift", str(tmp_path / "nope.jsonl")])
+    assert result.exit_code == 1

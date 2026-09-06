@@ -26,6 +26,8 @@ so drift can be measured against any cache file rather than guessed at.
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable
 from typing import Any, Literal, TypedDict, get_args, get_type_hints, is_typeddict
 
 __all__ = [
@@ -54,6 +56,7 @@ __all__ = [
     "OpenAlexTopic",
     "OpenAlexWork",
     "OpenAlexWorkType",
+    "cache_drift",
     "undeclared_keys",
 ]
 
@@ -521,3 +524,49 @@ def undeclared_keys(record: Any, model: type, prefix: str = "") -> list[str]:
             for item in value:
                 out.update(undeclared_keys(item, nested, f"{path}[]."))
     return sorted(out)
+
+
+def _model_for(row: CacheRow) -> tuple[str, type, Any] | None:
+    """Which model a cache row's value should be measured against.
+
+    Routes by the request host in the key, never by the file the row came
+    from, and by `/works/` (one record) versus `/works?` (a search page).
+    Returns `(kind, model, record)` with the Crossref envelope already
+    unwrapped, or None for a cached 404 or a key the model does not cover.
+    """
+    key, value = row.get("key", ""), row.get("value")
+    if not isinstance(value, dict):
+        return None
+    page = "/works?" in key
+    if "api.crossref.org" in key and "/works" in key:
+        record = value.get("message")
+        if page:
+            return "crossref-search", CrossrefSearchMessage, record
+        return "crossref-work", CrossrefWork, record
+    if "api.openalex.org" in key and "/works" in key:
+        if page:
+            return "openalex-search", OpenAlexSearchPage, value
+        return "openalex-work", OpenAlexWork, value
+    return None
+
+
+def cache_drift(rows: Iterable[CacheRow]) -> dict[str, tuple[int, Counter[str]]]:
+    """Fold `undeclared_keys` over cache rows, grouped by record kind.
+
+    Returns `{kind: (records_checked, Counter(path -> records carrying it))}`
+    for the kinds seen (`crossref-work`, `crossref-search`, `openalex-work`,
+    `openalex-search`). Cached 404s and keys outside the modelled endpoints
+    are skipped. This is the survey that produced the model, made repeatable:
+    run it over a fresh cache to see what the sources now send that the model
+    does not yet declare.
+    """
+    seen: dict[str, tuple[int, Counter[str]]] = {}
+    for row in rows:
+        routed = _model_for(row)
+        if routed is None:
+            continue
+        kind, model, record = routed
+        count, paths = seen.get(kind, (0, Counter()))
+        paths.update(undeclared_keys(record, model))
+        seen[kind] = (count + 1, paths)
+    return seen

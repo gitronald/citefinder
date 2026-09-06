@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   carries a coverage comment, and `undeclared_keys(record, model)` reports the
   paths a real record has that the model does not, so drift can be measured
   against any cache file.
+- `citefinder drift <cache.jsonl>` runs that check over a whole cache, routing
+  each row by the host in its key, and prints the undeclared paths per record
+  kind with the share of records that carried them.
 
 ### Changed
 

@@ -243,7 +243,7 @@ Which cached field answers which question:
 - *What the byline printed* → Crossref `author[i].given` + `author[i].family`, or OpenAlex `authorships[i].raw_author_name`. Both reproduce the publisher's deposit, diacritics included or dropped as deposited.
 - *How the author's name is canonically spelled* → OpenAlex `authorships[i].author.display_name`, the author's profile name. This is the field that carries a diacritic the deposit dropped: for a 1991 law-review article the bib and both bylines read `Kimberle`, and only the embedded `display_name` reads `Kimberlé W. Crenshaw`.
 
-The record shapes are declared in `citefinder.models` (`CrossrefWork`, `OpenAlexWork`, `CrossrefAuthor`, `OpenAlexAuthorship`, ...) — read that module before guessing a key, and run `undeclared_keys(record, OpenAlexWork)` on a cached record to see what it carries that the model does not.
+The record shapes are declared in `citefinder.models` (`CrossrefWork`, `OpenAlexWork`, `CrossrefAuthor`, `OpenAlexAuthorship`, ...) — read that module before guessing a key, and run `citefinder drift <cache.jsonl>` to see what the cached records carry that the model does not.
 
 Two traps when reading the cache by hand:
 

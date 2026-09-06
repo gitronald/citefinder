@@ -12,6 +12,7 @@ from citefinder.models import (
     CrossrefWork,
     OpenAlexSearchPage,
     OpenAlexWork,
+    cache_drift,
     undeclared_keys,
 )
 
@@ -268,3 +269,54 @@ def test_adapters_accept_typed_records() -> None:
     assert oa.title == "A Paper"
     assert oa.first_author_surname == "Smith"
     assert oa.container_names == ["Journal of Things"]
+
+
+def test_cache_drift_routes_by_key_host_and_kind() -> None:
+    rows: list[CacheRow] = [
+        # A Crossref work in its envelope, carrying one unknown key.
+        {
+            "key": "https://api.crossref.org/works/10.1/a",
+            "value": {"status": "ok", "message": {**CROSSREF_WORK, "novel": 1}},
+            "ts": 0.0,
+        },
+        # A Crossref search page whose hit carries the same unknown key.
+        {
+            "key": "https://api.crossref.org/works?query.bibliographic=x&rows=3",
+            "value": {"message": {"items": [{**CROSSREF_WORK, "novel": 1}]}},
+            "ts": 0.0,
+        },
+        # An OpenAlex work misfiled under a Crossref-looking path is still
+        # routed by its host.
+        {
+            "key": "https://api.openalex.org/works/doi:10.1/a",
+            "value": {**OPENALEX_WORK, "fresh": True},
+            "ts": 0.0,
+        },
+        {
+            "key": "https://api.openalex.org/works?filter=title.search:x",
+            "value": {"meta": {"count": 1}, "results": [OPENALEX_WORK]},
+            "ts": 0.0,
+        },
+        # Cached 404s and other endpoints are skipped, not counted.
+        {
+            "key": "https://api.openalex.org/works/doi:10.1/gone",
+            "value": None,
+            "ts": 0.0,
+        },
+        {
+            "key": "https://api.openalex.org/authors/A1",
+            "value": {"id": "A1"},
+            "ts": 0.0,
+        },
+    ]
+    drift = cache_drift(rows)
+    assert set(drift) == {
+        "crossref-work",
+        "crossref-search",
+        "openalex-work",
+        "openalex-search",
+    }
+    assert drift["crossref-work"] == (1, {"novel": 1})
+    assert drift["crossref-search"] == (1, {"items[].novel": 1})
+    assert drift["openalex-work"] == (1, {"fresh": 1})
+    assert drift["openalex-search"] == (1, {})
