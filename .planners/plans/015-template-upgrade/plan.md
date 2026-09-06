@@ -51,8 +51,10 @@ runs with coverage and the floor).
 - CI `test.yml`: the pytest step is now bare `uv run pytest`; `addopts` carries
   the coverage flags. SHA-pinned actions and the newer `setup-uv` kept as is.
 - `publish.yml`: both jobs gated on `vars.PUBLISH_ENABLED == 'true'`. The
-  repository variable is set to `true` alongside the PR so releases keep
-  publishing.
+  repository variable was meant to be set to `true` alongside the PR so
+  releases keep publishing, but the 0.9.4 release review found it had never
+  been created. Set it with `gh variable set PUBLISH_ENABLED --body true`
+  before tagging, or the publish workflow skips.
 - `.claude/settings.json` added and tracked (template copy). The
   machine-local settings file duplicated the Stop hook, so its hooks block was
   removed on disk to avoid running the gate twice; that file is ignored and
