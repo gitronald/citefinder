@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-05
+
+### Added
+
+- The `use-citefinder` skill documents the given-name blind spot: `author:
+  pass` compares the first author's surname only, so a misspelled,
+  abbreviated, or diacritic-less given name still lands in `matched`. A new
+  "Given names and diacritics" section names the cached fields that settle it
+  (Crossref `given`, OpenAlex `raw_author_name` and the profile
+  `display_name`), and gives an offline recipe that joins the bib to the
+  verify caches by DOI and prints every disagreeing author position.
+
 ## [0.9.1] - 2026-09-05
 
 ### Fixed

@@ -2,6 +2,8 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
+| 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | draft | — | — |
+| 012 | [Surface given-name and diacritic differences from cached author records](plans/012-verify-given-name-check/plan.md) | done | 2026-09-05 16:56 PT | [#52](https://github.com/gitronald/citefinder/pull/52) |
 | 011 | [Review and simplify the whole package at max effort](plans/011-code-review-simplify-pass/plan.md) | done | 2026-09-05 00:07 PT | [#50](https://github.com/gitronald/citefinder/pull/50) |
 | 010 | [Derive the verify cache directory from the source directory, not the bib stem](plans/010-verify-cache-dir-collisions/plan.md) | done | 2026-09-04 17:59 PT | [#48](https://github.com/gitronald/citefinder/pull/48) |
 | 002 | [Reduce false positives and false negatives in signal checks](plans/002-handle-openalex-metadata-quirks/plan.md) | done | 2026-09-02 22:53 PT | [#46](https://github.com/gitronald/citefinder/pull/46) |
