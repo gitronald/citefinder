@@ -1,10 +1,10 @@
 ---
 id: 14
 slug: source-record-models
-status: active
+status: done
 branch: feature/source-record-models
 created: 2026-09-05T17:54:22-07:00
-concluded:
+concluded: 2026-09-05T18:47:54-07:00
 pr: https://github.com/gitronald/citefinder/pull/54
 ---
 
@@ -161,3 +161,40 @@ The skill prompt's field tables point at the module as the reference.
   now carry `CrossrefWork` / `OpenAlexWork` annotations; the CLI conftest
   stub's `lookup_doi` returns `Any` since it stands in for both clients.
 - PR: https://github.com/gitronald/citefinder/pull/54
+- Follow-up in the same PR: `undeclared_keys` had no consumer, so the survey
+  script became `models.cache_drift` and a `citefinder drift <cache.jsonl>`
+  command that routes rows by key host and prints undeclared paths per record
+  kind with their share. Plan 013 now says to extend `models.py` with the
+  author profile shape and teach `cache_drift` to route `/authors/` keys.
+- Review follow-up (medium, two finders on sonnet; the correctness finder
+  never returned, so that pass was done in the main loop). Raised: `drift`
+  read the cache in text mode and died on a line torn inside a multi-byte
+  character; `get_type_hints` was re-resolved on every visited dict; API
+  hosts are literals in `_model_for`; the envelope walker follows only the
+  first union member. Actioned: `cache.read_records` now decodes per line and
+  feeds both the cache loader and `drift` (tests in `test_cli.py` and
+  `test_cache.py`); hints are cached per class. Conscious no-ops: the host
+  literals (importing the constants is circular, and they have never changed)
+  and the envelope walk (`cache_drift` unwraps the envelope itself).
+
+## Retrospective
+
+- The survey-first approach paid off: tallying real records before writing a
+  line of model settled the optional-versus-nullable question per field with
+  evidence, and the same tally became the drift check, so the "expected to
+  change" promise has a tool behind it rather than a hope.
+- `TypedDict` was the right level. The wiring changed no runtime behaviour and
+  the type checker immediately caught planted key typos in the adapters, which
+  the old `dict[str, Any]` never could. The cost was small: a handful of test
+  fixtures needed an annotation.
+- The plan's `Required[...]` idea died on contact with the tests. Coverage
+  comments carry the same information without forcing every hand-built record
+  to be complete; decide this kind of thing against the fixtures, not the API.
+- A model nobody reads is documentation with extra steps. The drift command
+  turned the module from annotation into a maintainer tool, and plan 013 is
+  the first consumer that will grow it; check for a consumer before closing a
+  plan that adds types.
+- The review's real finding was in the new command's own file reading, not in
+  the model: the cache loader already knew how to survive a torn line and the
+  command re-implemented a weaker version. Reuse the repo's existing reader
+  before writing a loop over a file it owns.
