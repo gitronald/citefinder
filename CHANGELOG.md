@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-05
+
 ### Added
 
 - The `use-citefinder` skill documents the given-name blind spot: `author:
