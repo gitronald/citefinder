@@ -4,6 +4,7 @@ from typing import Any
 
 from citefinder.bib import parse_entries
 from citefinder.client import CrossrefClient
+from citefinder.models import CrossrefWork, OpenAlexWork
 from citefinder.openalex import OpenAlexClient
 from citefinder.signals import Status, Work
 from citefinder.verify import Source, verify_entry
@@ -469,23 +470,23 @@ def test_search_with_no_query_fields_is_error() -> None:
 
 
 class _FakeCrossref(CrossrefClient):
-    def __init__(self, items: list[dict[str, Any]]) -> None:  # no session, no cache
+    def __init__(self, items: list[CrossrefWork]) -> None:  # no session, no cache
         self.items = items
 
     # `typing.override` is 3.12+ and the package supports 3.11.
     def search_bibliographic(  # pyrefly: ignore[missing-override-decorator]
         self, query: str, rows: int = 3
-    ) -> list[dict[str, Any]]:
+    ) -> list[CrossrefWork]:
         return self.items
 
 
 class _FakeOpenAlex(OpenAlexClient):
-    def __init__(self, items: list[dict[str, Any]]) -> None:
+    def __init__(self, items: list[OpenAlexWork]) -> None:
         self.items = items
 
     def search_title(  # pyrefly: ignore[missing-override-decorator]
         self, title: str, rows: int = 3
-    ) -> list[dict[str, Any]]:
+    ) -> list[OpenAlexWork]:
         return self.items
 
 
@@ -499,7 +500,7 @@ def test_crossref_search_candidate_title_includes_the_subtitle() -> None:
       booktitle = {Detection of Intrusions and Malware, and Vulnerability Assessment},
       year = {2020}
     }"""  # noqa: E501
-    hit = {
+    hit: CrossrefWork = {
         "DOI": "10.1/split",
         "title": ["Backstabber's Knife Collection"],
         "subtitle": ["A Review of Open Source Software Supply Chain Attacks"],
@@ -523,7 +524,7 @@ def test_openalex_search_path_through_the_real_source() -> None:
       journal = {Journal of Things},
       year = {2020}
     }"""
-    hit = {
+    hit: OpenAlexWork = {
         "doi": "https://doi.org/10.1/oa",
         "display_name": "A Study of Things",
         "publication_year": 2020,

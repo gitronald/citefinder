@@ -8,17 +8,16 @@ new name — the signal checks and status reduction don't need to change.
 
 from __future__ import annotations
 
-from typing import Any
-
 from bibtexparser.middlewares.names import parse_single_name_into_parts
 
 from citefinder.bib import normalize_doi
+from citefinder.models import CrossrefWork, OpenAlexWork
 from citefinder.signals import Work, strip_braces
 
 # --- Crossref ---------------------------------------------------------------
 
 
-def _crossref_extract_year(work: dict[str, Any]) -> int | None:
+def _crossref_extract_year(work: CrossrefWork) -> int | None:
     for k in ("published-print", "published-online", "issued", "created"):
         block = work.get(k)
         if not isinstance(block, dict):
@@ -32,7 +31,7 @@ def _crossref_extract_year(work: dict[str, Any]) -> int | None:
     return None
 
 
-def crossref_full_title(work: dict[str, Any]) -> str | None:
+def crossref_full_title(work: CrossrefWork) -> str | None:
     """Crossref splits long titles across `title` and `subtitle` (e.g.
     Fang2022's main title is in `title` and the colon-after part is in
     `subtitle`). Concatenate so downstream comparison sees the full title.
@@ -47,7 +46,7 @@ def crossref_full_title(work: dict[str, Any]) -> str | None:
     return main
 
 
-def crossref_to_work(message: dict[str, Any] | None) -> Work | None:
+def crossref_to_work(message: CrossrefWork | None) -> Work | None:
     """Adapt a Crossref `work` record into the canonical `Work` shape.
 
     Returns None for a missing record (Crossref 404) so the caller can
@@ -98,7 +97,7 @@ def openalex_doi(doi_url: str | None) -> str:
     return normalize_doi(doi_url) if doi_url else ""
 
 
-def openalex_to_work(message: dict[str, Any] | None) -> Work | None:
+def openalex_to_work(message: OpenAlexWork | None) -> Work | None:
     """Adapt an OpenAlex `work` record into the canonical `Work` shape."""
     if message is None:
         return None
