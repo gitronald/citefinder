@@ -2,6 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
+| 014 | [Model the Crossref and OpenAlex record shapes](plans/014-source-record-models/plan.md) | draft | — | — |
 | 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | draft | — | — |
 | 012 | [Surface given-name and diacritic differences from cached author records](plans/012-verify-given-name-check/plan.md) | done | 2026-09-05 16:56 PT | [#52](https://github.com/gitronald/citefinder/pull/52) |
 | 011 | [Review and simplify the whole package at max effort](plans/011-code-review-simplify-pass/plan.md) | done | 2026-09-05 00:07 PT | [#50](https://github.com/gitronald/citefinder/pull/50) |
