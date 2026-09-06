@@ -172,7 +172,11 @@ Crossref and OpenAlex both honor `mailto` for their polite pools; the cache
 key strips it on either side, so rotating the email doesn't invalidate prior
 entries.
 
-OpenAlex's schema differs from Crossref. Quick map:
+OpenAlex's schema differs from Crossref. The record shapes are declared as
+`TypedDict`s in `citefinder.models` (`CrossrefWork`, `OpenAlexWork`, and their
+nested parts; the model is rough and grows as fields get used), and
+`citefinder.models.undeclared_keys(record, OpenAlexWork)` lists what a real
+record carries that the model does not. Quick map of the fields verify uses:
 
 | Field | Crossref | OpenAlex |
 |---|---|---|

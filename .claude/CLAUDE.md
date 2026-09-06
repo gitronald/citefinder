@@ -14,6 +14,7 @@ citefinder/
 ├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
 ├── bib.py              # Entry, parse_entries, bib-side query helpers
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
+├── models.py           # TypedDicts for raw Crossref/OpenAlex records + undeclared_keys drift check
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
@@ -35,7 +36,13 @@ The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan
 [`001-absorb-bib-verification-scripts.md`](.planners/plans/001-absorb-bib-verification-scripts/plan.md)
 — `signals.py` is shape-independent, `adapters.py` is the per-source JSON
-boundary, `verify.py` orchestrates lookups against a `Source`.
+boundary, `verify.py` orchestrates lookups against a `Source`. The raw record
+shapes those adapters read are declared in `models.py` as deliberately
+incomplete `TypedDict`s (plan
+[`014-source-record-models`](.planners/plans/014-source-record-models/plan.md)):
+every key is optional, coverage comments say how often a surveyed record
+carried it, and `undeclared_keys(record, model)` reports what a real record
+has that the model does not. Add a key when a consumer starts reading it.
 
 ## Configuration
 
