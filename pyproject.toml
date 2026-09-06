@@ -1,6 +1,6 @@
 [project]
 name = "citefinder"
-version = "0.9.4"
+version = "0.9.5a0"
 description = ""
 authors = [
     {name = "gitronald", email = "gitronald@users.noreply.github.com"}
