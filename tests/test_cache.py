@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from citefinder.cache import JsonlCache
+from citefinder.cache import JsonlCache, read_records
 from citefinder.openalex import OpenAlexClient
 
 
@@ -133,3 +133,26 @@ def test_tilde_cache_path_creates_no_literal_tilde_dir(
 
     assert not (cwd / "~").exists()
     assert (home / ".cache" / "citefinder" / "openalex.jsonl").exists()
+
+
+def test_read_records_keeps_duplicates_and_skips_unreadable_lines(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "c.jsonl"
+    rows = [
+        {"key": "k", "value": 1, "ts": 0},
+        {"key": "k", "value": 2, "ts": 1},
+        {"value": "no key", "ts": 2},
+    ]
+    path.write_bytes(
+        b"\n".join(json.dumps(r).encode("utf-8") for r in rows) + b'\n{"key": "\xc3'
+    )
+    with caplog.at_level(logging.WARNING, logger="citefinder"):
+        records = read_records(path)
+    assert [r["value"] for r in records] == [1, 2]
+    assert [r.message for r in caplog.records] == [
+        f"{path}:3: skipping unreadable cache line",
+        f"{path}:4: skipping unreadable cache line",
+    ]
+    # The cache itself still lets the latest duplicate win.
+    assert JsonlCache(path).get("k") == 2

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-05
+
+### Added
+
+- `citefinder.models` declares the raw Crossref and OpenAlex record shapes as
+  `TypedDict`s (`CrossrefWork`, `OpenAlexWork`, the envelope and search-page
+  wrappers, the nested author, location, source, and date parts, and the
+  `CacheRow` line format), pieced together from a survey of real verify
+  caches. The model is deliberately incomplete: every key is optional, each
+  carries a coverage comment, and `undeclared_keys(record, model)` reports the
+  paths a real record has that the model does not, so drift can be measured
+  against any cache file.
+- `citefinder drift <cache.jsonl>` runs that check over a whole cache, routing
+  each row by the host in its key, and prints the undeclared paths per record
+  kind with the share of records that carried them.
+
+### Changed
+
+- The clients, adapters, and `verify.Source` are typed with those models
+  instead of `dict[str, Any]`. Runtime behaviour is unchanged; a test fixture
+  passed to `crossref_to_work` or `openalex_to_work` may now need a
+  `CrossrefWork` / `OpenAlexWork` annotation to satisfy a strict type checker.
+
 ## [0.9.2] - 2026-09-05
 
 ### Added

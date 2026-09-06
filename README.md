@@ -172,7 +172,11 @@ Crossref and OpenAlex both honor `mailto` for their polite pools; the cache
 key strips it on either side, so rotating the email doesn't invalidate prior
 entries.
 
-OpenAlex's schema differs from Crossref. Quick map:
+OpenAlex's schema differs from Crossref. The record shapes are declared as
+`TypedDict`s in `citefinder.models` (`CrossrefWork`, `OpenAlexWork`, and their
+nested parts; the model is rough and grows as fields get used), and
+`citefinder drift <cache.jsonl>` lists what the records in a cache carry that
+the model does not. Quick map of the fields verify uses:
 
 | Field | Crossref | OpenAlex |
 |---|---|---|
@@ -295,6 +299,7 @@ citefinder table-to-bib refs.csv --out refs.regen.bib       # ...or to a file
 
 # Configuration (see "Configuration" above)
 citefinder config                                           # resolved settings, their sources, and cache paths
+citefinder drift data/citefinder/paper/openalex/openalex.jsonl  # keys the cached records carry that citefinder.models lacks
 
 # Claude Code skill (see "Claude Code skill" below)
 citefinder skill                                            # print the skill body

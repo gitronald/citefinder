@@ -17,23 +17,23 @@ email doesn't invalidate prior entries.
 
 from __future__ import annotations
 
-from typing import Any
 from urllib.parse import urlencode
 
 from citefinder._base import CachedJsonClient, _doi_path
+from citefinder.models import CrossrefWork
 
 CROSSREF_BASE = "https://api.crossref.org"
 
 
 class CrossrefClient(CachedJsonClient):
-    def lookup_doi(self, doi: str) -> dict[str, Any] | None:
+    def lookup_doi(self, doi: str) -> CrossrefWork | None:
         """Fetch metadata for a single DOI. Returns None if not found."""
         payload = self._get(f"{CROSSREF_BASE}/works/{_doi_path(doi)}")
         if payload is None:
             return None
         return payload.get("message")
 
-    def search_bibliographic(self, query: str, rows: int = 3) -> list[dict[str, Any]]:
+    def search_bibliographic(self, query: str, rows: int = 3) -> list[CrossrefWork]:
         """Search Crossref by free-form bibliographic query."""
         params = {"query.bibliographic": query, "rows": str(rows)}
         payload = self._get(f"{CROSSREF_BASE}/works?{urlencode(params)}")
@@ -43,7 +43,7 @@ class CrossrefClient(CachedJsonClient):
 
     def lookup_book_chapter(
         self, book_doi: str, chapter: int | str
-    ) -> dict[str, Any] | None:
+    ) -> CrossrefWork | None:
         """Look up a chapter using the `{book_doi}.{NNN}` convention.
 
         Pads numeric chapter numbers to 3 digits (the common pattern), but

@@ -9,8 +9,9 @@ adapters live in `citefinder.adapters`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from citefinder.adapters import (
     crossref_full_title,
@@ -27,6 +28,7 @@ from citefinder.bib import (
     strip_braces,
 )
 from citefinder.client import CrossrefClient
+from citefinder.models import CrossrefWork, OpenAlexWork
 from citefinder.openalex import OpenAlexClient
 from citefinder.signals import (
     MIN_TITLE_TOKENS,
@@ -47,6 +49,10 @@ SKIP_SOURCE_TYPES = {"online", "misc"}
 # returns ranked results regardless of relevance, so cheap fuzzy similarity
 # on the top hit is the simplest way to reject obviously-wrong matches.
 TITLE_MATCH_THRESHOLD = 0.55
+
+
+SourceRecord = CrossrefWork | OpenAlexWork
+"""A raw record from either source; `Source.name` says which."""
 
 
 @dataclass
@@ -78,10 +84,10 @@ class Source:
     name: str  # "crossref" | "openalex"
     client: CrossrefClient | OpenAlexClient
 
-    def lookup_doi(self, doi: str) -> dict[str, Any] | None:
+    def lookup_doi(self, doi: str) -> SourceRecord | None:
         return self.client.lookup_doi(doi)
 
-    def search(self, entry: Entry, rows: int = 3) -> list[dict[str, Any]]:
+    def search(self, entry: Entry, rows: int = 3) -> Sequence[SourceRecord]:
         if self.name == "crossref":
             assert isinstance(self.client, CrossrefClient)
             return self.client.search_bibliographic(
@@ -96,22 +102,22 @@ class Source:
             return []
         return self.client.search_title(title, rows=rows)
 
-    def to_work(self, raw: dict[str, Any] | None) -> Work | None:
-        return (
-            crossref_to_work(raw) if self.name == "crossref" else openalex_to_work(raw)
-        )
-
-    def candidate_doi(self, item: dict[str, Any]) -> str:
+    def to_work(self, raw: SourceRecord | None) -> Work | None:
         if self.name == "crossref":
-            return item.get("DOI", "") or ""
-        return openalex_doi(item.get("doi"))
+            return crossref_to_work(cast(CrossrefWork, raw))
+        return openalex_to_work(cast(OpenAlexWork, raw))
 
-    def candidate_title(self, item: dict[str, Any]) -> str:
+    def candidate_doi(self, item: SourceRecord) -> str:
+        if self.name == "crossref":
+            return cast(CrossrefWork, item).get("DOI", "") or ""
+        return openalex_doi(cast(OpenAlexWork, item).get("doi"))
+
+    def candidate_title(self, item: SourceRecord) -> str:
         if self.name == "crossref":
             # Title and subtitle rejoined, as `crossref_to_work` does on the
             # DOI path: a split record must score like the work it is.
-            return crossref_full_title(item) or ""
-        return item.get("display_name") or ""
+            return crossref_full_title(cast(CrossrefWork, item)) or ""
+        return cast(OpenAlexWork, item).get("display_name") or ""
 
     def cache_size(self) -> int:
         cache = getattr(self.client, "cache", None)
@@ -186,7 +192,7 @@ def verify_entry(entry: Entry, source: Source) -> Result:
     # the adapter runs only for the hit that is finally chosen.
     candidates: list[dict[str, str]] = []
     best_sim = 0.0
-    best_item: dict[str, Any] | None = None
+    best_item: SourceRecord | None = None
     for item in items:
         item_title = source.candidate_title(item)
         sim = title_similarity(title, item_title)
