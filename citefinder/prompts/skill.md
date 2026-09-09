@@ -180,11 +180,29 @@ Field order within each entry is not preserved (it follows the CSV's column orde
 
 - **Cache path:** check for a project config before passing `--cache`. A repo that sets `cache_dir` in `citefinder.toml` (or `[tool.citefinder]` in `pyproject.toml`) already routes every command's cache there — lookups to `<cache_dir>/<source>.jsonl`, `verify` to `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/` — from any working directory inside it. `citefinder config` prints where a lookup will write and why (`flag`, `env`, `project`, `user`, or `default`). Without a config the default is `~/.cache/citefinder/<source>.jsonl`; pass `--cache-dir` (or `--cache` for one file) only when there is no project config and you want results committed alongside an outline so collaborators don't re-query.
 - **Latest value wins on replay.** Re-querying after a fix transparently overwrites — no manual cache invalidation needed.
-- **`None` is a real cache value.** A cached `None` means "Crossref returned 404 for this DOI" — citefinder uses it to avoid re-hitting known-missing DOIs. If you suspect Crossref has now indexed a paper it didn't before, delete that line from the JSONL or use a fresh cache path.
+- **`None` is a real cache value.** A cached `None` means "Crossref returned 404 for this DOI" — citefinder uses it to avoid re-hitting known-missing DOIs. If you suspect Crossref has now indexed a paper it didn't before, delete that line from the JSONL or use a fresh cache path. If another cache in the project already has the record, `citefinder cache merge` supersedes the 404 with it (see *Cache maintenance* below).
 - **`lookup_doi` returns the `message` payload directly,** not the full Crossref envelope. So you access `work["title"][0]`, not `work["message"]["title"][0]`.
 - **`title` is a list, not a string.** Crossref returns titles as arrays. Use `work["title"][0]`.
 - **`search_bibliographic` returns the items list,** which may be empty. Always handle the empty case.
 - **Rate limits retry themselves.** A `429` (and `502`/`503`/`504`) is retried up to 3 times, honoring `Retry-After` or backing off 1 s / 2 s / 4 s, and OpenAlex requests are paced to 10 per second by default. Only the final failure surfaces — in `verify` as a per-entry `error` whose note names the status, plus the retry count in the summary line. An error response is **never cached**, so there is nothing to purge after a rate limit: wait for it to clear and re-run, or slow the run down with `--min-interval 0.5` / `--max-retries 5` (also `max_retries` / `min_interval` in `config.toml`).
+
+## Cache maintenance: `citefinder cache`
+
+A project accumulates caches in two shapes: the shared `<cache_dir>/<source>.jsonl` that `doi`/`search` write, and one cache per `verify` run under `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/`. They do not learn from each other on their own — a DOI one run fetched gets refetched by the next, and a 404 cached before a deposit landed sits next to the record that later resolved it.
+
+```bash
+citefinder cache stats                                # what every cache under cache_dir holds
+citefinder cache merge                                # dry run: what consolidating would do
+citefinder cache merge --write                        # rewrite <cache_dir>/<source>.jsonl
+citefinder cache merge --write --keep-records         # ...never letting a 404 replace a record
+citefinder cache compact path/to/openalex.jsonl       # dedupe one file to a line per key
+```
+
+- **Merging is always explicit.** No lookup and no `verify` run consolidates as a side effect, and both commands are a dry run until `--write`, so read the report before applying it.
+- **Newest `ts` wins across files** (later line within one file), and the winner keeps its own `ts`. Rows are routed by the host in their key, not by the file name, so a record that landed in the wrong file is refiled under the source that answered it.
+- **A stale cached 404 is what merging fixes:** a run that got a record for a DOI another file 404'd supersedes it, reported as `404s superseded by a record`. The reverse also happens — check `records superseded by a 404` on every run, and re-run with `--keep-records` if a transient upstream failure is the likelier explanation than a real removal.
+- **Inputs are never modified.** `merge` only rewrites the shared cache, so each `verify` run's evidence stays beside its `results.json`. Do not merge while a lookup or `verify` run is writing into the same directory; re-run it afterwards instead.
+- `merge_caches`, `summarize_caches`, `read_records`, and `write_records` are importable from `citefinder` if you need this in a script.
 
 ## OpenAlex fallback for arXiv / preprint / thin-metadata DOIs
 

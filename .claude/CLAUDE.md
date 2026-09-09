@@ -8,7 +8,7 @@ This file provides guidance to [Claude Code](claude.ai/code).
 citefinder/
 ├── __init__.py         # public API re-exports
 ├── _base.py            # CachedJsonClient base for the HTTP clients
-├── cache.py            # JsonlCache (append-only JSONL key-value store)
+├── cache.py            # JsonlCache (append-only JSONL key-value store) + merge/inventory/atomic-write maintenance
 ├── client.py           # CrossrefClient
 ├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
 ├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
@@ -20,7 +20,7 @@ citefinder/
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
 ├── install.py          # stub render/stamp/drift-check for the Claude Code skill
 ├── prompts/skill.md    # canonical `use-citefinder` skill body (package data)
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, skill, install, crossref subcommand
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, skill, install, crossref and cache subcommands
 ```
 
 The `use-citefinder` skill follows the
