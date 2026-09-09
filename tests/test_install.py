@@ -552,12 +552,13 @@ def test_read_plain_treats_undecodable_bytes_as_not_ours(sandbox) -> None:
 def test_cli_install_degrades_when_distribution_metadata_is_absent(
     sandbox, monkeypatch
 ) -> None:
-    """Mirrors `_default_user_agent`'s 0.0.0 fallback in `_base.py`."""
+    """The stub is stamped through `package_version`, whose 0.0.0 fallback
+    `_default_user_agent` shares — patched at its one source in `_base.py`."""
 
     def _raise(name: str) -> str:
         raise PackageNotFoundError(name)
 
-    monkeypatch.setattr("citefinder.cli.metadata_version", _raise)
+    monkeypatch.setattr("citefinder._base.version", _raise)
     result = runner.invoke(app, ["install", "--local"])
     assert result.exit_code == 0
     text = install_mod.skill_path(sandbox, "local").read_text(encoding="utf-8")

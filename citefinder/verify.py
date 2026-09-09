@@ -123,6 +123,11 @@ class Source:
         cache = getattr(self.client, "cache", None)
         return len(cache) if cache is not None else 0
 
+    @property
+    def retries(self) -> int:
+        """Retries the client has made so far, for a run summary."""
+        return self.client.retries
+
 
 def verify_entry(entry: Entry, source: Source) -> Result:
     title = strip_braces(entry.fields.get("title", ""))
