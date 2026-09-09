@@ -156,3 +156,52 @@ adds deletes or rewrites them, so a run's evidence stays beside its
 - Whether `merge` should refuse when a source file is being appended to
   concurrently. Detecting that portably is awkward; documenting "do not merge
   during a run" may be the honest limit.
+
+## Log
+
+**2026-09-09** — Implemented on `feature/cache-maintenance-commands`
+([PR #59](https://github.com/gitronald/citefinder/pull/59)), in the order the
+plan set out: merge core plus unit tests, exports, then `stats`, `merge`, and
+`compact`, then the docs.
+
+Three things came out differently from the spec, all found by running the
+commands against a cache shaped like a real one:
+
+- **`merge` globs `**/*.jsonl`, not `**/<source>.jsonl` per source.** With the
+  per-source glob, a misrouted row was reported and then dropped: the openalex
+  record sitting in `crossref.jsonl` never reached the openalex merge, because
+  that pass only opened files named `openalex.jsonl`. Routing by host is
+  pointless if the file name still decides which rows get *considered*, so
+  every cache file is now offered to every source's merge. A consequence: the
+  targets are inputs too, so every source is merged before anything is
+  written — writing `crossref.jsonl` mid-run would take the misrouted row out
+  from under the pass about to rehome it.
+- **Unroutable rows are dropped only when merging into a source's cache.** The
+  plan's rule ("keep unroutable rows out of the output") is about not
+  laundering a foreign row into `<source>.jsonl`. Applied to `compact`, whose
+  output *is* its input, the same rule silently deletes readable rows from
+  someone's file. `merge_caches(source=...)` drops them; `source=None`, what
+  `compact` uses, reports and keeps them.
+- **The counters are computed per key at the end, not as rows arrive.** The
+  first pass counted a replacement whenever a row displaced the one held so
+  far, which made `replaced` and `nulls_superseded` depend on the order the
+  files happened to be globbed in — the same two caches reported 1 or 0
+  depending on which was read first. Each key now collects its rows and
+  resolves once (`_Contest`), so a report describes the caches, not the walk.
+  `misrouted` is likewise counted only for rows a merge keeps, so the number
+  says how many records the run actually rehomes.
+
+Open questions, as resolved:
+
+- **`--keep-records` is not the default.** `ts`-wins stays the single rule for
+  the whole merge, with `records superseded by a 404` printed on every run
+  (even at zero) so the case is visible in the run it happens in.
+- **`stats` reads every cache under the directory**, per-run ones included —
+  it is the inventory command, and the plan's own "files found" per source
+  only means something if it walks them all.
+- **`merge` does not detect a concurrent appender.** Documented as a limit in
+  the README and the skill ("do not merge during a run; re-run afterwards")
+  rather than guessed at portably. The atomic replace means the failure mode
+  is missing rows, not a corrupt file, and re-running picks them up.
+
+Coverage held at 97.29% against the 97.0 floor; full suite 360 passed.
