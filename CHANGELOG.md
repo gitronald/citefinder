@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Require `bibtexparser>=2.0.0` (was `>=2.0.0b0`). The v2 line reached a stable
+  release; the pin no longer resolves to a pre-release.
+
 ## [0.10.0] - 2026-09-09
 
 ### Added
