@@ -301,6 +301,12 @@ citefinder table-to-bib refs.csv --out refs.regen.bib       # ...or to a file
 citefinder config                                           # resolved settings, their sources, and cache paths
 citefinder drift data/citefinder/paper/openalex/openalex.jsonl  # keys the cached records carry that citefinder.models lacks
 
+# Cache maintenance (see "Cache maintenance" below)
+citefinder cache stats                                      # what every cache under cache_dir holds
+citefinder cache merge                                      # dry run: consolidate into <cache-dir>/<source>.jsonl
+citefinder cache merge --write                              # ...and apply it
+citefinder cache compact data/citefinder/openalex.jsonl     # dedupe one file to a line per key
+
 # Claude Code skill (see "Claude Code skill" below)
 citefinder skill                                            # print the skill body
 citefinder install                                          # stub into ~/.claude/
@@ -403,6 +409,55 @@ the target path that citefinder did not generate (no stamp) is never
 overwritten without `--force`, so a hand-authored skill of the same name is
 safe. To change the skill's content, edit `citefinder/prompts/skill.md` and
 release — there is no `.claude/` copy to re-sync.
+
+## Cache maintenance
+
+Two layouts write under `cache_dir`: the shared per-source cache
+(`<cache-dir>/<source>.jsonl`, used by `doi`, `search`, and the `crossref`
+subcommands) and one cache per `verify` run
+(`<cache-dir>/<bib-dir>[-<bib-stem>]/<source>/<source>.jsonl`, so each run's
+evidence sits beside its own `results.json`). Left alone they never learn from
+each other: a DOI one run fetched is invisible to the next, which refetches it,
+and a 404 cached before a deposit landed lives on next to the record that
+resolved it months later.
+
+The `cache` commands consolidate and inspect them. Nothing else in the package
+merges anything — no lookup and no `verify` run consolidates as a side effect —
+so a misdirected row is never laundered into the shared cache by routine use.
+
+```bash
+citefinder cache stats                                   # inventory every cache under cache_dir
+citefinder cache merge                                   # dry run
+citefinder cache merge --write                           # rewrite <cache-dir>/<source>.jsonl
+citefinder cache merge --write --keep-records            # ...never letting a 404 replace a record
+citefinder cache merge --extra ~/backup/openalex.jsonl   # fold in a file from elsewhere
+citefinder cache compact data/citefinder/openalex.jsonl  # dedupe one file, in place
+```
+
+How a merge decides:
+
+- **Newest `ts` wins across files.** Two caches are independent logs, so the
+  order they are read in says nothing; within one file the later line wins, as
+  the cache itself replays it. The winner keeps its own `ts` — the fetch time
+  is the only freshness signal a row carries — and a row with no `ts` at all
+  loses every contest rather than being dropped.
+- **Rows are routed by the host in their key**, never by the file name, so a
+  record that landed in the wrong file is filed under the source that actually
+  answered it (reported as `misrouted rows`).
+- **A newer 404 replaces a record**, and the count is reported every run.
+  `--keep-records` makes that never happen, for when a transient upstream
+  failure is the likelier explanation than a real retraction.
+- **Inputs are never modified.** `merge` only rewrites
+  `<cache-dir>/<source>.jsonl`, so every per-run cache stays intact and the
+  merge is repeatable. `compact` rewrites the one file it is given, and keeps
+  rows from neither API rather than dropping them.
+- **Writes are atomic**: a temporary file moved over the target, never an
+  in-place rewrite that could race an appender. Both commands are a dry run
+  until `--write`.
+
+Do not merge while a lookup or `verify` run is writing into the same
+directory: the merge reads a moving target, and rows appended after it started
+are simply not in the output. Re-running it afterwards picks them up.
 
 ## Why JSONL?
 

@@ -1,11 +1,11 @@
 ---
 id: 16
 slug: cache-maintenance-commands
-status: active
+status: done
 branch: feature/cache-maintenance-commands
 created: 2026-09-09T10:19:50-07:00
-concluded:
-pr:
+concluded: 2026-09-09T12:21:40-07:00
+pr: https://github.com/gitronald/citefinder/pull/59
 ---
 
 # Add cache maintenance commands: merge, compact, and stats
@@ -156,3 +156,128 @@ adds deletes or rewrites them, so a run's evidence stays beside its
 - Whether `merge` should refuse when a source file is being appended to
   concurrently. Detecting that portably is awkward; documenting "do not merge
   during a run" may be the honest limit.
+
+## Log
+
+**2026-09-09** — Implemented on `feature/cache-maintenance-commands`
+([PR #59](https://github.com/gitronald/citefinder/pull/59)), in the order the
+plan set out: merge core plus unit tests, exports, then `stats`, `merge`, and
+`compact`, then the docs.
+
+Three things came out differently from the spec, all found by running the
+commands against a cache shaped like a real one:
+
+- **`merge` globs `**/*.jsonl`, not `**/<source>.jsonl` per source.** With the
+  per-source glob, a misrouted row was reported and then dropped: the openalex
+  record sitting in `crossref.jsonl` never reached the openalex merge, because
+  that pass only opened files named `openalex.jsonl`. Routing by host is
+  pointless if the file name still decides which rows get *considered*, so
+  every cache file is now offered to every source's merge. A consequence: the
+  targets are inputs too, so every source is merged before anything is
+  written — writing `crossref.jsonl` mid-run would take the misrouted row out
+  from under the pass about to rehome it.
+- **Unroutable rows are dropped only when merging into a source's cache.** The
+  plan's rule ("keep unroutable rows out of the output") is about not
+  laundering a foreign row into `<source>.jsonl`. Applied to `compact`, whose
+  output *is* its input, the same rule silently deletes readable rows from
+  someone's file. `merge_caches(source=...)` drops them; `source=None`, what
+  `compact` uses, reports and keeps them.
+- **The counters are computed per key at the end, not as rows arrive.** The
+  first pass counted a replacement whenever a row displaced the one held so
+  far, which made `replaced` and `nulls_superseded` depend on the order the
+  files happened to be globbed in — the same two caches reported 1 or 0
+  depending on which was read first. Each key now collects its rows and
+  resolves once (`_Contest`), so a report describes the caches, not the walk.
+  `misrouted` is likewise counted only for rows a merge keeps, so the number
+  says how many records the run actually rehomes.
+
+Open questions, as resolved:
+
+- **`--keep-records` is not the default.** `ts`-wins stays the single rule for
+  the whole merge, with `records superseded by a 404` printed on every run
+  (even at zero) so the case is visible in the run it happens in.
+- **`stats` reads every cache under the directory**, per-run ones included —
+  it is the inventory command, and the plan's own "files found" per source
+  only means something if it walks them all.
+- **`merge` does not detect a concurrent appender.** Documented as a limit in
+  the README and the skill ("do not merge during a run; re-run afterwards")
+  rather than guessed at portably. The atomic replace means the failure mode
+  is missing rows, not a corrupt file, and re-running picks them up.
+
+Coverage held at 97.29% against the 97.0 floor; full suite 360 passed.
+
+**2026-09-09 — Review follow-up.** A high-effort review of the PR diff raised
+nine findings; two further candidates were rejected on verification (dropping a
+non-string key, and `summarize_caches` counting such a row under `rows` but not
+`keys` — both are asserted as intended by existing tests). Six were actioned,
+each with a paired regression test:
+
+- **A tie on `ts` was decided by the glob.** `max(candidates, key=row_ts)`
+  returns the *first* maximal row, so two independent logs that stamped the
+  same second consolidated to different content depending on which file the
+  walk reached first — the one order-dependence the design had not closed. The
+  winner now sorts on `_rank`: newest `ts`, then a real record over a 404
+  fetched in the same instant, then the row's own canonical content.
+- **`--extra` naming a file the glob already found was read twice.** Winners
+  were unaffected (the duplicate rows are the same rows), but every count in
+  the report doubled — and the counts are exactly what a reader consults to
+  decide whether to pass `--write`. Inputs are now de-duplicated by resolved
+  path, so the two spellings collapse.
+- **`compact` reported rows as `misrouted`.** That count is documented as what
+  the run *rehomes*, and a compaction rewrites the single file it read, so a
+  misfiled row stays exactly where it was. The counter is now confined to a
+  merge into a source's cache.
+- **`self.newest_null or _OLDEST` discarded a `ts` of exactly 0.0.** The epoch
+  is falsy, so an accumulated 0.0 was thrown away and recomputed from the row
+  in hand, flipping a key's report from `records kept` to `404 superseded`.
+  Explicit `is None` checks. Only reachable on a hand-edited cache — `time.time()`
+  never returns it — but the whole point of `_Contest` is a report that does not
+  depend on the walk.
+- **`SourceStats._seen` was dead** — declared, never read or written, with
+  `summarize_caches` using a local set instead. Removed.
+- **`MergeStats`/`SourceStats` were exported but named in neither API list.**
+  Added to the CHANGELOG entry and the skill.
+
+Two test gaps were filled rather than fixed in code: `row_ts`'s `isinstance(ts,
+bool)` guard and `source_for_key`'s `.lower()` were both reachable but unpinned
+— deleting either left the suite green.
+
+One finding was a conscious no-op: **`cache merge` reads and parses every input
+once per source** rather than bucketing rows by host in a single pass. Real, and
+confirmed by probe, but the two-pass shape is what makes "every file is offered
+to every source" true by construction, and a single pass would have to return
+per-source results, changing `merge_caches`'s signature for the library caller
+too. Maintenance runs rarely and the plan already defers store-format and replay
+performance work; revisit if a merge over a large tree becomes slow in practice.
+
+Full suite 368 passed, coverage 97.32%.
+
+## Retrospective
+
+- **The spec's central insight held, and its blind spot was the same shape.**
+  "Order by `ts`, not by line" was right, and the implementation's own
+  correction (counters resolved per key, not as rows arrive) extended it. But
+  both stopped one step short: `ts` alone does not *totally* order rows, and the
+  tie fell back to the glob — the very thing the design set out to eliminate,
+  reintroduced by a stdlib default. A rule stated as "X decides" is worth
+  finishing with "and when X ties, Y decides".
+- **Every bug found sat in a counter, not in the data path.** No finding
+  changed which record a merge keeps except the tie-break; the rest made the
+  report lie — a doubled count, a `misrouted` that moved nothing, a flipped
+  `records kept`. That is fitting for a command whose output is a decision aid:
+  the numbers *are* the product, since a user reads them to decide whether to
+  pass `--write`, and a wrong number is as bad as a wrong row.
+- **Routing by host earned its keep twice.** The rule was written for one
+  observed misdirected record; during implementation it forced the glob to
+  widen from `**/<source>.jsonl` to `**/*.jsonl`, and in review it turned out
+  to also mean the `misrouted` count only makes sense on the pass that rehomes.
+  A rule that keeps producing consequences is usually a real one.
+- **"Reported but kept" needed to be two rules, not one.** The plan's single
+  sentence about unroutable rows meant something different for `merge` (do not
+  launder) and for `compact` (do not delete). The implementation caught that;
+  the review caught the parallel case for `misrouted`. Worth asking of any
+  future rule stated once but applied on both sides of a read/write boundary.
+- **The deferred efficiency finding is the plan's own out-of-scope list
+  working.** `merge` parsing every input once per source is real, and leaving
+  it is a decision the plan had already framed: no derived index, no format
+  change, until replay latency is an actual problem.

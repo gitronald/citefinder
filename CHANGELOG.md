@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `citefinder cache stats` inventories every JSONL cache under the cache
+  directory — files, rows, distinct keys split into lookups and searches,
+  cached 404s, rows with no timestamp, and the newest fetch, per source. It
+  fails on a missing directory rather than reporting zeros, so a dropped mount
+  and an empty cache do not look alike.
+- `citefinder cache merge` consolidates the shared caches and every per-run
+  `verify` cache into `<cache-dir>/<source>.jsonl`, one line per key: newest
+  `ts` wins across files (later line within one), winners keep their own `ts`,
+  and rows are routed by the host in their key so a record in the wrong file
+  reaches the right one. Dry run until `--write`; `--extra PATH` folds in a
+  file from elsewhere, and `--keep-records` stops a newer cached 404 from
+  replacing a real record. The inputs are never modified.
+- `citefinder cache compact <path>` runs the same merge over a single file,
+  deduping it to one line per key in place. Idempotent, and it keeps rows it
+  cannot route rather than dropping them.
+- `merge_caches`, `summarize_caches`, `write_records`, and `read_records` are
+  exported from the package, along with the `MergeStats` and `SourceStats`
+  dataclasses they report through, so a caller can consolidate caches without
+  shelling out. Writes go through a temporary file and `os.replace`, never an
+  in-place rewrite.
+
 ## [0.9.4] - 2026-09-06
 
 ### Changed
