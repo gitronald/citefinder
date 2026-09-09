@@ -143,7 +143,9 @@ class MergeStats:
     """What one `merge_caches` pass read, decided, and found wrong."""
 
     files: int = 0
+    """Files opened, whether or not they held a row for the merged source."""
     rows_read: int = 0
+    """Rows the merge took in — after routing, so filtered rows are not here."""
     keys: int = 0
     replaced: int = 0
     """Contests where a newer row displaced the one held so far."""
@@ -241,9 +243,12 @@ def merge_caches(
     file a further merge leaves unchanged.
 
     Rows are routed by the host in their key (`source_for_key`). `source`
-    keeps only that source's rows; `None` keeps every routable row, which is
-    what compacting a single file wants. Unroutable rows are counted and
-    dropped rather than written somewhere they do not belong.
+    keeps only that source's rows and drops the rest, so a row cannot be
+    laundered into a cache it does not belong in — and a record that landed
+    in the wrong file reaches the right one, counted as `misrouted`. `source`
+    of `None` — what compacting a single file in place wants — keeps every
+    row and only reports what it could not route. Pass every cache file to
+    each source's merge; which file a row sits in decides nothing.
 
     A cached 404 that is newer than a record replaces it, and the count is
     reported every run; `keep_records` makes a 404 never displace a record,
@@ -263,18 +268,29 @@ def merge_caches(
         file_source = path.stem if path.stem in known_sources else None
         collapsed: dict[str, CacheRow] = {}
         for row in read_records(path):
+            key = row.get("key")
+            if not isinstance(key, str):
+                stats.unroutable += 1
+                continue
+            key_source = source_for_key(key)
+            if key_source is None:
+                stats.unroutable += 1
+                # Dropped only when merging *into* a source's cache, where a
+                # foreign row does not belong. Compacting a file in place
+                # keeps them: nothing is laundered anywhere, and rewriting
+                # someone's cache must not silently lose readable rows.
+                if source is not None:
+                    continue
+            elif source is not None and key_source != source:
+                continue
+            elif file_source is not None and key_source != file_source:
+                # Counted only for rows this merge keeps, so the number says
+                # how many records the run moves to the source that answered
+                # them — not how many it walked past.
+                stats.misrouted += 1
             stats.rows_read += 1
             if row_ts(row) == _OLDEST:
                 stats.missing_ts += 1
-            key_source = source_for_key(row.get("key"))
-            if key_source is None:
-                stats.unroutable += 1
-                continue
-            if file_source is not None and key_source != file_source:
-                stats.misrouted += 1
-            if source is not None and key_source != source:
-                continue
-            key = row["key"]
             contests.setdefault(key, _Contest()).saw(row)
             # Line order is time order inside one append-only log, so a later
             # line wins outright — except over a record when `keep_records`

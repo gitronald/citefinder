@@ -56,23 +56,41 @@ def test_a_row_is_routed_by_host_not_by_file_name(tmp_path: Path) -> None:
     )
     rows, stats = merge_caches([misdirected], source="openalex")
     assert [r["key"] for r in rows] == [OPENALEX]
-    assert stats.misrouted == 1
+    # The stray row is another source's business, not this merge's.
+    assert stats.misrouted == 0
 
-    # The same file, merged for the other source, yields the stray row.
+    # The same file, merged for the other source, yields the stray row —
+    # counted as misrouted, because this merge is the one that rehomes it.
     rows, stats = merge_caches([misdirected], source="crossref")
     assert [r["key"] for r in rows] == [CROSSREF]
-    assert stats.misrouted == 1
+    assert (stats.misrouted, stats.rows_read) == (1, 1)
 
 
-def test_unroutable_rows_are_counted_and_dropped(tmp_path: Path) -> None:
+def test_unroutable_rows_are_dropped_only_when_merging_into_a_source(
+    tmp_path: Path,
+) -> None:
+    stray = "https://example.org/works/1"
     path = write(
         tmp_path / "openalex.jsonl",
         row(OPENALEX, {"id": "W1"}),
-        row("https://example.org/works/1", {"id": "X"}),
+        row(stray, {"id": "X"}),
     )
-    rows, stats = merge_caches([path])
+    rows, stats = merge_caches([path], source="openalex")
     assert [r["key"] for r in rows] == [OPENALEX]
     assert stats.unroutable == 1
+
+    # Compacting a file in place reports them but keeps them: rewriting
+    # someone's cache must not silently lose readable rows.
+    rows, stats = merge_caches([path])
+    assert sorted(str(r["key"]) for r in rows) == sorted([OPENALEX, stray])
+    assert stats.unroutable == 1
+
+
+def test_a_row_with_a_non_string_key_is_never_written_back(tmp_path: Path) -> None:
+    path = write(tmp_path / "openalex.jsonl", cast(CacheRow, {"key": 7, "value": 1}))
+    rows, stats = merge_caches([path])
+    assert rows == []
+    assert (stats.rows_read, stats.unroutable) == (0, 1)
 
 
 # --- ordering ---------------------------------------------------------------
@@ -301,3 +319,16 @@ def test_summarize_reports_a_key_whose_newest_row_is_a_404(tmp_path: Path) -> No
 
 def test_summarize_of_nothing_is_empty(tmp_path: Path) -> None:
     assert summarize_caches([tmp_path / "openalex.jsonl"]) == {}
+
+
+def test_summarize_counts_a_row_with_a_non_string_key_but_keys_nothing(
+    tmp_path: Path,
+) -> None:
+    path = write(
+        tmp_path / "openalex.jsonl",
+        row(OPENALEX, {"v": 1}, 100.0),
+        cast(CacheRow, {"key": 7, "value": 1, "ts": 200.0}),
+    )
+    summary = summarize_caches([path])
+    assert (summary["unroutable"].rows, summary["unroutable"].keys) == (1, 0)
+    assert summary["openalex"].keys == 1

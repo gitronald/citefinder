@@ -17,6 +17,7 @@ import tomllib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
 from operator import itemgetter
@@ -30,10 +31,19 @@ from citefinder import install as install_mod
 from citefinder._base import DEFAULT_MAX_RETRIES, validate_knob
 from citefinder.bib import parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
-from citefinder.cache import read_records
+from citefinder.cache import (
+    SOURCE_HOSTS,
+    MergeStats,
+    SourceStats,
+    merge_caches,
+    read_records,
+    summarize_caches,
+    write_records,
+)
 from citefinder.client import CrossrefClient
 from citefinder.config import (
     ENV_KEYS,
+    default_cache_dir,
     find_project_config,
     load_config,
     resolve_cache_path,
@@ -176,6 +186,8 @@ crossref_app = typer.Typer(
     help="Crossref lookups (canonical published-deposit metadata)."
 )
 app.add_typer(crossref_app, name="crossref")
+cache_app = typer.Typer(help="Inspect and consolidate the JSONL caches.")
+app.add_typer(cache_app, name="cache")
 
 _CACHE_HELP = (
     "JSONL cache path (default: <cache-dir>/{source}.jsonl). Overrides --cache-dir."
@@ -838,6 +850,211 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
     typer.echo(
         f"verify output:   {verify_root / '<bib-dir>[-<bib-stem>]' / '<source>'}/"
     )
+
+
+# --- cache maintenance ------------------------------------------------------
+#
+# Consolidation is always an explicit step. No lookup, and no `verify` run,
+# merges anything as a side effect: a per-run cache stays beside its own
+# `results.json`, and a misrouted row only ever moves because someone ran
+# `cache merge`.
+
+_SOURCES: tuple[str, ...] = tuple(sorted(set(SOURCE_HOSTS.values())))
+
+ExtraOption = typer.Option(
+    None,
+    "--extra",
+    help="Another cache file to merge in (repeatable): a copy from elsewhere, "
+    "or a sync tool's conflicted duplicate. Rows are routed by their own host.",
+)
+KeepRecordsOption = typer.Option(
+    False,
+    "--keep-records",
+    help="Never let a cached 404 supersede a real record, however new it is.",
+)
+WriteOption = typer.Option(
+    False, "--write", help="Apply the merge. Without it, nothing is written."
+)
+
+
+def _cache_root(cache_dir: Path | None) -> Path:
+    """The directory the cache commands read, or exit 1 when it is not one.
+
+    A missing directory is an error, never an empty cache: a dropped mount
+    or a mistyped `--cache-dir` must not report zero rows as if the cache
+    were simply new.
+    """
+    root = _cache_dir(cache_dir) or default_cache_dir()
+    if not root.is_dir():
+        typer.echo(f"Error: {root}: not a directory", err=True)
+        raise typer.Exit(code=1)
+    return root
+
+
+def _find(root: Path, pattern: str) -> list[Path]:
+    with _report_errors(OSError, prefix=f"cannot read {root}: "):
+        return sorted(root.rglob(pattern))
+
+
+def _labelled(pairs: list[tuple[str, object]]) -> None:
+    width = max(len(label) for label, _ in pairs)
+    for label, value in pairs:
+        typer.echo(f"  {label:<{width}}  {value}")
+
+
+def _when(ts: float | None) -> str:
+    """A row timestamp as local ISO time, or the raw value if it is not one."""
+    if ts is None:
+        return "(none)"
+    try:
+        return datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+    except (OSError, OverflowError, ValueError):
+        return str(ts)
+
+
+def _report_merge(stats: MergeStats) -> None:
+    """The outcome of one merge: what it read, and every decision it made.
+
+    The null-versus-record counts print even at zero — a merge that silently
+    replaced a good record with a stale 404 is exactly what a reader needs to
+    see the run it happened in. The rest print only when they fire.
+    """
+    pairs: list[tuple[str, object]] = [
+        ("rows read", stats.rows_read),
+        ("distinct keys", stats.keys),
+        ("duplicate rows dropped", stats.replaced),
+        ("404s superseded by a record", stats.nulls_superseded),
+        ("records superseded by a 404", stats.records_superseded),
+    ]
+    for label, value in (
+        ("records kept over a newer 404", stats.records_kept),
+        ("rows with no ts", stats.missing_ts),
+        ("misrouted rows (host != file)", stats.misrouted),
+        ("unroutable rows", stats.unroutable),
+    ):
+        if value:
+            pairs.append((label, value))
+    _labelled(pairs)
+
+
+def _apply(rows: list[Any], target: Path, write: bool) -> None:
+    if not write:
+        typer.echo(f"  would write {target} ({len(rows)} lines); pass --write to apply")
+        return
+    with _report_errors(OSError, prefix=f"cannot write {target}: "):
+        write_records(target, rows)
+    typer.echo(f"  wrote {target} ({len(rows)} lines)")
+
+
+@cache_app.command("stats")
+def cache_stats_cmd(cache_dir: Path | None = CacheDirOption) -> None:
+    """Inventory every JSONL cache under the cache directory.
+
+    Read-only, and recursive: the shared `<source>.jsonl` caches and every
+    per-run `verify` cache under them are counted together, so this is the
+    answer to "what has this project actually fetched". Rows are grouped by
+    the host that answered them, never by file name, so a misdirected record
+    is counted under the source it really came from. Distinct-key counts use
+    the newest row for each key, so `cached 404s` is what a lookup would hit
+    today.
+    """
+    root = _cache_root(cache_dir)
+    paths = _find(root, "*.jsonl")
+    typer.echo(f"cache dir: {root}")
+    typer.echo(f"files:     {len(paths)}")
+    summary = summarize_caches(paths)
+    if not summary:
+        typer.echo("\nno cache rows found")
+        return
+    for name in sorted(summary):
+        stats: SourceStats = summary[name]
+        typer.echo(f"\n{name}")
+        _labelled(
+            [
+                ("files", stats.files),
+                ("rows", stats.rows),
+                (
+                    "distinct keys",
+                    f"{stats.keys} ({stats.lookups} lookup(s), "
+                    f"{stats.searches} search(es))",
+                ),
+                ("cached 404s", stats.misses),
+                ("rows with no ts", stats.missing_ts),
+                ("newest fetch", _when(stats.newest_ts)),
+            ]
+        )
+
+
+@cache_app.command("merge")
+def cache_merge_cmd(
+    cache_dir: Path | None = CacheDirOption,
+    extra: list[Path] | None = ExtraOption,
+    keep_records: bool = KeepRecordsOption,
+    write: bool = WriteOption,
+) -> None:
+    """Consolidate every cache under the cache directory into the shared ones.
+
+    Reads every `<cache-dir>/**/*.jsonl` — the shared caches plus every
+    per-run `verify` cache — and any `--extra` file, then rewrites
+    `<cache-dir>/<source>.jsonl` with one line per key. Every file is offered
+    to every source and each row goes where its host says, so a record that
+    landed in the wrong file is filed under the source that answered it
+    rather than lost. Across independent files the newest `ts` wins (line
+    order says nothing between logs); within one file the later line does, as
+    the cache itself replays it. Winners keep their own `ts`.
+
+    Dry run by default. The inputs are never modified: a `verify` run's cache
+    stays beside its `results.json`, so consolidating is reversible by
+    re-running the merge.
+    """
+    root = _cache_root(cache_dir)
+    extras = [_anchor_or_exit(p, Path.cwd()) for p in extra or []]
+    for path in extras:
+        if not path.is_file():
+            typer.echo(f"Error: --extra {path}: not a file", err=True)
+            raise typer.Exit(code=2)
+    inputs = _find(root, "*.jsonl") + extras
+    typer.echo(f"cache dir: {root}")
+    # Every source is merged before anything is written: the targets are
+    # inputs too, so rewriting one mid-run would take a misrouted row out
+    # from under the pass that was about to rehome it.
+    merged = [
+        (source, merge_caches(inputs, source=source, keep_records=keep_records))
+        for source in _SOURCES
+    ]
+    for source, (rows, stats) in merged:
+        typer.echo(f"\n{source} ({stats.files} file(s) read)")
+        if not rows:
+            typer.echo("  no rows found")
+            continue
+        _report_merge(stats)
+        _apply(rows, resolve_cache_path(source, root), write)
+
+
+@cache_app.command("compact")
+def cache_compact_cmd(
+    path: Path,
+    keep_records: bool = KeepRecordsOption,
+    write: bool = WriteOption,
+) -> None:
+    """Dedupe one JSONL cache to a single line per key, in place.
+
+    The same merge as `cache merge` over a single file, so a shared cache
+    that has grown a long tail of repeat lookups shrinks to one line per key
+    with each winner's own `ts` preserved. Idempotent, and lossless: rows
+    from neither API are reported but kept, unlike a merge into a source's
+    cache, which drops them.
+
+    Dry run by default. `--write` replaces the file atomically (a temporary
+    file moved over it), never by rewriting it in place.
+    """
+    if not path.is_file():
+        typer.echo(f"Error: {path}: not a file", err=True)
+        raise typer.Exit(code=1)
+    rows, stats = merge_caches([path], keep_records=keep_records)
+    typer.echo(f"{path}")
+    _report_merge(stats)
+    _apply(rows, path, write)
 
 
 # --- crossref subcommand ----------------------------------------------------
