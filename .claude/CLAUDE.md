@@ -8,7 +8,7 @@ This file provides guidance to [Claude Code](claude.ai/code).
 citefinder/
 ├── __init__.py         # public API re-exports
 ├── _base.py            # CachedJsonClient base for the HTTP clients
-├── cache.py            # JsonlCache (append-only JSONL key-value store)
+├── cache.py            # JsonlCache (append-only JSONL key-value store) + merge/inventory/atomic-write maintenance
 ├── client.py           # CrossrefClient
 ├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
 ├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
@@ -20,7 +20,7 @@ citefinder/
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
 ├── install.py          # stub render/stamp/drift-check for the Claude Code skill
 ├── prompts/skill.md    # canonical `use-citefinder` skill body (package data)
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, skill, install, crossref subcommand
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, skill, install, crossref and cache subcommands
 ```
 
 The `use-citefinder` skill follows the
@@ -34,7 +34,7 @@ reports stub drift.
 
 The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan
-[`001-absorb-bib-verification-scripts.md`](.planners/plans/001-absorb-bib-verification-scripts/plan.md)
+[`001-absorb-bib-verification-scripts`](.planners/plans/001-absorb-bib-verification-scripts/plan.md)
 — `signals.py` is shape-independent, `adapters.py` is the per-source JSON
 boundary, `verify.py` orchestrates lookups against a `Source`. The raw record
 shapes those adapters read are declared in `models.py` as deliberately
@@ -85,6 +85,7 @@ constructors explicitly — config files are CLI-only.
 - Tests: `uv run pytest` (coverage runs by default; CI fails below the `fail_under` floor in `pyproject.toml`)
 - Linting: pre-commit hooks run ruff format + lint on commit
 - Type checking: pre-commit hooks run pyrefly on commit (strict preset)
+- Stop hook: `.claude/hooks/lint-typecheck.sh` runs `ruff check`, `ruff format --check`, and `pyrefly check` (non-mutating) when a session ends, mirroring CI. It checks the nearest `pyproject.toml` above the working directory, so a `.worktrees/` checkout is gated against its own environment
 - CI: GitHub Actions runs lint + type check + test matrix (Python 3.11–3.14) on push/PR to dev/main
 
 ## Release Automation

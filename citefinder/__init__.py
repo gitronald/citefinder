@@ -3,7 +3,15 @@
 from citefinder.adapters import crossref_to_work, openalex_to_work
 from citefinder.bib import Entry, parse_entries
 from citefinder.bib_table import bib_to_table, table_to_bib
-from citefinder.cache import JsonlCache
+from citefinder.cache import (
+    JsonlCache,
+    MergeStats,
+    SourceStats,
+    merge_caches,
+    read_records,
+    summarize_caches,
+    write_records,
+)
 from citefinder.client import CrossrefClient
 from citefinder.config import resolve_cache_path
 from citefinder.openalex import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
@@ -21,20 +29,26 @@ __all__ = [
     "CrossrefClient",
     "Entry",
     "JsonlCache",
+    "MergeStats",
     "OpenAlexClient",
     "Result",
     "Source",
+    "SourceStats",
     "Status",
     "Work",
     "bib_to_table",
     "compute_signals",
     "crossref_to_work",
     "is_arxiv_doi",
+    "merge_caches",
     "openalex_to_work",
     "parse_entries",
+    "read_records",
     "reconstruct_abstract",
     "resolve_cache_path",
     "status_from_signals",
+    "summarize_caches",
     "table_to_bib",
     "verify_entry",
+    "write_records",
 ]

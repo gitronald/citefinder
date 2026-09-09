@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-09
+
+### Added
+
+- `citefinder cache stats` inventories every JSONL cache under the cache
+  directory — files, rows, distinct keys split into lookups and searches,
+  cached 404s, rows with no timestamp, and the newest fetch, per source. It
+  fails on a missing directory rather than reporting zeros, so a dropped mount
+  and an empty cache do not look alike.
+- `citefinder cache merge` consolidates the shared caches and every per-run
+  `verify` cache into `<cache-dir>/<source>.jsonl`, one line per key: newest
+  `ts` wins across files (later line within one), winners keep their own `ts`,
+  and rows are routed by the host in their key so a record in the wrong file
+  reaches the right one. Dry run until `--write`; `--extra PATH` folds in a
+  file from elsewhere, and `--keep-records` stops a newer cached 404 from
+  replacing a real record. The inputs are never modified.
+- `citefinder cache compact <path>` runs the same merge over a single file,
+  deduping it to one line per key in place. Idempotent, and it keeps rows it
+  cannot route rather than dropping them.
+- `merge_caches`, `summarize_caches`, `write_records`, and `read_records` are
+  exported from the package, along with the `MergeStats` and `SourceStats`
+  dataclasses they report through, so a caller can consolidate caches without
+  shelling out. Writes go through a temporary file and `os.replace`, never an
+  in-place rewrite.
+
+### Changed
+
+- The tracked `.claude/settings.json` keeps only the Stop hook; the permission
+  `allow`/`deny`/`ask` profile it carried since 0.9.4 is gone from the repo.
+  Permissions are a per-clone choice, so they belong in the untracked
+  `.claude/settings.local.json` rather than being shared. Nothing in the
+  package, CI, or the pre-commit hooks reads either file.
+- The Stop hook gate (`.claude/hooks/lint-typecheck.sh`) now mirrors CI
+  exactly: it adds `ruff format --check .` alongside `ruff check .` and
+  `pyrefly check`, so layout the linter does not police — quote style,
+  wrapping, trailing-comma expansion — can no longer pass the gate and fail
+  CI. It also resolves the tree it checks by walking up from the working
+  directory to the nearest `pyproject.toml`, falling back to
+  `CLAUDE_PROJECT_DIR` only outside a project, so a run inside a
+  `.worktrees/` checkout is checked against that worktree's own environment
+  rather than the main one. `settings.json` invokes it through
+  `CLAUDE_PROJECT_DIR` so the path resolves from any working directory.
+
 ## [0.9.4] - 2026-09-06
 
 ### Changed
