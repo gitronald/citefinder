@@ -34,7 +34,7 @@ reports stub drift.
 
 The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan
-[`001-absorb-bib-verification-scripts.md`](.planners/plans/001-absorb-bib-verification-scripts/plan.md)
+[`001-absorb-bib-verification-scripts`](.planners/plans/001-absorb-bib-verification-scripts/plan.md)
 — `signals.py` is shape-independent, `adapters.py` is the per-source JSON
 boundary, `verify.py` orchestrates lookups against a `Source`. The raw record
 shapes those adapters read are declared in `models.py` as deliberately

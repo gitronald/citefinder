@@ -1,3 +1,8 @@
 # The bundled skill body ships inside the wheel byte-for-byte; pin LF so a
 # CRLF checkout (Windows autocrlf) cannot desync the wheel from load_body().
 citefinder/prompts/*.md text eol=lf
+# The plan index is generated from plan frontmatter, so two branches that each
+# added or closed a plan both rewrite it. `union` keeps both sides on a local
+# merge — a duplicated row that `planners index .` repairs, rather than a
+# conflict in a file nobody hand-edits. Written by `planners install`.
+.planners/README.md merge=union
