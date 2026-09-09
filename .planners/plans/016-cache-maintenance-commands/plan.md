@@ -5,7 +5,7 @@ status: active
 branch: feature/cache-maintenance-commands
 created: 2026-09-09T10:19:50-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/59
 ---
 
 # Add cache maintenance commands: merge, compact, and stats
