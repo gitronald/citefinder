@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   deduping it to one line per key in place. Idempotent, and it keeps rows it
   cannot route rather than dropping them.
 - `merge_caches`, `summarize_caches`, `write_records`, and `read_records` are
-  exported from the package, so a caller can consolidate caches without
+  exported from the package, along with the `MergeStats` and `SourceStats`
+  dataclasses they report through, so a caller can consolidate caches without
   shelling out. Writes go through a temporary file and `os.replace`, never an
   in-place rewrite.
 

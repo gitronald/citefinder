@@ -202,7 +202,7 @@ citefinder cache compact path/to/openalex.jsonl       # dedupe one file to a lin
 - **Newest `ts` wins across files** (later line within one file), and the winner keeps its own `ts`. Rows are routed by the host in their key, not by the file name, so a record that landed in the wrong file is refiled under the source that answered it.
 - **A stale cached 404 is what merging fixes:** a run that got a record for a DOI another file 404'd supersedes it, reported as `404s superseded by a record`. The reverse also happens — check `records superseded by a 404` on every run, and re-run with `--keep-records` if a transient upstream failure is the likelier explanation than a real removal.
 - **Inputs are never modified.** `merge` only rewrites the shared cache, so each `verify` run's evidence stays beside its `results.json`. Do not merge while a lookup or `verify` run is writing into the same directory; re-run it afterwards instead.
-- `merge_caches`, `summarize_caches`, `read_records`, and `write_records` are importable from `citefinder` if you need this in a script.
+- `merge_caches`, `summarize_caches`, `read_records`, and `write_records` are importable from `citefinder` if you need this in a script, as are the `MergeStats` and `SourceStats` dataclasses they report through.
 
 ## OpenAlex fallback for arXiv / preprint / thin-metadata DOIs
 

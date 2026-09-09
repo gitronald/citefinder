@@ -188,6 +188,27 @@ def test_merge_takes_an_extra_file_from_outside_the_cache_dir(
     assert rows[OPENALEX_SEARCH] == {"results": [1]}
 
 
+def test_an_extra_the_glob_already_found_is_read_once(cache_dir: Path) -> None:
+    # An `--extra` may well name a file inside the cache dir. Reading it twice
+    # changes no winner, but it doubles every count in the report — and the
+    # counts are what a reader consults before passing --write.
+    plain = section(
+        run("cache", "merge", "--cache-dir", str(cache_dir)).output, "openalex"
+    )
+    duplicated = section(
+        run(
+            "cache",
+            "merge",
+            "--cache-dir",
+            str(cache_dir),
+            "--extra",
+            str(cache_dir / "openalex.jsonl"),
+        ).output,
+        "openalex",
+    )
+    assert duplicated == plain
+
+
 def test_merge_rejects_an_extra_that_is_not_a_file(cache_dir: Path) -> None:
     result = runner.invoke(
         app, ["cache", "merge", "--cache-dir", str(cache_dir), "--extra", "nope.jsonl"]
@@ -230,6 +251,24 @@ def test_compact_keeps_a_row_it_cannot_route(tmp_path: Path) -> None:
     out = run("cache", "compact", str(path), "--write").output
     assert reported(out, "unroutable rows") == "1"
     assert len(read_records(path)) == 2
+
+
+def test_compact_leaves_a_misfiled_row_where_it_is_and_says_nothing(
+    tmp_path: Path,
+) -> None:
+    # `misrouted` counts rows a merge *rehomes*. Compacting rewrites the one
+    # file it read, so a crossref row in openalex.jsonl stays there — and a
+    # count claiming it moved would read as a repair that never happened.
+    path = write(
+        tmp_path / "openalex.jsonl",
+        {"key": OPENALEX, "value": {"v": 1}, "ts": 100.0},
+        {"key": CROSSREF, "value": {"v": 2}, "ts": 200.0},
+    )
+    out = run("cache", "compact", str(path), "--write").output
+    assert "misrouted" not in out
+    assert sorted(str(r["key"]) for r in read_records(path)) == sorted(
+        [OPENALEX, CROSSREF]
+    )
 
 
 def test_compact_rejects_a_path_that_is_not_a_file(tmp_path: Path) -> None:

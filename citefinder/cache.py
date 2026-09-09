@@ -157,7 +157,11 @@ class MergeStats:
     """Newer 404s refused because `keep_records` was set."""
     missing_ts: int = 0
     misrouted: int = 0
-    """Rows whose host disagrees with the source their file is named for."""
+    """Rows this merge rehomes: host disagrees with the file's own source.
+
+    Only a merge *into* a source's cache moves a row, so compacting a file in
+    place leaves this at zero however misfiled its rows are.
+    """
     unroutable: int = 0
     """Rows whose host is neither API's. Never reach the output."""
 
@@ -178,7 +182,19 @@ class SourceStats:
     """Distinct keys whose newest row is a cached 404."""
     missing_ts: int = 0
     newest_ts: float | None = None
-    _seen: set[str] = field(default_factory=set, repr=False)
+
+
+def _rank(row: CacheRow) -> tuple[float, bool, str]:
+    """Sort key choosing one winner among the rows held for a key.
+
+    Newest `ts` first — the merge's one rule. The rest only settles a tie,
+    which `ts` alone leaves to the order the files happened to be globbed in:
+    a real record beats a 404 fetched in the same instant, and rows that agree
+    on both fall back to their own content. Two caches then consolidate to the
+    same file however the walk reached them.
+    """
+    value = row.get("value")
+    return (row_ts(row), value is not None, json.dumps(value, sort_keys=True))
 
 
 @dataclass
@@ -200,19 +216,23 @@ class _Contest:
     def saw(self, row: CacheRow) -> None:
         self.rows += 1
         ts = row_ts(row)
+        # `is None` rather than a falsy check: an accumulated `ts` of exactly
+        # 0.0 is a real timestamp, and `or` would discard it and recompute the
+        # maximum from this row alone.
         if row.get("value") is None:
-            self.newest_null = max(ts, self.newest_null or _OLDEST)
-        else:
-            self.newest_record = max(ts, self.newest_record or _OLDEST)
+            if self.newest_null is None or ts > self.newest_null:
+                self.newest_null = ts
+        elif self.newest_record is None or ts > self.newest_record:
+            self.newest_record = ts
 
     def resolve(self, keep_records: bool, stats: MergeStats) -> CacheRow:
         """The winning row, folding this key's outcome into `stats`."""
         stats.replaced += self.rows - 1
-        winner = max(self.candidates, key=row_ts)
+        winner = max(self.candidates, key=_rank)
         if keep_records and winner.get("value") is None:
             records = [r for r in self.candidates if r.get("value") is not None]
             if records:
-                winner = max(records, key=row_ts)
+                winner = max(records, key=_rank)
         if winner.get("value") is None:
             if self.newest_record is not None:
                 stats.records_superseded += 1
@@ -283,10 +303,15 @@ def merge_caches(
                     continue
             elif source is not None and key_source != source:
                 continue
-            elif file_source is not None and key_source != file_source:
-                # Counted only for rows this merge keeps, so the number says
-                # how many records the run moves to the source that answered
-                # them — not how many it walked past.
+            elif (
+                source is not None
+                and file_source is not None
+                and key_source != file_source
+            ):
+                # Counted only for rows this merge keeps *and rehomes*, so the
+                # number says how many records the run moves to the source that
+                # answered them — not how many it walked past, and not rows a
+                # compaction leaves exactly where they were.
                 stats.misrouted += 1
             stats.rows_read += 1
             if row_ts(row) == _OLDEST:

@@ -896,6 +896,30 @@ def _find(root: Path, pattern: str) -> list[Path]:
         return sorted(root.rglob(pattern))
 
 
+def _distinct(paths: list[Path]) -> list[Path]:
+    """`paths` in order, with any file named twice kept once.
+
+    An `--extra` may well point at a file the cache directory's own glob
+    already found — a copy taken from it, or the same path spelled through a
+    symlink. Reading it twice changes no winner (the duplicate rows are the
+    same rows), but it doubles every count in the report, and the counts are
+    what a reader consults to decide whether to pass `--write`. Compared by
+    resolved path, so the two spellings collapse.
+    """
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except OSError:  # pragma: no cover - a path the OS refuses to resolve
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
 def _labelled(pairs: list[tuple[str, object]]) -> None:
     width = max(len(label) for label, _ in pairs)
     for label, value in pairs:
@@ -1013,7 +1037,7 @@ def cache_merge_cmd(
         if not path.is_file():
             typer.echo(f"Error: --extra {path}: not a file", err=True)
             raise typer.Exit(code=2)
-    inputs = _find(root, "*.jsonl") + extras
+    inputs = _distinct(_find(root, "*.jsonl") + extras)
     typer.echo(f"cache dir: {root}")
     # Every source is merged before anything is written: the targets are
     # inputs too, so rewriting one mid-run would take a misrouted row out

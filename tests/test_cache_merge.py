@@ -48,6 +48,19 @@ def test_source_for_key_routes_by_host() -> None:
     assert source_for_key("https://api.crossref.org.evil.test/works/1") is None
 
 
+def test_source_for_key_ignores_host_case() -> None:
+    # A host is case-insensitive, so a key spelled in caps must route the
+    # same; without the fold it lands as unroutable and is dropped by a merge.
+    assert source_for_key("https://API.Crossref.ORG/works/10.1000/a") == "crossref"
+
+
+def test_a_row_whose_key_is_not_a_url_is_unroutable(tmp_path: Path) -> None:
+    path = write(tmp_path / "openalex.jsonl", row("not-a-url", {"v": 1}, 100.0))
+    assert source_for_key("not-a-url") is None
+    rows, stats = merge_caches([path], source="openalex")
+    assert (rows, stats.unroutable) == ([], 1)
+
+
 def test_a_row_is_routed_by_host_not_by_file_name(tmp_path: Path) -> None:
     misdirected = write(
         tmp_path / "openalex.jsonl",
@@ -147,6 +160,45 @@ def test_a_row_without_ts_loses_but_is_not_dropped(tmp_path: Path) -> None:
     assert [r["key"] for r in rows] == [OPENALEX_SEARCH, OPENALEX]
 
 
+def test_a_ts_that_is_not_a_number_counts_as_missing(tmp_path: Path) -> None:
+    # `True` is an `int` in Python, so without the explicit bool guard a row
+    # stamped `true` would silently be read as ts=1.0 and beat a real one.
+    path = write(
+        tmp_path / "a" / "openalex.jsonl",
+        cast(CacheRow, {"key": OPENALEX, "value": {"v": "bool"}, "ts": True}),
+        cast(CacheRow, {"key": OPENALEX_SEARCH, "value": {"v": "str"}, "ts": "100"}),
+    )
+    stamped = write(
+        tmp_path / "b" / "openalex.jsonl", row(OPENALEX, {"v": "real"}, 0.5)
+    )
+    rows, stats = merge_caches([path, stamped])
+    assert stats.missing_ts == 2
+    by_key = {r["key"]: r for r in rows}
+    assert by_key[OPENALEX]["value"] == {"v": "real"}
+
+
+def test_a_tie_on_ts_is_broken_the_same_way_whichever_file_is_read_first(
+    tmp_path: Path,
+) -> None:
+    # Two independent logs can stamp the same second. `ts` alone leaves the
+    # winner to the glob, which would consolidate the same two caches into
+    # different files depending on the walk.
+    a = write(tmp_path / "a" / "openalex.jsonl", row(OPENALEX, {"v": "a"}, 100.0))
+    b = write(tmp_path / "b" / "openalex.jsonl", row(OPENALEX, {"v": "b"}, 100.0))
+    first, _ = merge_caches([a, b])
+    second, _ = merge_caches([b, a])
+    assert first == second
+
+
+def test_a_record_beats_a_404_stamped_the_same_instant(tmp_path: Path) -> None:
+    miss = write(tmp_path / "a" / "crossref.jsonl", row(CROSSREF, None, 100.0))
+    hit = write(tmp_path / "b" / "crossref.jsonl", row(CROSSREF, {"DOI": "x"}, 100.0))
+    for paths in ([miss, hit], [hit, miss]):
+        rows, stats = merge_caches(paths)
+        assert rows[0]["value"] == {"DOI": "x"}
+        assert (stats.nulls_superseded, stats.records_superseded) == (1, 0)
+
+
 def test_output_is_ordered_oldest_first(tmp_path: Path) -> None:
     path = write(
         tmp_path / "openalex.jsonl",
@@ -207,6 +259,19 @@ def test_keep_records_holds_within_one_file_too(tmp_path: Path) -> None:
     rows, stats = merge_caches([path])
     assert rows[0]["value"] is None
     assert (stats.records_kept, stats.records_superseded) == (0, 1)
+
+
+def test_a_ts_of_zero_is_a_timestamp_not_an_absent_one(tmp_path: Path) -> None:
+    # The epoch is falsy, so tracking "newest seen" with `or` discards a
+    # legitimately accumulated 0.0 and recomputes it from the row in hand —
+    # which flips this key's report from `records kept` to `404 superseded`.
+    record = write(tmp_path / "a" / "crossref.jsonl", row(CROSSREF, {"DOI": "x"}, None))
+    stamped_null = write(tmp_path / "b" / "crossref.jsonl", row(CROSSREF, None, 0.0))
+    bare_null = write(tmp_path / "c" / "crossref.jsonl", row(CROSSREF, None, None))
+
+    rows, stats = merge_caches([record, stamped_null, bare_null], keep_records=True)
+    assert rows[0]["value"] == {"DOI": "x"}
+    assert (stats.records_kept, stats.nulls_superseded) == (1, 0)
 
 
 def test_keep_records_still_lets_a_record_replace_a_404(tmp_path: Path) -> None:
