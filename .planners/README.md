@@ -2,6 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
+| 016 | [cache-maintenance-commands](plans/016-cache-maintenance-commands/plan.md) | draft | — | — |
 | 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | draft | — | — |
 | 015 | [Sync tooling with proj-template 0.8](plans/015-template-upgrade/plan.md) | done | 2026-09-06 14:05 PT | [#56](https://github.com/gitronald/citefinder/pull/56) |
 | 014 | [Model the Crossref and OpenAlex record shapes](plans/014-source-record-models/plan.md) | done | 2026-09-05 18:47 PT | [#54](https://github.com/gitronald/citefinder/pull/54) |
