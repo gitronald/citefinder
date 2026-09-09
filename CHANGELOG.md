@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   shelling out. Writes go through a temporary file and `os.replace`, never an
   in-place rewrite.
 
+### Changed
+
+- The tracked `.claude/settings.json` keeps only the Stop hook; the permission
+  `allow`/`deny`/`ask` profile it carried since 0.9.4 is gone from the repo.
+  Permissions are a per-clone choice, so they belong in the untracked
+  `.claude/settings.local.json` rather than being shared. Nothing in the
+  package, CI, or the pre-commit hooks reads either file.
+
 ## [0.9.4] - 2026-09-06
 
 ### Changed
