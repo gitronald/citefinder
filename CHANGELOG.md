@@ -39,6 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Permissions are a per-clone choice, so they belong in the untracked
   `.claude/settings.local.json` rather than being shared. Nothing in the
   package, CI, or the pre-commit hooks reads either file.
+- The Stop hook gate (`.claude/hooks/lint-typecheck.sh`) now mirrors CI
+  exactly: it adds `ruff format --check .` alongside `ruff check .` and
+  `pyrefly check`, so layout the linter does not police — quote style,
+  wrapping, trailing-comma expansion — can no longer pass the gate and fail
+  CI. It also resolves the tree it checks by walking up from the working
+  directory to the nearest `pyproject.toml`, falling back to
+  `CLAUDE_PROJECT_DIR` only outside a project, so a run inside a
+  `.worktrees/` checkout is checked against that worktree's own environment
+  rather than the main one. `settings.json` invokes it through
+  `CLAUDE_PROJECT_DIR` so the path resolves from any working directory.
 
 ## [0.9.4] - 2026-09-06
 

@@ -85,6 +85,7 @@ constructors explicitly — config files are CLI-only.
 - Tests: `uv run pytest` (coverage runs by default; CI fails below the `fail_under` floor in `pyproject.toml`)
 - Linting: pre-commit hooks run ruff format + lint on commit
 - Type checking: pre-commit hooks run pyrefly on commit (strict preset)
+- Stop hook: `.claude/hooks/lint-typecheck.sh` runs `ruff check`, `ruff format --check`, and `pyrefly check` (non-mutating) when a session ends, mirroring CI. It checks the nearest `pyproject.toml` above the working directory, so a `.worktrees/` checkout is gated against its own environment
 - CI: GitHub Actions runs lint + type check + test matrix (Python 3.11–3.14) on push/PR to dev/main
 
 ## Release Automation
