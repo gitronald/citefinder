@@ -3,7 +3,7 @@ id: 17
 slug: ratelimit-refresh-on-empty
 status: done
 branch: null
-created: 2026-09-10T01:13:28-07:00
+created: 2026-09-10T01:09:17-07:00
 concluded: 2026-09-10T01:12:29-07:00
 pr: null
 ---
@@ -15,6 +15,12 @@ pr: null
 Retrospective plan: the change landed directly on `dev` before this file was
 written, as a small follow-up to the quota tracking that added
 `citefinder ratelimit`.
+
+The `created` timestamp is taken from a commit, not from when the file was
+written. The file was scaffolded at 2026-09-10T01:13:28-07:00, after the work
+was committed, so `created` is backdated to the authored time of the quota
+tracking commit `ef30e48` (01:09:17). The work began right after that commit
+and ended with the implementation commit `9c8f0ff` (01:12:29).
 
 ### Problem
 
