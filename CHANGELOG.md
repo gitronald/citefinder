@@ -7,10 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Clients count the requests that reached the network in `network_calls`,
+  alongside the existing `retries` tally, and `Source` exposes both as
+  properties for a run summary.
+
 ### Changed
 
 - Require `bibtexparser>=2.0.0` (was `>=2.0.0b0`). The v2 line reached a stable
   release; the pin no longer resolves to a pre-release.
+- `import citefinder` no longer imports polars. `bib_to_table` and
+  `table_to_bib` resolve on first attribute access, so every command that
+  never tabulates a `.bib` skips that import cost; both names still import
+  from the package as before.
+- Path lists passed to `merge_caches` and `summarize_caches` are deduplicated
+  by resolved path inside the library, so a file named twice is read once no
+  matter which caller assembled the list.
+
+### Fixed
+
+- `citefinder verify` counts a network call where the hit/miss decision is
+  made rather than inferring it from cache growth. A refetch of a key already
+  cached, or a run with no cache, previously reported as a cache hit.
 
 ## [0.10.0] - 2026-09-09
 
