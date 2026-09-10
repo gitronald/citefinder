@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-09
+
 ### Added
 
 - Clients count the requests that reached the network in `network_calls`,
