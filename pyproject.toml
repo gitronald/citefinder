@@ -48,6 +48,8 @@ only-include = [
     "/README.md",
     "/CHANGELOG.md",
     "/LICENSE",
+    # README links into docs/, so it ships too or those links dead-end on PyPI.
+    "/docs",
 ]
 
 [dependency-groups]

@@ -209,9 +209,16 @@ immediately, and 404 is still cached as `None`.
 Requests can also be paced: `min_interval` is the minimum number of seconds
 between the start of consecutive requests from one client instance. It
 defaults to `0.1` for both clients, matching OpenAlex's documented 10
-requests per second. Cache hits are not requests and are never paced.
-All four knobs must be finite and
-non-negative; anything else raises `ValueError` at construction.
+requests per second. Cache hits are not requests and are never paced. All
+four knobs must be finite and non-negative; anything else raises
+`ValueError` at construction.
+
+Crossref advertises a lower rate than that default sends. See
+[docs/crossref.md](docs/crossref.md) for the measured limits, what the
+polite pool changes, and how to pace inside them. OpenAlex now meters a
+daily credit budget rather than a sustained rate —
+[docs/openalex.md](docs/openalex.md) covers what a lookup costs and what
+runs out first.
 
 ```python
 openalex = OpenAlexClient(

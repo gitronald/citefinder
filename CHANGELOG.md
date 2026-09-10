@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `docs/crossref.md` and `docs/openalex.md` record what each API advertises,
+  measured with reproducible `curl` commands: Crossref's per-second rate and
+  what the polite pool changes, and OpenAlex's daily credit budget with the
+  cost of each lookup shape (DOI lookups are free, title searches are not).
+  Both ship in the sdist, so the README's links resolve on PyPI.
+
 ## [0.10.2] - 2026-09-09
 
 ### Changed
