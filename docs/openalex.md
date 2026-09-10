@@ -11,13 +11,15 @@ old way.
 
 | | Keyless (measured) | With a free API key (documented) |
 | --- | --- | --- |
-| Daily budget | 1000 credits / $0.10 | 10x that, ~$1.00 |
+| Daily budget | 1000 credits ($0.10 accounted) | 10x that (~$1.00 accounted) |
 | Resets | midnight UTC | midnight UTC |
 
-One credit is $0.0001. OpenAlex documents that "every account gets $1 of API
+Credits are the unit that matters; the `-usd` headers restate the very same
+budget in dollars, at 1 credit = $0.0001 of *accounted* usage. No money moves
+either way — see below. OpenAlex documents that "every account gets $1 of API
 usage per day for free" and that a free API key raises the budget 10x; the
-$0.10 figure above is what a keyless request actually advertised when measured,
-which is consistent with that 10x.
+keyless figure above is what a request actually advertised when measured, which
+is consistent with that 10x.
 
 A `429` comes back when the daily budget is spent **or** when a client exceeds
 **100 requests per second**.
@@ -40,14 +42,14 @@ Every response carries the budget state:
 ```
 x-ratelimit-limit: 1000              # daily budget, in credits
 x-ratelimit-remaining: 998           # credits left today
-x-ratelimit-limit-usd: 0.1           # the same budget in dollars
+x-ratelimit-limit-usd: 0.1           # the same budget, restated in dollars
 x-ratelimit-remaining-usd: 0.0998
-x-ratelimit-credits-used: 1          # what THIS request cost
+x-ratelimit-credits-used: 1          # credits THIS request drew down
 x-ratelimit-cost-usd: 0.0001
 x-ratelimit-reset: 62065             # seconds until the midnight-UTC reset
 ```
 
-Read `x-ratelimit-credits-used` to price any call shape yourself:
+Read `x-ratelimit-credits-used` to measure any call shape yourself:
 
 ```bash
 curl -s -o /dev/null -D - "https://api.openalex.org/works?search=kelp" | grep -i '^x-ratelimit'
@@ -117,7 +119,7 @@ OpenAlex once published a 10 req/s limit, and `DEFAULT_MIN_INTERVAL = 0.1` came
 from it. That figure is no longer what OpenAlex documents — the current ceiling
 is 100 req/s alongside the credit budget above — but the value is kept as a
 deliberate conservative floor rather than raised to match: at 10/s a run stays
-an order of magnitude inside the ceiling, and since credits are charged per
+an order of magnitude inside the ceiling, and since credits are counted per
 request and not per second, going faster would buy nothing but a higher chance
 of tripping the 429. Crossref, whose limit *is* a per-second rate, resolves its
 default from the polite-pool check instead — see [crossref.md](crossref.md).
