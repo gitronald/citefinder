@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-10
+
 ### Added
 
 - `docs/crossref.md` and `docs/openalex.md` record what each API advertises,
