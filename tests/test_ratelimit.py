@@ -39,6 +39,25 @@ def snapshot_rows(path: Path) -> list[CacheRow]:
     return [row for row in read_records(path) if "__ratelimit" in row["key"]]
 
 
+def stub_refresh(monkeypatch: pytest.MonkeyPatch, remaining: str) -> list[str]:
+    """Patch the probe to report `remaining`; returns the list of calls.
+
+    The CLI builds its own client, so the probe is patched at the method.
+    """
+    calls: list[str] = []
+
+    def fake_refresh(self) -> dict[str, Any]:
+        calls.append("refreshed")
+        self.rate_limit = {
+            "headers": {"x-ratelimit-remaining": remaining},
+            "ts": time.time(),
+        }
+        return self.rate_limit
+
+    monkeypatch.setattr(OpenAlexClient, "refresh_rate_limit", fake_refresh)
+    return calls
+
+
 def test_quota_headers_are_captured_from_an_ordinary_lookup(
     tmp_path: Path, mock_response
 ) -> None:
@@ -144,17 +163,7 @@ def test_ratelimit_refreshes_when_nothing_is_recorded(
     tmp_path: Path, monkeypatch
 ) -> None:
     """An empty cache can't answer, so the first run takes a reading itself."""
-    calls: list[str] = []
-
-    def fake_refresh(self) -> dict[str, Any]:
-        calls.append("refreshed")
-        self.rate_limit = {
-            "headers": {"x-ratelimit-remaining": "7"},
-            "ts": time.time(),
-        }
-        return self.rate_limit
-
-    monkeypatch.setattr(OpenAlexClient, "refresh_rate_limit", fake_refresh)
+    calls = stub_refresh(monkeypatch, "7")
     result = runner.invoke(app, ["ratelimit", "--cache", str(tmp_path / "empty.jsonl")])
 
     assert result.exit_code == 0, result.output
@@ -228,18 +237,7 @@ def test_ratelimit_reports_crossref_too(tmp_path: Path, mock_response) -> None:
 def test_ratelimit_refresh_asks_for_a_current_reading(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """The CLI builds its own client, so the probe is patched at the method."""
-    calls: list[str] = []
-
-    def fake_refresh(self) -> dict[str, Any]:
-        calls.append("refreshed")
-        self.rate_limit = {
-            "headers": {"x-ratelimit-remaining": "42"},
-            "ts": time.time(),
-        }
-        return self.rate_limit
-
-    monkeypatch.setattr(OpenAlexClient, "refresh_rate_limit", fake_refresh)
+    calls = stub_refresh(monkeypatch, "42")
     result = runner.invoke(
         app, ["ratelimit", "--refresh", "--cache", str(tmp_path / "openalex.jsonl")]
     )
