@@ -209,8 +209,8 @@ immediately, and 404 is still cached as `None`.
 Requests can also be paced: `min_interval` is the minimum number of seconds
 between the start of consecutive requests from one client instance. It
 defaults to `0.1` for both clients, matching OpenAlex's documented 10
-requests per second. Cache hits are not
-requests and are never paced. All four knobs must be finite and
+requests per second. Cache hits are not requests and are never paced.
+All four knobs must be finite and
 non-negative; anything else raises `ValueError` at construction.
 
 ```python
@@ -363,8 +363,8 @@ Read `results.json` by `method` × `status`:
   `0` disables. Default `3`. Also `OPENALEX_MAX_RETRIES` /
   `CROSSREF_MAX_RETRIES` in the env or `max_retries` in `config.toml`.
 - `--min-interval SECONDS` — Minimum gap between consecutive requests.
-  Default `0.1`. Also `OPENALEX_MIN_INTERVAL`
-  / `CROSSREF_MIN_INTERVAL` in the env or `min_interval` in `config.toml`.
+  Default `0.1`. Also `OPENALEX_MIN_INTERVAL` / `CROSSREF_MIN_INTERVAL`
+  in the env or `min_interval` in `config.toml`.
   `verify` reads the variables for whichever `--source` it runs against.
 
 ## Claude Code skill

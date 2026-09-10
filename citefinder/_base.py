@@ -38,8 +38,8 @@ DEFAULT_MAX_WAIT = 60.0
 
 # OpenAlex documents a limit of 10 requests per second (plus a daily cap), so
 # consecutive uncached requests from one client are spaced at least this far
-# apart by default. Crossref publishes no fixed rate, but its polite pool is
-# metered the same way in practice, so both clients share the pacing floor.
+# apart by default. Both clients share the floor; a caller that needs a
+# different pace passes `min_interval` explicitly.
 DEFAULT_MIN_INTERVAL = 0.1
 
 # Statuses worth a second try: the rate limiter (429) and the gateway-side
