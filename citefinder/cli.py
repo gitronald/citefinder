@@ -131,7 +131,7 @@ def _load_configs() -> None:
         [crossref]
         mailto = "you@example.com"
         max_retries = 3
-        min_interval = 0.1
+        min_interval = 0.34   # default: 1.0 anonymous, 0.34 in the polite pool
     """
     _config_sources.clear()
     project = find_project_config()
