@@ -14,13 +14,11 @@ import os
 import sys
 import time
 import tomllib
-from collections.abc import Iterator
+from collections import Counter
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as metadata_version
-from operator import itemgetter
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,9 +26,8 @@ import typer
 from dotenv import find_dotenv, load_dotenv
 
 from citefinder import install as install_mod
-from citefinder._base import DEFAULT_MAX_RETRIES, validate_knob
+from citefinder._base import DEFAULT_MAX_RETRIES, package_version, validate_knob
 from citefinder.bib import parse_entries
-from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.cache import (
     SOURCE_HOSTS,
     MergeStats,
@@ -75,7 +72,7 @@ def _anchor(path: str | Path, base: Path) -> Path:
 @contextmanager
 def _report_errors(
     *kinds: type[Exception], prefix: str = "", code: int = 1
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Turn a library exception into an `Error:` line and exit, no traceback.
 
     Exit 1 for a failure in the work itself; `code=2` for a usage error (a
@@ -246,34 +243,40 @@ _MIN_INTERVAL_HELP = (
     "Minimum seconds between requests (default {default}). "
     "Also {env} env or config.toml."
 )
-OpenAlexMaxRetriesOption = typer.Option(
-    None,
-    "--max-retries",
-    min=0,
-    envvar="OPENALEX_MAX_RETRIES",
-    help=_MAX_RETRIES_HELP.format(env="OPENALEX_MAX_RETRIES"),
-)
-OpenAlexMinIntervalOption = typer.Option(
-    None,
-    "--min-interval",
-    min=0.0,
-    envvar="OPENALEX_MIN_INTERVAL",
-    help=_MIN_INTERVAL_HELP.format(default="0.1", env="OPENALEX_MIN_INTERVAL"),
-)
-CrossrefMaxRetriesOption = typer.Option(
-    None,
-    "--max-retries",
-    min=0,
-    envvar="CROSSREF_MAX_RETRIES",
-    help=_MAX_RETRIES_HELP.format(env="CROSSREF_MAX_RETRIES"),
-)
-CrossrefMinIntervalOption = typer.Option(
-    None,
-    "--min-interval",
-    min=0.0,
-    envvar="CROSSREF_MIN_INTERVAL",
-    help=_MIN_INTERVAL_HELP.format(default="0", env="CROSSREF_MIN_INTERVAL"),
-)
+
+
+def _pacing_options(source: str, min_interval_default: str) -> tuple[Any, Any]:
+    """The `--max-retries` / `--min-interval` pair bound to one source's env.
+
+    Both flags differ between sources only by the `<SOURCE>_` env prefix and
+    the pacing default named in the help, so a new source declares its pair
+    here rather than growing another two near-identical option blocks.
+    `verify` builds its own inline: it picks the source at runtime, so it
+    cannot bind a single `envvar` and reads them via `_source_client_kwargs`.
+    """
+    prefix = source.upper()
+    return (
+        typer.Option(
+            None,
+            "--max-retries",
+            min=0,
+            envvar=f"{prefix}_MAX_RETRIES",
+            help=_MAX_RETRIES_HELP.format(env=f"{prefix}_MAX_RETRIES"),
+        ),
+        typer.Option(
+            None,
+            "--min-interval",
+            min=0.0,
+            envvar=f"{prefix}_MIN_INTERVAL",
+            help=_MIN_INTERVAL_HELP.format(
+                default=min_interval_default, env=f"{prefix}_MIN_INTERVAL"
+            ),
+        ),
+    )
+
+
+OpenAlexMaxRetriesOption, OpenAlexMinIntervalOption = _pacing_options("openalex", "0.1")
+CrossrefMaxRetriesOption, CrossrefMinIntervalOption = _pacing_options("crossref", "0")
 
 
 def _client_kwargs(
@@ -365,6 +368,38 @@ def _cache_path(source: str, cache: Path | None, cache_dir: Path | None) -> Path
     return resolve_cache_path(source, _cache_dir(cache_dir))
 
 
+def _openalex_client(
+    cache: Path | None,
+    cache_dir: Path | None,
+    mailto: str | None,
+    api_key: str | None,
+    max_retries: int | None,
+    min_interval: float | None,
+) -> OpenAlexClient:
+    """An `OpenAlexClient` from the options every top-level command shares."""
+    return OpenAlexClient(
+        cache_path=_cache_path("openalex", cache, cache_dir),
+        mailto=mailto,
+        api_key=api_key,
+        **_client_kwargs(max_retries, min_interval),
+    )
+
+
+def _crossref_client(
+    cache: Path | None,
+    cache_dir: Path | None,
+    mailto: str | None,
+    max_retries: int | None,
+    min_interval: float | None,
+) -> CrossrefClient:
+    """A `CrossrefClient` from the options every `crossref` subcommand shares."""
+    return CrossrefClient(
+        cache_path=_cache_path("crossref", cache, cache_dir),
+        mailto=mailto,
+        **_client_kwargs(max_retries, min_interval),
+    )
+
+
 def _verify_root(cache_dir: Path | None) -> Path:
     """The directory `verify` files its output under: `cache_dir` when one
     is set, else `data/citefinder` under the working directory. Shared with
@@ -396,8 +431,26 @@ def _verify_out_dir(bib_file: Path, source: str, cache_dir: Path | None) -> Path
     return _verify_root(cache_dir) / name / source
 
 
+def _require_file(path: Path, label: str = "", code: int = 1) -> None:
+    """Exit rather than let a command run on a path that is not a file.
+
+    Every command that takes a path opens with this check, so the wording is
+    one string: a missing `.bib`, a mistyped cache, and a directory passed
+    where a file belongs all report the same way. `label` names the flag when
+    the path came from one, and `code=2` marks it a usage error.
+    """
+    if not path.is_file():
+        typer.echo(f"Error: {label}{path} is not a file", err=True)
+        raise typer.Exit(code=code)
+
+
+def _to_json(payload: object) -> str:
+    """The one JSON rendering both stdout and `results.json` use."""
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
 def _emit(result: object) -> None:
-    typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
+    typer.echo(_to_json(result))
 
 
 def _emit_or_exit(result: object | None, label: str) -> None:
@@ -422,11 +475,8 @@ def doi(
     min_interval: float | None = OpenAlexMinIntervalOption,
 ) -> None:
     """Look up a single DOI via OpenAlex."""
-    client = OpenAlexClient(
-        cache_path=_cache_path("openalex", cache, cache_dir),
-        mailto=mailto,
-        api_key=api_key,
-        **_client_kwargs(max_retries, min_interval),
+    client = _openalex_client(
+        cache, cache_dir, mailto, api_key, max_retries, min_interval
     )
     _emit_or_exit(client.lookup_doi(doi), doi)
 
@@ -443,11 +493,8 @@ def search(
     min_interval: float | None = OpenAlexMinIntervalOption,
 ) -> None:
     """Search OpenAlex by title (title-only filter; tuned for citation lookup)."""
-    client = OpenAlexClient(
-        cache_path=_cache_path("openalex", cache, cache_dir),
-        mailto=mailto,
-        api_key=api_key,
-        **_client_kwargs(max_retries, min_interval),
+    client = _openalex_client(
+        cache, cache_dir, mailto, api_key, max_retries, min_interval
     )
     items = client.search_title(title, rows=rows)
     _emit(items)
@@ -477,9 +524,9 @@ def bib_to_table_cmd(
     """
     import polars as pl
 
-    if not bib_file.is_file():
-        typer.echo(f"Error: {bib_file} is not a file", err=True)
-        raise typer.Exit(code=1)
+    from citefinder.bib_table import bib_to_table
+
+    _require_file(bib_file)
 
     with _report_errors(ValueError):
         df = bib_to_table(bib_file.read_text())
@@ -518,9 +565,9 @@ def table_to_bib_cmd(
     """
     import polars as pl
 
-    if not csv_file.is_file():
-        typer.echo(f"Error: {csv_file} is not a file", err=True)
-        raise typer.Exit(code=1)
+    from citefinder.bib_table import table_to_bib
+
+    _require_file(csv_file)
 
     # `infer_schema_length=0` keeps every column as a string — year,
     # volume, etc. are bib values, not numbers, and downstream consumers
@@ -577,9 +624,7 @@ def verify(
     otherwise search by author + title + year. Writes a JSONL response
     cache and a structured `results.json` to the output directory.
     """
-    if not bib_file.is_file():
-        typer.echo(f"Error: {bib_file} is not a file", err=True)
-        raise typer.Exit(code=1)
+    _require_file(bib_file)
 
     # Default output comes from `_verify_out_dir`; its per-source subdir lets
     # crossref and openalex outputs coexist for side-by-side comparison
@@ -608,29 +653,29 @@ def verify(
     typer.echo(f"Source: {source}")
     typer.echo(f"Cache: {cache_path} ({starting_cache_size} entries pre-loaded)\n")
 
-    status_counts: dict[str, int] = {}
-    network_calls = 0
+    status_counts: Counter[str] = Counter()
     results: list[Result] = []
     width = len(str(len(entries)))
     t0 = time.monotonic()
 
     for i, entry in enumerate(entries, 1):
-        cache_before = src.cache_size()
+        calls_before = src.network_calls
         typer.echo(f"  [{i:>{width}}/{len(entries)}] {entry.key:<30}", nl=False)
         r = verify_entry(entry, src)
         results.append(r)
-        cache_after = src.cache_size()
-        was_network = cache_after > cache_before
-        if was_network:
-            network_calls += 1
-        status_counts[r.status] = status_counts.get(r.status, 0) + 1
+        # `verify_entry` makes at most one lookup per entry — the DOI path and
+        # the search path each return — so this reads as "this entry went to
+        # the network", and the run total below is a straight call count.
+        was_network = src.network_calls > calls_before
+        status_counts[r.status] += 1
         sim = f"{r.similarity:.2f}" if r.similarity is not None else "  - "
         net_or_hit = "net" if was_network else "hit"
         running = " ".join(f"{k}={v}" for k, v in sorted(status_counts.items()))
         typer.echo(f" {r.status:<14} {r.method:<7} sim={sim} [{net_or_hit}]  {running}")
 
     elapsed = time.monotonic() - t0
-    retries = getattr(src.client, "retries", 0)
+    retries = src.retries
+    network_calls = src.network_calls
     typer.echo(
         f"\nDone in {elapsed:.1f}s — {network_calls} network call(s), "
         f"{len(entries) - network_calls} cache hit(s), "
@@ -638,10 +683,7 @@ def verify(
     )
     typer.echo(
         "Final counts — "
-        + ", ".join(
-            f"{k}: {v}"
-            for k, v in sorted(status_counts.items(), key=itemgetter(1), reverse=True)
-        )
+        + ", ".join(f"{k}: {v}" for k, v in status_counts.most_common())
     )
 
     payload = {
@@ -649,9 +691,7 @@ def verify(
         "source": source,
         "results": [asdict(r) for r in results],
     }
-    (out_dir / "results.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
-    )
+    (out_dir / "results.json").write_text(_to_json(payload) + "\n")
 
     typer.echo(f"\nWrote {out_dir}/results.json, {cache_path.name}")
 
@@ -725,12 +765,7 @@ def install(
     from). `--check` reports whether the stub still matches this version's
     render.
     """
-    try:
-        version = metadata_version("citefinder")
-    except PackageNotFoundError:
-        # Same degraded fallback as `_default_user_agent` in `_base.py` — a
-        # missing distribution record should not make the stub unmanageable.
-        version = "0.0.0"
+    version = package_version()
     root = install_mod.find_repo_root()
     mode: install_mod.Mode = "local" if local else "global"
 
@@ -790,9 +825,7 @@ def drift(cache: Path) -> None:
     tail the model leaves out on purpose. Unreadable lines are skipped the way
     the cache loader skips them.
     """
-    if not cache.is_file():
-        typer.echo(f"Error: {cache}: not a file", err=True)
-        raise typer.Exit(code=1)
+    _require_file(cache)
     drift_by_kind = cache_drift(read_records(cache))
     if not drift_by_kind:
         typer.echo("no crossref or openalex work records found")
@@ -894,30 +927,6 @@ def _cache_root(cache_dir: Path | None) -> Path:
 def _find(root: Path, pattern: str) -> list[Path]:
     with _report_errors(OSError, prefix=f"cannot read {root}: "):
         return sorted(root.rglob(pattern))
-
-
-def _distinct(paths: list[Path]) -> list[Path]:
-    """`paths` in order, with any file named twice kept once.
-
-    An `--extra` may well point at a file the cache directory's own glob
-    already found — a copy taken from it, or the same path spelled through a
-    symlink. Reading it twice changes no winner (the duplicate rows are the
-    same rows), but it doubles every count in the report, and the counts are
-    what a reader consults to decide whether to pass `--write`. Compared by
-    resolved path, so the two spellings collapse.
-    """
-    seen: set[Path] = set()
-    unique: list[Path] = []
-    for path in paths:
-        try:
-            resolved = path.resolve()
-        except OSError:  # pragma: no cover - a path the OS refuses to resolve
-            resolved = path
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        unique.append(path)
-    return unique
 
 
 def _labelled(pairs: list[tuple[str, object]]) -> None:
@@ -1034,10 +1043,10 @@ def cache_merge_cmd(
     root = _cache_root(cache_dir)
     extras = [_anchor_or_exit(p, Path.cwd()) for p in extra or []]
     for path in extras:
-        if not path.is_file():
-            typer.echo(f"Error: --extra {path}: not a file", err=True)
-            raise typer.Exit(code=2)
-    inputs = _distinct(_find(root, "*.jsonl") + extras)
+        _require_file(path, label="--extra ", code=2)
+    # `merge_caches` reads a file named twice only once, so an `--extra` that
+    # the glob already found does not inflate the counts below.
+    inputs = _find(root, "*.jsonl") + extras
     typer.echo(f"cache dir: {root}")
     # Every source is merged before anything is written: the targets are
     # inputs too, so rewriting one mid-run would take a misrouted row out
@@ -1072,9 +1081,7 @@ def cache_compact_cmd(
     Dry run by default. `--write` replaces the file atomically (a temporary
     file moved over it), never by rewriting it in place.
     """
-    if not path.is_file():
-        typer.echo(f"Error: {path}: not a file", err=True)
-        raise typer.Exit(code=1)
+    _require_file(path)
     rows, stats = merge_caches([path], keep_records=keep_records)
     typer.echo(f"{path}")
     _report_merge(stats)
@@ -1094,11 +1101,7 @@ def crossref_doi(
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Look up a single DOI via Crossref."""
-    client = CrossrefClient(
-        cache_path=_cache_path("crossref", cache, cache_dir),
-        mailto=mailto,
-        **_client_kwargs(max_retries, min_interval),
-    )
+    client = _crossref_client(cache, cache_dir, mailto, max_retries, min_interval)
     _emit_or_exit(client.lookup_doi(doi), doi)
 
 
@@ -1113,11 +1116,7 @@ def crossref_search(
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Search Crossref by free-form bibliographic query (author + title + year)."""
-    client = CrossrefClient(
-        cache_path=_cache_path("crossref", cache, cache_dir),
-        mailto=mailto,
-        **_client_kwargs(max_retries, min_interval),
-    )
+    client = _crossref_client(cache, cache_dir, mailto, max_retries, min_interval)
     items = client.search_bibliographic(query, rows=rows)
     _emit(items)
 
@@ -1134,10 +1133,6 @@ def crossref_chapter(
 ) -> None:
     """Look up a book chapter by `{book_doi}.{NNN}` pattern."""
     chapter_arg: int | str = int(chapter) if chapter.isdigit() else chapter
-    client = CrossrefClient(
-        cache_path=_cache_path("crossref", cache, cache_dir),
-        mailto=mailto,
-        **_client_kwargs(max_retries, min_interval),
-    )
+    client = _crossref_client(cache, cache_dir, mailto, max_retries, min_interval)
     result = client.lookup_book_chapter(book_doi, chapter_arg)
     _emit_or_exit(result, f"{book_doi}.{chapter}")

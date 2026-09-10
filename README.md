@@ -223,11 +223,18 @@ openalex = OpenAlexClient(
 )
 openalex.lookup_doi("10.48550/arXiv.2410.21554")
 print(openalex.retries)  # retries so far on this instance
+print(openalex.network_calls)  # requests that reached the network
 ```
 
 Each retry logs one warning on the `citefinder` logger naming the status,
 the attempt, and the wait. The `retries` counter on the client tallies them
 for the run, and `citefinder verify` prints it in its summary line.
+
+Alongside it, `network_calls` counts the requests that missed the cache and
+went out, one per call regardless of how many times it was retried. It is
+the counter to read for cache effectiveness: the cache's size only moves
+when a *new* key is stored, so a refetch — or a client with no cache at all
+— leaves it flat while requests are still going out.
 
 Error responses are never cached: nothing is written until a 2xx or 404
 arrives, so a run that hit the rate limit can simply be re-run once the

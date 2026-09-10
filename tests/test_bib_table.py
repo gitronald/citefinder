@@ -1,5 +1,8 @@
 """Tests for citefinder.bib_table — wide-table view of a `.bib` file."""
 
+import subprocess
+import sys
+
 import polars as pl
 import pytest
 
@@ -209,3 +212,35 @@ def test_table_to_bib_preserves_unicode_and_nested_braces() -> None:
     [e] = parse_entries(table_to_bib(df))
     assert e.fields["editor"] == "Alcañiz, Mariano"
     assert e.fields["title"] == "Future {Directions} for {XR}"
+
+
+# --- lazy polars import ---------------------------------------------------
+
+
+def test_importing_the_package_does_not_pull_in_polars() -> None:
+    """`bib_table` is the only module that needs polars, and importing it
+    costs more than the rest of the package combined. The package re-exports
+    its two functions lazily so a lookup command never pays for it; a plain
+    `from citefinder.bib_table import ...` in `__init__` or `cli` would
+    silently undo that, which nothing else would catch.
+
+    Runs in a subprocess: this session already has polars imported.
+    """
+    probe = "import sys, citefinder, citefinder.cli;print('polars' in sys.modules)"
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False"
+
+
+def test_lazy_reexports_still_resolve_from_the_package_root() -> None:
+    """`from citefinder import bib_to_table` is documented public API; the
+    lazy indirection must be invisible to it, including `dir()` and the
+    AttributeError for a name that really is absent."""
+    import citefinder
+
+    assert citefinder.bib_to_table is bib_to_table
+    assert citefinder.table_to_bib is table_to_bib
+    assert {"bib_to_table", "table_to_bib"} <= set(dir(citefinder))
+    with pytest.raises(AttributeError, match="no attribute 'nope'"):
+        citefinder.nope

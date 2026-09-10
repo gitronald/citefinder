@@ -43,12 +43,22 @@ DEFAULT_MAX_WAIT = 60.0
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 
 
-def _default_user_agent() -> str:
+def package_version() -> str:
+    """The installed `citefinder` version, or `0.0.0` when there is no
+    distribution record to read (a source tree run without an install).
+
+    Degrading rather than raising keeps a missing record from taking down the
+    paths that only want a version string to label something — the User-Agent
+    below, and the skill stub `citefinder install` stamps.
+    """
     try:
-        ver = version("citefinder")
+        return version("citefinder")
     except PackageNotFoundError:
-        ver = "0.0.0"
-    return f"citefinder/{ver} (https://github.com/gitronald/citefinder)"
+        return "0.0.0"
+
+
+def _default_user_agent() -> str:
+    return f"citefinder/{package_version()} (https://github.com/gitronald/citefinder)"
 
 
 def _doi_path(doi: str) -> str:
@@ -181,6 +191,12 @@ class CachedJsonClient:
         # Number of retried requests so far — a run-level tally callers can
         # report (the `verify` CLI prints it in its summary line).
         self.retries = 0
+        # Requests that reached the network, counted where the hit/miss
+        # decision is actually made (`_get`). A caller that wants to report
+        # cache effectiveness reads this rather than watching the cache grow:
+        # the size only moves when a *new* key is stored, so a refetch or an
+        # uncached client is invisible to it.
+        self.network_calls = 0
         self._sleep = sleep
         self._monotonic = monotonic
         self._clock = clock
@@ -251,6 +267,7 @@ class CachedJsonClient:
         cache_key = self._cache_key(url)
         if self.cache is not None and cache_key in self.cache:
             return self.cache.get(cache_key)
+        self.network_calls += 1
         response = self._fetch(self._request_url(url))
         if response.status_code == 404:
             value: Any | None = None
