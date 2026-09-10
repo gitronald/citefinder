@@ -184,7 +184,7 @@ Field order within each entry is not preserved (it follows the CSV's column orde
 - **`lookup_doi` returns the `message` payload directly,** not the full Crossref envelope. So you access `work["title"][0]`, not `work["message"]["title"][0]`.
 - **`title` is a list, not a string.** Crossref returns titles as arrays. Use `work["title"][0]`.
 - **`search_bibliographic` returns the items list,** which may be empty. Always handle the empty case.
-- **Rate limits retry themselves.** A `429` (and `502`/`503`/`504`) is retried up to 3 times, honoring `Retry-After` or backing off 1 s / 2 s / 4 s, and requests are paced to 10 per second by default. Only the final failure surfaces — in `verify` as a per-entry `error` whose note names the status, plus the retry count in the summary line. An error response is **never cached**, so there is nothing to purge after a rate limit: wait for it to clear and re-run, or slow the run down with `--min-interval 0.5` / `--max-retries 5` (also `max_retries` / `min_interval` in `config.toml`).
+- **Rate limits retry themselves.** A `429` (and `502`/`503`/`504`) is retried up to 3 times, honoring `Retry-After` or backing off 1 s / 2 s / 4 s, and requests are paced by default to the rate each API advertises (OpenAlex 10/s; Crossref 1/s, or 3/s when a `mailto` puts you in its polite pool). Only the final failure surfaces — in `verify` as a per-entry `error` whose note names the status, plus the retry count in the summary line. An error response is **never cached**, so there is nothing to purge after a rate limit: wait for it to clear and re-run, or slow the run down with `--min-interval 0.5` / `--max-retries 5` (also `max_retries` / `min_interval` in `config.toml`).
 
 ## Cache maintenance: `citefinder cache`
 

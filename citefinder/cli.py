@@ -42,7 +42,12 @@ from citefinder.cache import (
     summarize_caches,
     write_records,
 )
-from citefinder.client import CrossrefClient
+from citefinder.client import (
+    CROSSREF_MIN_INTERVAL,
+    CROSSREF_POLITE_MIN_INTERVAL,
+    CrossrefClient,
+    is_polite,
+)
 from citefinder.config import (
     ENV_KEYS,
     default_cache_dir,
@@ -126,7 +131,7 @@ def _load_configs() -> None:
         [crossref]
         mailto = "you@example.com"
         max_retries = 3
-        min_interval = 0.1
+        min_interval = 0.34   # default: 1.0 anonymous, 0.34 in the polite pool
     """
     _config_sources.clear()
     project = find_project_config()
@@ -280,13 +285,23 @@ def _pacing_options(source: str, min_interval_default: str) -> tuple[Any, Any]:
     )
 
 
+# Crossref's default depends on whether the caller is polite, so its help
+# names both rates rather than a single number.
 _MIN_INTERVAL_DEFAULT = str(DEFAULT_MIN_INTERVAL)
+_CROSSREF_MIN_INTERVAL_DEFAULT = (
+    f"{CROSSREF_MIN_INTERVAL} anonymous, {CROSSREF_POLITE_MIN_INTERVAL} with a mailto"
+)
+_VERIFY_MIN_INTERVAL_DEFAULT = (
+    f"{DEFAULT_MIN_INTERVAL} for OpenAlex, "
+    f"{CROSSREF_MIN_INTERVAL} for Crossref "
+    f"({CROSSREF_POLITE_MIN_INTERVAL} with a mailto)"
+)
 
 OpenAlexMaxRetriesOption, OpenAlexMinIntervalOption = _pacing_options(
     "openalex", _MIN_INTERVAL_DEFAULT
 )
 CrossrefMaxRetriesOption, CrossrefMinIntervalOption = _pacing_options(
-    "crossref", _MIN_INTERVAL_DEFAULT
+    "crossref", _CROSSREF_MIN_INTERVAL_DEFAULT
 )
 
 
@@ -511,6 +526,72 @@ def search(
     _emit(items)
 
 
+def _age(seconds: float) -> str:
+    """A rough age for a snapshot: precision past the unit is noise here."""
+    if seconds < 0:
+        return "in the future"
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
+
+
+@app.command("ratelimit")
+def ratelimit(
+    source: str = typer.Option(
+        "openalex", "--source", help="Which API's quota to report."
+    ),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="Ask the API now instead of reporting the last headers seen. "
+        "Costs one request (zero credits on OpenAlex). Implied when nothing "
+        "is recorded yet.",
+    ),
+    cache: Path | None = typer.Option(
+        None, "--cache", help="JSONL cache holding the snapshot."
+    ),
+    cache_dir: Path | None = CacheDirOption,
+    mailto: str | None = typer.Option(None, "--mailto", help="Polite-pool email."),
+    api_key: str | None = ApiKeyOption,
+) -> None:
+    """Report what the source last said about your remaining quota.
+
+    Every response carries the quota headers, so the client records them as
+    it works and stores the newest in the cache. Reporting them therefore
+    costs nothing; `--refresh` issues one request to get a current reading,
+    as does a first run with nothing stored yet.
+    """
+    if source not in ("openalex", "crossref"):
+        typer.echo(f"Error: unknown source {source!r} (openalex or crossref)", err=True)
+        raise typer.Exit(code=2)
+    client: OpenAlexClient | CrossrefClient
+    if source == "openalex":
+        client = _openalex_client(cache, cache_dir, mailto, api_key, None, None)
+    else:
+        client = _crossref_client(cache, cache_dir, mailto, None, None)
+
+    snapshot = client.rate_limit
+    headers = snapshot.get("headers") if isinstance(snapshot, dict) else None
+    # Nothing stored yet is the one case a stale-but-free reading can't
+    # answer, so take one; a later run then reads it from the cache.
+    if refresh or not isinstance(headers, dict) or not headers:
+        snapshot = client.refresh_rate_limit()
+        headers = snapshot.get("headers") if isinstance(snapshot, dict) else None
+    if not isinstance(headers, dict) or not headers:
+        typer.echo(f"{source}: the API returned no quota headers")
+        return
+    ts = snapshot.get("ts") if isinstance(snapshot, dict) else None
+    when = _age(time.time() - ts) if isinstance(ts, (int, float)) else "age unknown"
+    typer.echo(f"{source}  (recorded {when})")
+    width = max(len(name) for name in headers)
+    for name in sorted(headers):
+        typer.echo(f"  {name:<{width}}  {headers[name]}")
+
+
 # --- bib parsing & verification --------------------------------------------
 
 
@@ -625,7 +706,7 @@ def verify(
         "--min-interval",
         min=0.0,
         help=_MIN_INTERVAL_HELP.format(
-            default=_MIN_INTERVAL_DEFAULT, env="<SOURCE>_MIN_INTERVAL"
+            default=_VERIFY_MIN_INTERVAL_DEFAULT, env="<SOURCE>_MIN_INTERVAL"
         ),
     ),
 ) -> None:
@@ -819,8 +900,21 @@ _SETTING_DEFAULTS = {
     "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
     "OPENALEX_MIN_INTERVAL": _MIN_INTERVAL_DEFAULT,
     "CROSSREF_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
-    "CROSSREF_MIN_INTERVAL": _MIN_INTERVAL_DEFAULT,
 }
+
+
+def _setting_default(env_name: str) -> str:
+    """The value a setting takes when nothing sets it.
+
+    Crossref's pacing default is resolved rather than looked up: it follows
+    whichever rate a request would actually get, so `citefinder config` run
+    with a `mailto` configured reports the polite interval the client will
+    really use, not the anonymous one.
+    """
+    if env_name == "CROSSREF_MIN_INTERVAL":
+        polite = is_polite(os.environ.get("CROSSREF_MAILTO"))
+        return str(CROSSREF_POLITE_MIN_INTERVAL if polite else CROSSREF_MIN_INTERVAL)
+    return _SETTING_DEFAULTS.get(env_name, "(none)")
 
 
 @app.command()
@@ -879,7 +973,7 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
             value = "(set)" if key == "api_key" else raw
             source = _config_sources.get(env_name, "env")
         else:
-            value = _SETTING_DEFAULTS.get(env_name, "(none)")
+            value = _setting_default(env_name)
             source = "default"
         rows.append((f"{section}.{key}", source, value))
     label_width = max(len(label) for label, _, _ in rows)

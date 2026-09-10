@@ -101,6 +101,11 @@ def normalize_title_query(title: str) -> str:
 
 
 class OpenAlexClient(CachedJsonClient):
+    # A single entity by ID costs zero credits (measured; see
+    # docs/openalex.md), so refreshing the budget never spends any of it.
+    rate_limit_key = f"{OPENALEX_BASE}/__ratelimit"
+    rate_limit_probe = f"{OPENALEX_BASE}/works/W2741809807"
+
     def __init__(
         self,
         cache: JsonlCache | None = None,

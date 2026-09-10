@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-10
+
+### Added
+
+- `docs/crossref.md` and `docs/openalex.md` record what each API advertises,
+  measured with reproducible `curl` commands: Crossref's per-second rate and
+  what the polite pool changes, and OpenAlex's daily credit budget with the
+  cost of each lookup shape (DOI lookups are free, title searches are not).
+  Both ship in the sdist, so the README's links resolve on PyPI.
+- Clients record the quota headers every response carries (OpenAlex's
+  `x-ratelimit-*` credit budget, Crossref's `x-rate-limit-*` rate) in
+  `client.rate_limit`, and keep the newest in the cache under a URL-shaped
+  key that `cache merge` routes normally and `drift` ignores. Writes are
+  throttled so an append-only cache does not gain a line per request.
+- `citefinder ratelimit` reports that snapshot with its age, for either
+  source. It makes no request once a snapshot is stored; `--refresh` (implied
+  on a first run with nothing stored) takes a current reading using the
+  cheapest endpoint that carries the headers — zero credits on OpenAlex.
+
+### Changed
+
+- `CrossrefClient` now defaults `min_interval` to the rate Crossref actually
+  advertises rather than a shared floor: `1.0` s (1 req/s) for an anonymous
+  caller, `0.34` s (3 req/s) when contact information puts the request in the
+  polite pool. A `mailto` argument or a `mailto:` in the User-Agent both
+  count, matching what Crossref honors. Passing `min_interval` explicitly
+  (including `0`) overrides the resolved default, and `OpenAlexClient` is
+  unchanged at `0.1`. `citefinder config` reports whichever Crossref default
+  is in force.
+
 ## [0.10.2] - 2026-09-09
 
 ### Changed
