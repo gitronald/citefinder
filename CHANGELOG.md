@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-09-09
+
 ### Changed
 
 - `CrossrefClient` now paces requests at `min_interval=0.1` s by default,
