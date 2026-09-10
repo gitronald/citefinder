@@ -316,6 +316,11 @@ citefinder bib-to-table refs.bib --fields title,year,doi    # subset of columns
 citefinder table-to-bib refs.csv                            # CSV back to .bib on stdout
 citefinder table-to-bib refs.csv --out refs.regen.bib       # ...or to a file
 
+# Rate limits (see "Rate limits and retries" above)
+citefinder ratelimit                                        # quota the last request saw; makes no request
+citefinder ratelimit --refresh                              # take a reading now (zero credits on OpenAlex)
+citefinder ratelimit --source crossref                      # ...for Crossref instead
+
 # Configuration (see "Configuration" above)
 citefinder config                                           # resolved settings, their sources, and cache paths
 citefinder drift data/citefinder/paper/openalex/openalex.jsonl  # keys the cached records carry that citefinder.models lacks

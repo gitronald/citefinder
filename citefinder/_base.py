@@ -50,6 +50,18 @@ DEFAULT_MIN_INTERVAL = 0.1
 # on retry, so those raise on the first attempt.
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 
+# Both APIs advertise what is left of a quota on every response — OpenAlex as
+# `x-ratelimit-*` (a daily credit budget), Crossref as `x-rate-limit-*` (a
+# per-second rate). Captured from whatever the client was already fetching, so
+# knowing the budget costs no extra request.
+RATE_LIMIT_HEADER_PREFIXES = ("x-ratelimit-", "x-rate-limit-")
+
+# The snapshot is held in memory on every response but written to the cache at
+# most this often. The cache is an append-only log, so persisting each capture
+# would add a line per request — a 150-entry verify would double its file for
+# a counter only the newest copy of which is ever read.
+RATE_LIMIT_PERSIST_INTERVAL = 60.0
+
 
 def package_version() -> str:
     """The installed `citefinder` version, or `0.0.0` when there is no
@@ -162,7 +174,15 @@ class CachedJsonClient:
     `sleep`, `monotonic`, and `clock` are test seams (`time.sleep`,
     `time.monotonic`, and `time.time` by default) so a fake clock can drive
     the retry loop without waiting.
+
+    A subclass sets `rate_limit_key` and `rate_limit_probe` to opt into quota
+    tracking; leaving them `None` disables it entirely.
     """
+
+    # Where this source's quota snapshot is cached, and the cheapest request
+    # that still returns the headers. Subclasses override both.
+    rate_limit_key: str | None = None
+    rate_limit_probe: str | None = None
 
     def __init__(
         self,
@@ -211,6 +231,12 @@ class CachedJsonClient:
         self._last_request_at: float | None = None
         self.session = requests.Session()
         self.session.headers["User-Agent"] = user_agent or _default_user_agent()
+        # Last quota state this client saw, `{"headers": {...}, "ts": float}`.
+        # Seeded from the cache so a fresh process reports what the previous
+        # run left behind rather than nothing.
+        self.rate_limit: dict[str, Any] | None = self._load_rate_limit()
+        self._rate_limit_persisted: dict[str, Any] | None = None
+        self._rate_limit_persisted_at: float | None = None
 
     def _cache_key(self, url: str) -> str:
         return _strip_mailto(url)
@@ -255,6 +281,7 @@ class CachedJsonClient:
         while True:
             self._pace()
             response = self.session.get(url, timeout=self.timeout)
+            self._capture_rate_limit(response)
             status = response.status_code
             if status not in RETRY_STATUSES or attempt >= self.max_retries:
                 return response
@@ -270,6 +297,72 @@ class CachedJsonClient:
                 wait,
             )
             self._sleep(wait)
+
+    def _load_rate_limit(self) -> dict[str, Any] | None:
+        """The snapshot a previous run stored, if this source keeps one.
+
+        Stored under a URL-shaped key on the API's own host so `cache merge`
+        routes it like any other row (newest `ts` wins, which is what a
+        counter wants) and `citefinder drift` skips it — the drift models
+        only cover `/works` keys.
+        """
+        if self.cache is None or self.rate_limit_key is None:
+            return None
+        stored = self.cache.get(self.rate_limit_key)
+        return stored if isinstance(stored, dict) else None
+
+    def _capture_rate_limit(self, response: requests.Response) -> None:
+        """Record the quota headers on `response`, if it carries any."""
+        try:
+            items = list(response.headers.items())
+        except (AttributeError, TypeError):  # a test double without headers
+            return
+        headers = {
+            name.lower(): value
+            for name, value in items
+            if name.lower().startswith(RATE_LIMIT_HEADER_PREFIXES)
+        }
+        if not headers:
+            return
+        self.rate_limit = {"headers": headers, "ts": self._clock()}
+        self._persist_rate_limit()
+
+    def _persist_rate_limit(self, force: bool = False) -> None:
+        """Write the snapshot to the cache, throttled unless `force`."""
+        if self.cache is None or self.rate_limit_key is None:
+            return
+        if self.rate_limit is None:
+            return
+        # Already on disk. Checked before `force` so a refresh — which
+        # captures on the response and then forces a write — stores one row
+        # rather than two copies of the same reading.
+        if self.rate_limit is self._rate_limit_persisted:
+            return
+        now = self._clock()
+        if (
+            not force
+            and self._rate_limit_persisted_at is not None
+            and now - self._rate_limit_persisted_at < RATE_LIMIT_PERSIST_INTERVAL
+        ):
+            return
+        self.cache.put(self.rate_limit_key, self.rate_limit)
+        self._rate_limit_persisted = self.rate_limit
+        self._rate_limit_persisted_at = now
+
+    def refresh_rate_limit(self) -> dict[str, Any] | None:
+        """Fetch the quota headers on demand, and persist what comes back.
+
+        Uses the source's `rate_limit_probe` — chosen to be the cheapest
+        request that still carries the headers (for OpenAlex, an entity
+        lookup, which costs zero credits). The response body is discarded and
+        never cached: this is a status check, not a lookup.
+        """
+        if self.rate_limit_probe is None:
+            return self.rate_limit
+        self.network_calls += 1
+        self._fetch(self._request_url(self.rate_limit_probe))
+        self._persist_rate_limit(force=True)
+        return self.rate_limit
 
     def _get(self, url: str) -> Any | None:
         cache_key = self._cache_key(url)

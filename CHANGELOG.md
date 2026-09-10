@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   what the polite pool changes, and OpenAlex's daily credit budget with the
   cost of each lookup shape (DOI lookups are free, title searches are not).
   Both ship in the sdist, so the README's links resolve on PyPI.
+- Clients record the quota headers every response carries (OpenAlex's
+  `x-ratelimit-*` credit budget, Crossref's `x-rate-limit-*` rate) in
+  `client.rate_limit`, and keep the newest in the cache under a URL-shaped
+  key that `cache merge` routes normally and `drift` ignores. Writes are
+  throttled so an append-only cache does not gain a line per request.
+- `citefinder ratelimit` reports that snapshot with its age, for either
+  source. It makes no request; `--refresh` takes a current reading using the
+  cheapest endpoint that carries the headers — zero credits on OpenAlex.
 
 ### Changed
 

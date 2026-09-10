@@ -105,6 +105,28 @@ cached lookup issues no request and costs nothing.
 api_key = "..."
 ```
 
+## Checking the budget
+
+The headers ride on every response, so `citefinder` records them as it works
+and keeps the newest in the cache. Reading it back costs nothing:
+
+```bash
+citefinder ratelimit                 # what the last request saw
+citefinder ratelimit --refresh       # ask now: one request, zero credits
+citefinder ratelimit --source crossref
+```
+
+Without `--refresh` no request is made at all — the snapshot comes from the
+cache, so it can be stale if nothing has run recently, and the output says how
+old it is. `--refresh` spends one request on the zero-credit entity endpoint,
+so it never draws the budget down.
+
+The snapshot is stored under a URL-shaped key on the API's own host
+(`https://api.openalex.org/__ratelimit`). That is deliberate: `cache merge`
+routes rows by the host in the key and keeps the newest `ts`, which is exactly
+right for a counter, while `citefinder drift` only models `/works` keys and so
+ignores it.
+
 ## mailto does nothing here
 
 Crossref's polite pool is entered with a `mailto`. OpenAlex's current

@@ -526,6 +526,65 @@ def search(
     _emit(items)
 
 
+def _age(seconds: float) -> str:
+    """A rough age for a snapshot: precision past the unit is noise here."""
+    if seconds < 0:
+        return "in the future"
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
+
+
+@app.command("ratelimit")
+def ratelimit(
+    source: str = typer.Option(
+        "openalex", "--source", help="Which API's quota to report."
+    ),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="Ask the API now instead of reporting the last headers seen. "
+        "Costs one request (zero credits on OpenAlex).",
+    ),
+    cache: Path | None = typer.Option(
+        None, "--cache", help="JSONL cache holding the snapshot."
+    ),
+    cache_dir: Path | None = CacheDirOption,
+    mailto: str | None = typer.Option(None, "--mailto", help="Polite-pool email."),
+    api_key: str | None = ApiKeyOption,
+) -> None:
+    """Report what the source last said about your remaining quota.
+
+    Every response carries the quota headers, so the client records them as
+    it works and stores the newest in the cache. Reporting them therefore
+    costs nothing; `--refresh` issues one request to get a current reading.
+    """
+    if source not in ("openalex", "crossref"):
+        typer.echo(f"Error: unknown source {source!r} (openalex or crossref)", err=True)
+        raise typer.Exit(code=2)
+    client: OpenAlexClient | CrossrefClient
+    if source == "openalex":
+        client = _openalex_client(cache, cache_dir, mailto, api_key, None, None)
+    else:
+        client = _crossref_client(cache, cache_dir, mailto, None, None)
+
+    snapshot = client.refresh_rate_limit() if refresh else client.rate_limit
+    headers = snapshot.get("headers") if isinstance(snapshot, dict) else None
+    if not isinstance(headers, dict) or not headers:
+        typer.echo(f"{source}: nothing recorded yet (run a lookup, or --refresh)")
+        return
+    ts = snapshot.get("ts") if isinstance(snapshot, dict) else None
+    when = _age(time.time() - ts) if isinstance(ts, (int, float)) else "age unknown"
+    typer.echo(f"{source}  (recorded {when})")
+    width = max(len(name) for name in headers)
+    for name in sorted(headers):
+        typer.echo(f"  {name:<{width}}  {headers[name]}")
+
+
 # --- bib parsing & verification --------------------------------------------
 
 

@@ -72,6 +72,11 @@ class CrossrefClient(CachedJsonClient):
     Every other knob behaves as documented on `CachedJsonClient`.
     """
 
+    # Crossref advertises only a rate, so there is no budget to spend down;
+    # `rows=0` asks for the headers and no records.
+    rate_limit_key = f"{CROSSREF_BASE}/__ratelimit"
+    rate_limit_probe = f"{CROSSREF_BASE}/works?rows=0"
+
     def __init__(
         self,
         cache: JsonlCache | None = None,

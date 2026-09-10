@@ -97,6 +97,14 @@ CrossrefClient(cache_path="...", min_interval=1.0)
 citefinder verify refs.bib --source crossref --min-interval 0.34
 ```
 
+To see the rate Crossref is currently advertising to *you* rather than the
+table above, read it back from the headers the client already recorded:
+
+```bash
+citefinder ratelimit --source crossref            # last seen; makes no request
+citefinder ratelimit --source crossref --refresh  # take a reading now
+```
+
 Or persist it under `[crossref]` in `config.toml`:
 
 ```toml
