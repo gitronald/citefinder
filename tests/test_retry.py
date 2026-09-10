@@ -391,6 +391,7 @@ def test_verify_reports_retries_in_summary(tmp_path: Path, monkeypatch) -> None:
         def __init__(self, **kwargs: Any) -> None:
             self.cache = None
             self.retries = 2
+            self.network_calls = 0
 
         def lookup_doi(self, doi: str) -> None:
             return None

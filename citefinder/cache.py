@@ -246,6 +246,32 @@ class _Contest:
         return winner
 
 
+def _unique_paths(paths: Iterable[str | Path]) -> list[Path]:
+    """`paths` in order, with any file named twice kept once.
+
+    Callers assemble their input lists from more than one place — a directory
+    glob plus files named explicitly, or a path spelled through a symlink — so
+    the same file can arrive twice. Reading it twice changes no winner (the
+    duplicate rows are the same rows), but it doubles every count in the
+    report, and the counts are what a reader consults to decide whether to
+    write. Compared by resolved path, so the two spellings collapse; a path
+    the OS refuses to resolve is kept as given rather than dropped.
+    """
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for raw in paths:
+        path = Path(raw).expanduser()
+        try:
+            resolved = path.resolve()
+        except OSError:  # pragma: no cover - a path the OS refuses to resolve
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
 def merge_caches(
     paths: Iterable[str | Path],
     *,
@@ -275,13 +301,14 @@ def merge_caches(
     for when a transient upstream failure is the likelier explanation.
 
     Missing files are skipped silently — a merge names where caches *may* be,
-    and a source with no cache yet is not an error.
+    and a source with no cache yet is not an error. A file named twice is
+    read once (`_unique_paths`), so an overlapping input list cannot inflate
+    the counts the caller reports.
     """
     stats = MergeStats()
     contests: dict[str, _Contest] = {}
     known_sources = set(SOURCE_HOSTS.values())
-    for raw in paths:
-        path = Path(raw).expanduser()
+    for path in _unique_paths(paths):
         if not path.is_file():
             continue
         stats.files += 1
@@ -349,12 +376,12 @@ def summarize_caches(paths: Iterable[str | Path]) -> dict[str, SourceStats]:
 
     Missing files are skipped; a caller that needs a missing *directory* to
     be an error (a dropped mount must not read as an empty cache) checks
-    that before globbing.
+    that before globbing. A file named twice is read once, as in
+    `merge_caches`.
     """
     summary: dict[str, SourceStats] = {}
     latest: dict[str, dict[str, CacheRow]] = {}
-    for raw in paths:
-        path = Path(raw).expanduser()
+    for path in _unique_paths(paths):
         if not path.is_file():
             continue
         seen_here: set[str] = set()

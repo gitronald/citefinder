@@ -52,6 +52,9 @@ def captured(monkeypatch) -> dict[str, Any]:
             seen.update(kwargs)
             self.cache = None
             self.retries = 0
+            # Stands in for the real client's counter; `verify`'s summary
+            # reads it, and nothing here ever reaches the network.
+            self.network_calls = 0
 
         def lookup_doi(  # pyrefly: ignore[missing-override-decorator]
             self, doi: str

@@ -191,6 +191,12 @@ class CachedJsonClient:
         # Number of retried requests so far — a run-level tally callers can
         # report (the `verify` CLI prints it in its summary line).
         self.retries = 0
+        # Requests that reached the network, counted where the hit/miss
+        # decision is actually made (`_get`). A caller that wants to report
+        # cache effectiveness reads this rather than watching the cache grow:
+        # the size only moves when a *new* key is stored, so a refetch or an
+        # uncached client is invisible to it.
+        self.network_calls = 0
         self._sleep = sleep
         self._monotonic = monotonic
         self._clock = clock
@@ -261,6 +267,7 @@ class CachedJsonClient:
         cache_key = self._cache_key(url)
         if self.cache is not None and cache_key in self.cache:
             return self.cache.get(cache_key)
+        self.network_calls += 1
         response = self._fetch(self._request_url(url))
         if response.status_code == 404:
             value: Any | None = None

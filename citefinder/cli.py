@@ -654,20 +654,19 @@ def verify(
     typer.echo(f"Cache: {cache_path} ({starting_cache_size} entries pre-loaded)\n")
 
     status_counts: Counter[str] = Counter()
-    network_calls = 0
     results: list[Result] = []
     width = len(str(len(entries)))
     t0 = time.monotonic()
 
     for i, entry in enumerate(entries, 1):
-        cache_before = src.cache_size()
+        calls_before = src.network_calls
         typer.echo(f"  [{i:>{width}}/{len(entries)}] {entry.key:<30}", nl=False)
         r = verify_entry(entry, src)
         results.append(r)
-        cache_after = src.cache_size()
-        was_network = cache_after > cache_before
-        if was_network:
-            network_calls += 1
+        # `verify_entry` makes at most one lookup per entry — the DOI path and
+        # the search path each return — so this reads as "this entry went to
+        # the network", and the run total below is a straight call count.
+        was_network = src.network_calls > calls_before
         status_counts[r.status] += 1
         sim = f"{r.similarity:.2f}" if r.similarity is not None else "  - "
         net_or_hit = "net" if was_network else "hit"
@@ -676,6 +675,7 @@ def verify(
 
     elapsed = time.monotonic() - t0
     retries = src.retries
+    network_calls = src.network_calls
     typer.echo(
         f"\nDone in {elapsed:.1f}s — {network_calls} network call(s), "
         f"{len(entries) - network_calls} cache hit(s), "
@@ -929,30 +929,6 @@ def _find(root: Path, pattern: str) -> list[Path]:
         return sorted(root.rglob(pattern))
 
 
-def _distinct(paths: list[Path]) -> list[Path]:
-    """`paths` in order, with any file named twice kept once.
-
-    An `--extra` may well point at a file the cache directory's own glob
-    already found — a copy taken from it, or the same path spelled through a
-    symlink. Reading it twice changes no winner (the duplicate rows are the
-    same rows), but it doubles every count in the report, and the counts are
-    what a reader consults to decide whether to pass `--write`. Compared by
-    resolved path, so the two spellings collapse.
-    """
-    seen: set[Path] = set()
-    unique: list[Path] = []
-    for path in paths:
-        try:
-            resolved = path.resolve()
-        except OSError:  # pragma: no cover - a path the OS refuses to resolve
-            resolved = path
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        unique.append(path)
-    return unique
-
-
 def _labelled(pairs: list[tuple[str, object]]) -> None:
     width = max(len(label) for label, _ in pairs)
     for label, value in pairs:
@@ -1068,7 +1044,9 @@ def cache_merge_cmd(
     extras = [_anchor_or_exit(p, Path.cwd()) for p in extra or []]
     for path in extras:
         _require_file(path, label="--extra ", code=2)
-    inputs = _distinct(_find(root, "*.jsonl") + extras)
+    # `merge_caches` reads a file named twice only once, so an `--extra` that
+    # the glob already found does not inflate the counts below.
+    inputs = _find(root, "*.jsonl") + extras
     typer.echo(f"cache dir: {root}")
     # Every source is merged before anything is written: the targets are
     # inputs too, so rewriting one mid-run would take a misrouted row out

@@ -128,6 +128,11 @@ class Source:
         """Retries the client has made so far, for a run summary."""
         return self.client.retries
 
+    @property
+    def network_calls(self) -> int:
+        """Requests that reached the network so far, for a run summary."""
+        return self.client.network_calls
+
 
 def verify_entry(entry: Entry, source: Source) -> Result:
     title = strip_braces(entry.fields.get("title", ""))

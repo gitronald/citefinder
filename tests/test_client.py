@@ -60,6 +60,26 @@ def test_lookup_doi_uses_cache_on_repeat(
     assert session.get.call_count == 1
 
 
+def test_network_calls_counts_only_requests_that_miss_the_cache(
+    setup: tuple[CrossrefClient, MagicMock],
+    mock_response,
+) -> None:
+    """`verify` reports cache effectiveness from this counter. It is
+    incremented where the hit/miss decision is made, so it tracks actual
+    requests rather than cache growth — which a refetch of a key already
+    stored, or an uncached client, would not move."""
+    client, session = setup
+    session.get.return_value = mock_response(200, {"message": {"title": ["A"]}})
+    assert client.network_calls == 0
+    client.lookup_doi("10.1/one")
+    assert client.network_calls == 1
+    client.lookup_doi("10.1/one")  # cache hit: no request, no increment
+    assert client.network_calls == 1
+    client.lookup_doi("10.1/two")
+    assert client.network_calls == 2
+    assert session.get.call_count == client.network_calls
+
+
 def test_404_is_cached(
     setup: tuple[CrossrefClient, MagicMock],
     mock_response,
