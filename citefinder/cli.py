@@ -28,7 +28,6 @@ from dotenv import find_dotenv, load_dotenv
 from citefinder import install as install_mod
 from citefinder._base import DEFAULT_MAX_RETRIES, package_version, validate_knob
 from citefinder.bib import parse_entries
-from citefinder.bib_table import bib_to_table, table_to_bib
 from citefinder.cache import (
     SOURCE_HOSTS,
     MergeStats,
@@ -525,6 +524,8 @@ def bib_to_table_cmd(
     """
     import polars as pl
 
+    from citefinder.bib_table import bib_to_table
+
     _require_file(bib_file)
 
     with _report_errors(ValueError):
@@ -563,6 +564,8 @@ def table_to_bib_cmd(
     is not recoverable.
     """
     import polars as pl
+
+    from citefinder.bib_table import table_to_bib
 
     _require_file(csv_file)
 
