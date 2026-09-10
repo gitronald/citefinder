@@ -2,6 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
+| 017 | [Refresh the ratelimit snapshot when none is recorded](plans/017-ratelimit-refresh-on-empty/plan.md) | draft | — | — |
 | 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | draft | — | — |
 | 016 | [Add cache maintenance commands: merge, compact, and stats](plans/016-cache-maintenance-commands/plan.md) | done | 2026-09-09 12:21 PT | [#59](https://github.com/gitronald/citefinder/pull/59) |
 | 015 | [Sync tooling with proj-template 0.8](plans/015-template-upgrade/plan.md) | done | 2026-09-06 14:05 PT | [#56](https://github.com/gitronald/citefinder/pull/56) |
