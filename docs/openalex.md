@@ -22,6 +22,17 @@ which is consistent with that 10x.
 A `429` comes back when the daily budget is spent **or** when a client exceeds
 **100 requests per second**.
 
+**Nothing is ever charged automatically.** The dollar figures above are a unit
+of account for a rate limit, not a bill. A free account needs "no payment
+method required", prepaid usage is opt-in in $1 increments and is "only drawn
+down after your free daily budget runs out", and a run that exhausts the budget
+is refused rather than invoiced. OpenAlex's own framing: "The OpenAlex *data*
+is free — but serving it is not, so *usage* is what costs money." Paid tiers
+buy a larger daily budget; they are not a toll on the data.
+
+For `citefinder` this matters less than it looks: DOI lookups cost zero
+credits, so the common path never draws the budget down at all.
+
 ## The headers
 
 Every response carries the budget state:
