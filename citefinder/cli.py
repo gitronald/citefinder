@@ -15,7 +15,7 @@ import sys
 import time
 import tomllib
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
@@ -73,7 +73,7 @@ def _anchor(path: str | Path, base: Path) -> Path:
 @contextmanager
 def _report_errors(
     *kinds: type[Exception], prefix: str = "", code: int = 1
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Turn a library exception into an `Error:` line and exit, no traceback.
 
     Exit 1 for a failure in the work itself; `code=2` for a usage error (a
