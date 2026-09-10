@@ -116,10 +116,11 @@ citefinder ratelimit --refresh       # ask now: one request, zero credits
 citefinder ratelimit --source crossref
 ```
 
-Without `--refresh` no request is made at all — the snapshot comes from the
-cache, so it can be stale if nothing has run recently, and the output says how
-old it is. `--refresh` spends one request on the zero-credit entity endpoint,
-so it never draws the budget down.
+Without `--refresh` the snapshot comes from the cache, so it can be stale if
+nothing has run recently, and the output says how old it is. `--refresh`
+spends one request on the zero-credit entity endpoint, so it never draws the
+budget down. A first run with nothing cached yet takes that reading on its own
+rather than reporting nothing; after that, no request is made unless you ask.
 
 The snapshot is stored under a URL-shaped key on the API's own host
 (`https://api.openalex.org/__ratelimit`). That is deliberate: `cache merge`

@@ -548,7 +548,8 @@ def ratelimit(
         False,
         "--refresh",
         help="Ask the API now instead of reporting the last headers seen. "
-        "Costs one request (zero credits on OpenAlex).",
+        "Costs one request (zero credits on OpenAlex). Implied when nothing "
+        "is recorded yet.",
     ),
     cache: Path | None = typer.Option(
         None, "--cache", help="JSONL cache holding the snapshot."
@@ -561,7 +562,8 @@ def ratelimit(
 
     Every response carries the quota headers, so the client records them as
     it works and stores the newest in the cache. Reporting them therefore
-    costs nothing; `--refresh` issues one request to get a current reading.
+    costs nothing; `--refresh` issues one request to get a current reading,
+    as does a first run with nothing stored yet.
     """
     if source not in ("openalex", "crossref"):
         typer.echo(f"Error: unknown source {source!r} (openalex or crossref)", err=True)
@@ -572,10 +574,15 @@ def ratelimit(
     else:
         client = _crossref_client(cache, cache_dir, mailto, None, None)
 
-    snapshot = client.refresh_rate_limit() if refresh else client.rate_limit
+    snapshot = client.rate_limit
     headers = snapshot.get("headers") if isinstance(snapshot, dict) else None
+    # Nothing stored yet is the one case a stale-but-free reading can't
+    # answer, so take one; a later run then reads it from the cache.
+    if refresh or not isinstance(headers, dict) or not headers:
+        snapshot = client.refresh_rate_limit()
+        headers = snapshot.get("headers") if isinstance(snapshot, dict) else None
     if not isinstance(headers, dict) or not headers:
-        typer.echo(f"{source}: nothing recorded yet (run a lookup, or --refresh)")
+        typer.echo(f"{source}: the API returned no quota headers")
         return
     ts = snapshot.get("ts") if isinstance(snapshot, dict) else None
     when = _age(time.time() - ts) if isinstance(ts, (int, float)) else "age unknown"

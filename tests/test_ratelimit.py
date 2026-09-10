@@ -140,10 +140,55 @@ def test_ratelimit_reports_the_stored_snapshot(tmp_path: Path, mock_response) ->
     assert "998" in result.output
 
 
-def test_ratelimit_says_so_when_nothing_is_recorded(tmp_path: Path) -> None:
+def test_ratelimit_refreshes_when_nothing_is_recorded(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An empty cache can't answer, so the first run takes a reading itself."""
+    calls: list[str] = []
+
+    def fake_refresh(self) -> dict[str, Any]:
+        calls.append("refreshed")
+        self.rate_limit = {
+            "headers": {"x-ratelimit-remaining": "7"},
+            "ts": time.time(),
+        }
+        return self.rate_limit
+
+    monkeypatch.setattr(OpenAlexClient, "refresh_rate_limit", fake_refresh)
     result = runner.invoke(app, ["ratelimit", "--cache", str(tmp_path / "empty.jsonl")])
+
     assert result.exit_code == 0, result.output
-    assert "nothing recorded yet" in result.output
+    assert calls == ["refreshed"]
+    assert "7" in result.output
+
+
+def test_ratelimit_makes_no_request_when_a_snapshot_is_stored(
+    tmp_path: Path, mock_response, monkeypatch
+) -> None:
+    client, session = make_openalex(tmp_path)
+    session.get.return_value = mock_response(200, {"id": "W1"}, headers=OA_HEADERS)
+    client.lookup_doi("10.1/x")
+
+    def fail_refresh(self) -> None:
+        raise AssertionError("refreshed despite a stored snapshot")
+
+    monkeypatch.setattr(OpenAlexClient, "refresh_rate_limit", fail_refresh)
+    result = runner.invoke(
+        app, ["ratelimit", "--cache", str(tmp_path / "openalex.jsonl")]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "998" in result.output
+
+
+def test_ratelimit_says_so_when_the_api_returns_no_headers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(OpenAlexClient, "refresh_rate_limit", lambda self: None)
+    result = runner.invoke(app, ["ratelimit", "--cache", str(tmp_path / "empty.jsonl")])
+
+    assert result.exit_code == 0, result.output
+    assert "returned no quota headers" in result.output
 
 
 def test_ratelimit_rejects_an_unknown_source(tmp_path: Path) -> None:

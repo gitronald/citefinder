@@ -317,7 +317,7 @@ citefinder table-to-bib refs.csv                            # CSV back to .bib o
 citefinder table-to-bib refs.csv --out refs.regen.bib       # ...or to a file
 
 # Rate limits (see "Rate limits and retries" above)
-citefinder ratelimit                                        # quota the last request saw; makes no request
+citefinder ratelimit                                        # quota the last request saw; asks only if none
 citefinder ratelimit --refresh                              # take a reading now (zero credits on OpenAlex)
 citefinder ratelimit --source crossref                      # ...for Crossref instead
 

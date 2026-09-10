@@ -101,7 +101,7 @@ To see the rate Crossref is currently advertising to *you* rather than the
 table above, read it back from the headers the client already recorded:
 
 ```bash
-citefinder ratelimit --source crossref            # last seen; makes no request
+citefinder ratelimit --source crossref            # last seen; asks only if none
 citefinder ratelimit --source crossref --refresh  # take a reading now
 ```
 

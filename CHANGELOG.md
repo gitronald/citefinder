@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   key that `cache merge` routes normally and `drift` ignores. Writes are
   throttled so an append-only cache does not gain a line per request.
 - `citefinder ratelimit` reports that snapshot with its age, for either
-  source. It makes no request; `--refresh` takes a current reading using the
+  source. It makes no request once a snapshot is stored; `--refresh` (implied
+  on a first run with nothing stored) takes a current reading using the
   cheapest endpoint that carries the headers — zero credits on OpenAlex.
 
 ### Changed
