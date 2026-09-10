@@ -61,24 +61,29 @@ not invalidate cached responses. Measured above: the User-Agent form earns the
 same pool as the query parameter, so a client that sets a contact-bearing
 User-Agent is already polite without the parameter.
 
-## How citefinder paces, and the gap
+## How citefinder paces
 
-Since v0.10.2 both clients default to `min_interval = 0.1` — one request per
-100 ms, or 10 per second — from the shared `citefinder._base.DEFAULT_MIN_INTERVAL`.
+`CrossrefClient` defaults `min_interval` to whichever rate the request is
+entitled to, resolved at construction from `is_polite(mailto, user_agent)`:
 
-Against the values measured above, **that default is faster than Crossref
-advertises**: 10x the anonymous limit and roughly 3x the polite-pool limit. It
-is still a strict improvement on what preceded it (before v0.10.2 the Crossref
-client was unpaced and would burst as fast as the network allowed), but it does
-not by itself keep a run inside the advertised rate.
+| Caller | Default `min_interval` | Effective rate |
+| --- | --- | --- |
+| anonymous | `CROSSREF_MIN_INTERVAL` = 1.0 | ~1/s |
+| polite (a `mailto`, either form) | `CROSSREF_POLITE_MIN_INTERVAL` = 0.34 | ~3/s |
 
-What absorbs the difference is the retry path: a `429` is retried up to
-`max_retries` times, honoring `Retry-After` when Crossref sends it and backing
-off exponentially otherwise, and error responses are never cached. A run that
-outpaces the limit slows down rather than failing.
+So supplying contact information speeds the client up, rather than leaving it
+to discover the higher rate by hitting 429s. Both values sit at (not above) the
+rates measured here, so an unmodified run stays inside what Crossref
+advertises.
 
-To stay inside the advertised rate instead of relying on retries, set the
-interval explicitly:
+The retry path remains the backstop if the advertised rate changes under a
+running job: a `429` is retried up to `max_retries` times, honoring
+`Retry-After` when Crossref sends it and backing off exponentially otherwise,
+and error responses are never cached. A run that outpaces the limit slows down
+rather than failing.
+
+To override the resolved default — you measured something different, or you
+want it unpaced — pass `min_interval` explicitly:
 
 ```python
 # ~3/s, the polite-pool rate
@@ -100,9 +105,10 @@ mailto = "you@example.com"
 min_interval = 0.34
 ```
 
-The cost is wall-clock on a cold cache: a 150-entry bibliography is ~15 s of
-pacing at 0.1 s versus ~50 s at 0.34 s. A warm cache pays none of it — cache
-hits are not requests and are never paced.
+The cost is wall-clock on a cold cache: a 150-entry bibliography spends ~50 s
+in pacing at the polite default versus ~150 s anonymously — which is the
+strongest practical argument for setting a `mailto`. A warm cache pays none of
+it: cache hits are not requests and are never paced.
 
 ## OpenAlex, for contrast
 
@@ -115,12 +121,11 @@ API key raises the budget 10x, and `429` is returned when the budget is spent
 `X-RateLimit-Reset` (seconds to the midnight-UTC reset). The current
 documentation does not describe a `mailto` polite pool.
 
-So the comment on `DEFAULT_MIN_INTERVAL` — which cites OpenAlex's "10 requests
-per second (plus a daily cap)" — describes an earlier published limit. The
-`0.1` value remains comfortably inside OpenAlex's current 100/s ceiling; what
-governs an OpenAlex run now is the daily budget, not the interval. See
-[openalex.md](openalex.md) for what each kind of lookup costs against that
-budget.
+`OpenAlexClient` therefore keeps the flat `0.1` default: it sits comfortably
+inside OpenAlex's current 100/s ceiling, and what governs an OpenAlex run is
+the daily budget, not the interval. There is no polite-pool equivalent to
+resolve against — see [openalex.md](openalex.md) for what each kind of lookup
+costs against that budget.
 
 ## Sources
 

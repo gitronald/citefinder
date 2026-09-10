@@ -49,7 +49,7 @@ min_interval = 0.1
 [crossref]
 mailto = "you@example.com"
 max_retries = 3
-min_interval = 0.1
+min_interval = 0.34             # optional — the polite-pool rate is the default
 ```
 
 In `pyproject.toml` the same keys sit under `[tool.citefinder]`,
@@ -207,18 +207,23 @@ is capped at `max_wait` (default 60 s). Other 4xx responses raise
 immediately, and 404 is still cached as `None`.
 
 Requests can also be paced: `min_interval` is the minimum number of seconds
-between the start of consecutive requests from one client instance. It
-defaults to `0.1` for both clients, matching OpenAlex's documented 10
-requests per second. Cache hits are not requests and are never paced. All
-four knobs must be finite and non-negative; anything else raises
-`ValueError` at construction.
+between the start of consecutive requests from one client instance. Each
+client defaults to the rate its API advertises. `OpenAlexClient` uses `0.1`
+(10/s), well inside OpenAlex's 100/s ceiling. `CrossrefClient` resolves its
+own: `1.0` (1/s) anonymously, or `0.34` (3/s) when contact information puts
+the request in Crossref's polite pool — a `mailto` argument, or a `mailto:`
+in the User-Agent, both count. Supplying a `mailto` therefore speeds the
+client up rather than leaving it to find the higher rate by hitting 429s.
 
-Crossref advertises a lower rate than that default sends. See
-[docs/crossref.md](docs/crossref.md) for the measured limits, what the
-polite pool changes, and how to pace inside them. OpenAlex now meters a
-daily credit budget rather than a sustained rate —
-[docs/openalex.md](docs/openalex.md) covers what a lookup costs and what
-runs out first.
+Passing `min_interval` explicitly — including `0`, unpaced — overrides the
+resolved default. Cache hits are not requests and are never paced. All four
+knobs must be finite and non-negative; anything else raises `ValueError` at
+construction.
+
+Where those numbers come from, and how to re-measure them:
+[docs/crossref.md](docs/crossref.md) for Crossref's advertised rates and the
+polite pool, [docs/openalex.md](docs/openalex.md) for OpenAlex's daily credit
+budget, what each lookup costs, and why pacing is not its binding constraint.
 
 ```python
 openalex = OpenAlexClient(
@@ -370,7 +375,8 @@ Read `results.json` by `method` × `status`:
   `0` disables. Default `3`. Also `OPENALEX_MAX_RETRIES` /
   `CROSSREF_MAX_RETRIES` in the env or `max_retries` in `config.toml`.
 - `--min-interval SECONDS` — Minimum gap between consecutive requests.
-  Default `0.1`. Also `OPENALEX_MIN_INTERVAL` / `CROSSREF_MIN_INTERVAL`
+  Default `0.1` for OpenAlex; for Crossref `1.0`, or `0.34` with a `mailto`
+  set. Also `OPENALEX_MIN_INTERVAL` / `CROSSREF_MIN_INTERVAL`
   in the env or `min_interval` in `config.toml`.
   `verify` reads the variables for whichever `--source` it runs against.
 

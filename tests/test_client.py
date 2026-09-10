@@ -13,7 +13,9 @@ from citefinder.client import CrossrefClient
 @pytest.fixture
 def setup(tmp_path: Path) -> tuple[CrossrefClient, MagicMock]:
     cache = JsonlCache(tmp_path / "cache.jsonl")
-    client = CrossrefClient(cache=cache)
+    # Unpaced: these tests exercise URLs and caching, not rate limiting, and
+    # the Crossref default would otherwise sleep between uncached requests.
+    client = CrossrefClient(cache=cache, min_interval=0)
     session = MagicMock()
     client.session = session  # type: ignore[assignment]
     return client, session
@@ -137,7 +139,7 @@ def test_polite_pool_mailto_added_to_url(
 ) -> None:
     """Crossref polite pool: mailto appended as a query param on every request."""
     cache = JsonlCache(tmp_path / "cache.jsonl")
-    client = CrossrefClient(cache=cache, mailto="x@example.com")
+    client = CrossrefClient(cache=cache, mailto="x@example.com", min_interval=0)
     client.session = MagicMock()  # type: ignore[assignment]
     client.session.get.return_value = mock_response(200, {"message": {"title": ["X"]}})
 

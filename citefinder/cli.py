@@ -42,7 +42,12 @@ from citefinder.cache import (
     summarize_caches,
     write_records,
 )
-from citefinder.client import CrossrefClient
+from citefinder.client import (
+    CROSSREF_MIN_INTERVAL,
+    CROSSREF_POLITE_MIN_INTERVAL,
+    CrossrefClient,
+    is_polite,
+)
 from citefinder.config import (
     ENV_KEYS,
     default_cache_dir,
@@ -280,13 +285,23 @@ def _pacing_options(source: str, min_interval_default: str) -> tuple[Any, Any]:
     )
 
 
+# Crossref's default depends on whether the caller is polite, so its help
+# names both rates rather than a single number.
 _MIN_INTERVAL_DEFAULT = str(DEFAULT_MIN_INTERVAL)
+_CROSSREF_MIN_INTERVAL_DEFAULT = (
+    f"{CROSSREF_MIN_INTERVAL} anonymous, {CROSSREF_POLITE_MIN_INTERVAL} with a mailto"
+)
+_VERIFY_MIN_INTERVAL_DEFAULT = (
+    f"{DEFAULT_MIN_INTERVAL} for OpenAlex, "
+    f"{CROSSREF_MIN_INTERVAL} for Crossref "
+    f"({CROSSREF_POLITE_MIN_INTERVAL} with a mailto)"
+)
 
 OpenAlexMaxRetriesOption, OpenAlexMinIntervalOption = _pacing_options(
     "openalex", _MIN_INTERVAL_DEFAULT
 )
 CrossrefMaxRetriesOption, CrossrefMinIntervalOption = _pacing_options(
-    "crossref", _MIN_INTERVAL_DEFAULT
+    "crossref", _CROSSREF_MIN_INTERVAL_DEFAULT
 )
 
 
@@ -625,7 +640,7 @@ def verify(
         "--min-interval",
         min=0.0,
         help=_MIN_INTERVAL_HELP.format(
-            default=_MIN_INTERVAL_DEFAULT, env="<SOURCE>_MIN_INTERVAL"
+            default=_VERIFY_MIN_INTERVAL_DEFAULT, env="<SOURCE>_MIN_INTERVAL"
         ),
     ),
 ) -> None:
@@ -819,8 +834,21 @@ _SETTING_DEFAULTS = {
     "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
     "OPENALEX_MIN_INTERVAL": _MIN_INTERVAL_DEFAULT,
     "CROSSREF_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
-    "CROSSREF_MIN_INTERVAL": _MIN_INTERVAL_DEFAULT,
 }
+
+
+def _setting_default(env_name: str) -> str:
+    """The value a setting takes when nothing sets it.
+
+    Crossref's pacing default is resolved rather than looked up: it follows
+    whichever rate a request would actually get, so `citefinder config` run
+    with a `mailto` configured reports the polite interval the client will
+    really use, not the anonymous one.
+    """
+    if env_name == "CROSSREF_MIN_INTERVAL":
+        polite = is_polite(os.environ.get("CROSSREF_MAILTO"))
+        return str(CROSSREF_POLITE_MIN_INTERVAL if polite else CROSSREF_MIN_INTERVAL)
+    return _SETTING_DEFAULTS.get(env_name, "(none)")
 
 
 @app.command()
@@ -879,7 +907,7 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
             value = "(set)" if key == "api_key" else raw
             source = _config_sources.get(env_name, "env")
         else:
-            value = _SETTING_DEFAULTS.get(env_name, "(none)")
+            value = _setting_default(env_name)
             source = "default"
         rows.append((f"{section}.{key}", source, value))
     label_width = max(len(label) for label, _, _ in rows)

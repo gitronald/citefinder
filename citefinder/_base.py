@@ -36,10 +36,12 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_BACKOFF_BASE = 1.0
 DEFAULT_MAX_WAIT = 60.0
 
-# OpenAlex documents a limit of 10 requests per second (plus a daily cap), so
-# consecutive uncached requests from one client are spaced at least this far
-# apart by default. Both clients share the floor; a caller that needs a
-# different pace passes `min_interval` explicitly.
+# Minimum spacing between consecutive uncached requests from one client.
+# 0.1 s (10/s) is the generic floor and what OpenAlex uses: it sits well
+# inside OpenAlex's documented 100 req/s ceiling, where the binding limit is
+# a daily credit budget rather than a rate (see docs/openalex.md). Crossref
+# advertises a much lower per-second rate and resolves its own default from
+# whether the request is polite — see `CrossrefClient` in client.py.
 DEFAULT_MIN_INTERVAL = 0.1
 
 # Statuses worth a second try: the rate limiter (429) and the gateway-side

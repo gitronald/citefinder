@@ -64,7 +64,7 @@ min_interval = 0.1
 [crossref]
 mailto = "..."
 max_retries = 3
-min_interval = 0.1
+min_interval = 0.34   # default: 1.0 anonymous, 0.34 in the polite pool
 ```
 
 Lookup precedence (CLI), highest first: flag (`--cache`/`--out` beat

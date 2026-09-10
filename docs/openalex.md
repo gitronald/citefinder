@@ -100,14 +100,16 @@ documentation does not describe a polite pool, and measurement agrees: adding
 cost. `citefinder` still supports `mailto` for OpenAlex and it is harmless to
 set, but it buys nothing today. The lever that exists is the API key.
 
-## A stale figure in the code
+## Why the default is still 0.1
 
-The comment on `citefinder._base.DEFAULT_MIN_INTERVAL` says OpenAlex "documents
-a limit of 10 requests per second (plus a daily cap)". That describes an
-earlier published limit; the current documented ceiling is 100 requests per
-second alongside the credit budget above. The `0.1` default is still a
-reasonable, conservative value — it simply is not the number OpenAlex publishes
-anymore.
+OpenAlex once published a 10 req/s limit, and `DEFAULT_MIN_INTERVAL = 0.1` came
+from it. That figure is no longer what OpenAlex documents — the current ceiling
+is 100 req/s alongside the credit budget above — but the value is kept as a
+deliberate conservative floor rather than raised to match: at 10/s a run stays
+an order of magnitude inside the ceiling, and since credits are charged per
+request and not per second, going faster would buy nothing but a higher chance
+of tripping the 429. Crossref, whose limit *is* a per-second rate, resolves its
+default from the polite-pool check instead — see [crossref.md](crossref.md).
 
 ## Sources
 

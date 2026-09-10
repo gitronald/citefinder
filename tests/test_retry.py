@@ -20,7 +20,11 @@ from typer.testing import CliRunner
 from citefinder._base import retry_after_seconds
 from citefinder.cache import JsonlCache
 from citefinder.cli import _MAX_RETRIES_HELP, _MIN_INTERVAL_HELP, _load_configs, app
-from citefinder.client import CrossrefClient
+from citefinder.client import (
+    CROSSREF_MIN_INTERVAL,
+    CROSSREF_POLITE_MIN_INTERVAL,
+    CrossrefClient,
+)
 from citefinder.openalex import OpenAlexClient
 
 WALL_NOW = 1_700_000_000.0  # 2023-11-14T22:13:20Z
@@ -302,8 +306,33 @@ def test_pacing_also_applies_to_retries(
 
 
 def test_default_pacing_per_source(tmp_path: Path) -> None:
+    """OpenAlex uses the shared floor; Crossref follows its advertised rates."""
     assert OpenAlexClient(cache_path=tmp_path / "oa.jsonl").min_interval == 0.1
-    assert CrossrefClient(cache_path=tmp_path / "cr.jsonl").min_interval == 0.1
+    anonymous = CrossrefClient(cache_path=tmp_path / "cr.jsonl")
+    assert anonymous.min_interval == CROSSREF_MIN_INTERVAL
+    polite = CrossrefClient(cache_path=tmp_path / "cr.jsonl", mailto="you@example.com")
+    assert polite.min_interval == CROSSREF_POLITE_MIN_INTERVAL
+
+
+def test_a_mailto_in_the_user_agent_earns_the_polite_rate(tmp_path: Path) -> None:
+    """Crossref accepts contact info as a param or in the UA; both count."""
+    client = CrossrefClient(
+        cache_path=tmp_path / "cr.jsonl",
+        user_agent="citefinder/1.0 (https://example.org; mailto:you@example.com)",
+    )
+    assert client.min_interval == CROSSREF_POLITE_MIN_INTERVAL
+
+
+def test_an_explicit_min_interval_overrides_the_resolved_default(
+    tmp_path: Path,
+) -> None:
+    """`0` included: an explicit value is never second-guessed."""
+    unpaced = CrossrefClient(
+        cache_path=tmp_path / "cr.jsonl", mailto="you@example.com", min_interval=0
+    )
+    assert unpaced.min_interval == 0
+    slow = CrossrefClient(cache_path=tmp_path / "cr.jsonl", min_interval=2.5)
+    assert slow.min_interval == 2.5
 
 
 @pytest.mark.parametrize(
@@ -447,5 +476,6 @@ def test_verify_help_uses_the_shared_knob_templates() -> None:
     helps = {p.name: getattr(p, "help", None) for p in verify.params}
     assert helps["max_retries"] == _MAX_RETRIES_HELP.format(env="<SOURCE>_MAX_RETRIES")
     assert helps["min_interval"] == _MIN_INTERVAL_HELP.format(
-        default="0.1", env="<SOURCE>_MIN_INTERVAL"
+        default="0.1 for OpenAlex, 1.0 for Crossref (0.34 with a mailto)",
+        env="<SOURCE>_MIN_INTERVAL",
     )

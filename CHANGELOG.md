@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   cost of each lookup shape (DOI lookups are free, title searches are not).
   Both ship in the sdist, so the README's links resolve on PyPI.
 
+### Changed
+
+- `CrossrefClient` now defaults `min_interval` to the rate Crossref actually
+  advertises rather than a shared floor: `1.0` s (1 req/s) for an anonymous
+  caller, `0.34` s (3 req/s) when contact information puts the request in the
+  polite pool. A `mailto` argument or a `mailto:` in the User-Agent both
+  count, matching what Crossref honors. Passing `min_interval` explicitly
+  (including `0`) overrides the resolved default, and `OpenAlexClient` is
+  unchanged at `0.1`. `citefinder config` reports whichever Crossref default
+  is in force.
+
 ## [0.10.2] - 2026-09-09
 
 ### Changed
