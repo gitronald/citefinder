@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `CrossrefClient` now paces requests at `min_interval=0.1` s by default,
+  matching `OpenAlexClient` (was `0`, unpaced). The default lives in
+  `citefinder._base.DEFAULT_MIN_INTERVAL` and is shared by both clients.
+  Pass `min_interval=0` to restore the previous unpaced behavior.
+
 ## [0.10.1] - 2026-09-09
 
 ### Added

@@ -60,6 +60,9 @@ def clock() -> FakeClock:
 def make_client(
     tmp_path: Path, clock: FakeClock, **kwargs: Any
 ) -> tuple[CrossrefClient, MagicMock]:
+    # Unpaced unless a test asks for pacing, so `clock.sleeps` records only the
+    # retry waits under test.
+    kwargs.setdefault("min_interval", 0)
     client = CrossrefClient(
         cache=JsonlCache(tmp_path / "cache.jsonl"),
         sleep=clock.sleep,
@@ -300,7 +303,7 @@ def test_pacing_also_applies_to_retries(
 
 def test_default_pacing_per_source(tmp_path: Path) -> None:
     assert OpenAlexClient(cache_path=tmp_path / "oa.jsonl").min_interval == 0.1
-    assert CrossrefClient(cache_path=tmp_path / "cr.jsonl").min_interval == 0
+    assert CrossrefClient(cache_path=tmp_path / "cr.jsonl").min_interval == 0.1
 
 
 @pytest.mark.parametrize(
@@ -444,5 +447,5 @@ def test_verify_help_uses_the_shared_knob_templates() -> None:
     helps = {p.name: getattr(p, "help", None) for p in verify.params}
     assert helps["max_retries"] == _MAX_RETRIES_HELP.format(env="<SOURCE>_MAX_RETRIES")
     assert helps["min_interval"] == _MIN_INTERVAL_HELP.format(
-        default="0.1 for OpenAlex, 0 for Crossref", env="<SOURCE>_MIN_INTERVAL"
+        default="0.1", env="<SOURCE>_MIN_INTERVAL"
     )
