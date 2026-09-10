@@ -29,6 +29,7 @@ from citefinder._base import (
     DEFAULT_BACKOFF_BASE,
     DEFAULT_MAX_RETRIES,
     DEFAULT_MAX_WAIT,
+    DEFAULT_MIN_INTERVAL,
     DEFAULT_TIMEOUT,
     CachedJsonClient,
     _doi_path,
@@ -38,11 +39,6 @@ from citefinder.models import OpenAlexWork
 
 OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
-
-# OpenAlex documents a limit of 10 requests per second (plus a daily cap), so
-# consecutive uncached requests from one client are spaced at least this far
-# apart by default. Crossref publishes no fixed rate, so its default is 0.
-DEFAULT_MIN_INTERVAL = 0.1
 
 # OpenAlex `filter=` syntax reserves these characters (`,` separates filters,
 # `|` is OR, `:` separates field from value, `!` is negation). Including them

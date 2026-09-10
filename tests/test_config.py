@@ -703,7 +703,7 @@ def test_config_with_nothing_set_reports_defaults(tmp_path: Path, monkeypatch) -
     assert rows["cache_dir"] == ("default", "(unset)")
     assert rows["openalex.mailto"] == ("default", "(none)")
     assert rows["openalex.min_interval"] == ("default", "0.1")
-    assert rows["crossref.min_interval"] == ("default", "0")
+    assert rows["crossref.min_interval"] == ("default", "0.1")
     assert f"openalex cache:  {default_cache_dir() / 'openalex.jsonl'}" in out
     assert (
         f"verify output:   {tmp_path / 'data' / 'citefinder'}/<bib-dir>[-<bib-stem>]/"

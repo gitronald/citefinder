@@ -64,7 +64,7 @@ min_interval = 0.1
 [crossref]
 mailto = "..."
 max_retries = 3
-min_interval = 0
+min_interval = 0.1
 ```
 
 Lookup precedence (CLI), highest first: flag (`--cache`/`--out` beat

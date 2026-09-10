@@ -26,7 +26,12 @@ import typer
 from dotenv import find_dotenv, load_dotenv
 
 from citefinder import install as install_mod
-from citefinder._base import DEFAULT_MAX_RETRIES, package_version, validate_knob
+from citefinder._base import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_MIN_INTERVAL,
+    package_version,
+    validate_knob,
+)
 from citefinder.bib import parse_entries
 from citefinder.cache import (
     SOURCE_HOSTS,
@@ -47,7 +52,7 @@ from citefinder.config import (
     user_config_path,
 )
 from citefinder.models import cache_drift
-from citefinder.openalex import DEFAULT_MIN_INTERVAL, OpenAlexClient
+from citefinder.openalex import OpenAlexClient
 from citefinder.verify import Result, Source, verify_entry
 
 # Load `.env` from the current working directory (or any parent) so users can
@@ -121,7 +126,7 @@ def _load_configs() -> None:
         [crossref]
         mailto = "you@example.com"
         max_retries = 3
-        min_interval = 0
+        min_interval = 0.1
     """
     _config_sources.clear()
     project = find_project_config()
@@ -275,8 +280,14 @@ def _pacing_options(source: str, min_interval_default: str) -> tuple[Any, Any]:
     )
 
 
-OpenAlexMaxRetriesOption, OpenAlexMinIntervalOption = _pacing_options("openalex", "0.1")
-CrossrefMaxRetriesOption, CrossrefMinIntervalOption = _pacing_options("crossref", "0")
+_MIN_INTERVAL_DEFAULT = str(DEFAULT_MIN_INTERVAL)
+
+OpenAlexMaxRetriesOption, OpenAlexMinIntervalOption = _pacing_options(
+    "openalex", _MIN_INTERVAL_DEFAULT
+)
+CrossrefMaxRetriesOption, CrossrefMinIntervalOption = _pacing_options(
+    "crossref", _MIN_INTERVAL_DEFAULT
+)
 
 
 def _client_kwargs(
@@ -614,7 +625,7 @@ def verify(
         "--min-interval",
         min=0.0,
         help=_MIN_INTERVAL_HELP.format(
-            default="0.1 for OpenAlex, 0 for Crossref", env="<SOURCE>_MIN_INTERVAL"
+            default=_MIN_INTERVAL_DEFAULT, env="<SOURCE>_MIN_INTERVAL"
         ),
     ),
 ) -> None:
@@ -803,13 +814,12 @@ def install(
 
 # --- config ------------------------------------------------------------------
 
-# What a setting is when nothing sets it: the clients' own defaults. Crossref
-# has no named min_interval constant; "0" mirrors `CachedJsonClient`'s `0.0`.
+# What a setting is when nothing sets it: the clients' own defaults.
 _SETTING_DEFAULTS = {
     "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
-    "OPENALEX_MIN_INTERVAL": str(DEFAULT_MIN_INTERVAL),
+    "OPENALEX_MIN_INTERVAL": _MIN_INTERVAL_DEFAULT,
     "CROSSREF_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
-    "CROSSREF_MIN_INTERVAL": "0",
+    "CROSSREF_MIN_INTERVAL": _MIN_INTERVAL_DEFAULT,
 }
 
 

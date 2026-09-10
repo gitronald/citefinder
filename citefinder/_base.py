@@ -36,6 +36,12 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_BACKOFF_BASE = 1.0
 DEFAULT_MAX_WAIT = 60.0
 
+# OpenAlex documents a limit of 10 requests per second (plus a daily cap), so
+# consecutive uncached requests from one client are spaced at least this far
+# apart by default. Both clients share the floor; a caller that needs a
+# different pace passes `min_interval` explicitly.
+DEFAULT_MIN_INTERVAL = 0.1
+
 # Statuses worth a second try: the rate limiter (429) and the gateway-side
 # errors a busy API returns while it is overloaded or restarting. Every other
 # 4xx/5xx is either the caller's fault (400, 401, 403) or not going to change
@@ -166,7 +172,7 @@ class CachedJsonClient:
         max_retries: int = DEFAULT_MAX_RETRIES,
         backoff_base: float = DEFAULT_BACKOFF_BASE,
         max_wait: float = DEFAULT_MAX_WAIT,
-        min_interval: float = 0.0,
+        min_interval: float = DEFAULT_MIN_INTERVAL,
         *,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
