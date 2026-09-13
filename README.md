@@ -308,6 +308,7 @@ citefinder crossref chapter 10.1017/9781108890960 5
 citefinder verify refs.bib                               # full pipeline (defaults to OpenAlex)
 citefinder verify refs.bib --source crossref             # ...or against Crossref
 citefinder verify refs.bib --out path/to/output/dir/     # custom output directory
+citefinder verify refs.bib --no-fallback                 # skip the shared cache; read only this run's
 
 # .bib ↔ table
 citefinder bib-to-table refs.bib                            # wide polars table to terminal
@@ -441,14 +442,27 @@ Two layouts write under `cache_dir`: the shared per-source cache
 (`<cache-dir>/<source>.jsonl`, used by `doi`, `search`, and the `crossref`
 subcommands) and one cache per `verify` run
 (`<cache-dir>/<bib-dir>[-<bib-stem>]/<source>/<source>.jsonl`, so each run's
-evidence sits beside its own `results.json`). Left alone they never learn from
-each other: a DOI one run fetched is invisible to the next, which refetches it,
-and a 404 cached before a deposit landed lives on next to the record that
-resolved it months later.
+evidence sits beside its own `results.json`). Each `verify` run reads the
+shared cache as a read-only fallback: a miss in its own cache that the shared
+file can answer — a record or a cached 404 — is a hit, not a request. The run's
+header says which files it read:
 
-The `cache` commands consolidate and inspect them. Nothing else in the package
-merges anything — no lookup and no `verify` run consolidates as a side effect —
-so a misdirected row is never laundered into the shared cache by routine use.
+```
+Cache: data/citefinder/paper/openalex/openalex.jsonl (12 entries pre-loaded)
+Fallback: data/citefinder/openalex.jsonl (1268 entries)
+```
+
+The pre-load count spans both files. A `Fallback` line showing `0 entries`
+against a populated cache directory means the merge below has not run yet, or
+that a different `cache_dir` resolved. `--no-fallback` pins a run to its own
+file.
+
+A run never writes to the shared cache, so what a fresh run fetches reaches
+later runs only after a merge, and a 404 cached before a deposit landed lives on
+next to the record that resolved it months later. The `cache` commands
+consolidate and inspect them. Nothing else in the package merges anything — no
+lookup and no `verify` run consolidates as a side effect — so a misdirected row
+is never laundered into the shared cache by routine use.
 
 ```bash
 citefinder cache stats                                   # inventory every cache under cache_dir

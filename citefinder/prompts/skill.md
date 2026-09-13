@@ -188,7 +188,7 @@ Field order within each entry is not preserved (it follows the CSV's column orde
 
 ## Cache maintenance: `citefinder cache`
 
-A project accumulates caches in two shapes: the shared `<cache_dir>/<source>.jsonl` that `doi`/`search` write, and one cache per `verify` run under `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/`. They do not learn from each other on their own — a DOI one run fetched gets refetched by the next, and a 404 cached before a deposit landed sits next to the record that later resolved it.
+A project accumulates caches in two shapes: the shared `<cache_dir>/<source>.jsonl` that `doi`/`search` write, and one cache per `verify` run under `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/`. A `verify` run reads the shared file as a read-only fallback (its header prints a `Fallback:` line with the entry count; `--no-fallback` turns it off), so anything already merged is a cache hit. What a run fetches stays in its own cache, though, so it reaches later runs only after a merge — and a 404 cached before a deposit landed sits next to the record that later resolved it. A `Fallback: ... (0 entries)` line in a project with earlier runs means nothing has been merged yet.
 
 ```bash
 citefinder cache stats                                # what every cache under cache_dir holds
