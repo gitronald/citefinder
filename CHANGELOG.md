@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   behind a writable primary, and both clients take a `fallback_cache` path to
   build one.
 
+### Fixed
+
+- The `verify` header's cache and fallback entry counts no longer include
+  the rate-limit snapshot row, so a cache holding only that bookkeeping
+  reports 0 entries instead of 1.
+
 ## [0.11.0] - 2026-09-10
 
 ### Added
