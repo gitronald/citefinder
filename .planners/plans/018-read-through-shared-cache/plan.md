@@ -127,3 +127,39 @@ out to be useful; if it does, `hits_from_fallback` is a one-line addition.
    coincident-path case.
 4. Docs: README's verify and cache sections, the skill recipe if it describes
    the `Cache:` header, and a CHANGELOG entry under Unreleased.
+
+## Log
+
+### 2026-09-12
+
+- Activated on `dev` (`ad3fa6b`); work in a worktree on
+  `feature/read-through-shared-cache`. Draft PR opened after the first
+  implementation commit and recorded in `pr:` (`a4e7142`, with the regenerated
+  index — the frontmatter change alone failed `planners validate`).
+- Steps 1–2 (`889d056`): `LayeredCache` in `cache.py` as specified, exported
+  from `citefinder`. `JsonlCache` gained a `keys()` method so `__len__` can
+  count distinct keys across layers. `fallback_cache` added to `_base`,
+  `CrossrefClient`, and `OpenAlexClient`; it only applies when `cache_path` is
+  given, so a `cache=` object is used as-is. Tests: six `LayeredCache` cases in
+  `test_cache.py` (including the rate-limit snapshot inheriting from the
+  fallback until the run captures its own) and a `test_client.py` case showing
+  a fallback record and a fallback 404 make no request while a miss writes to
+  the per-run file only.
+- Step 3 (`12d9630`): `verify` passes the shared `<cache-dir>/<source>.jsonl` as
+  the fallback, `--no-fallback` disables it, and a resolved-path comparison drops
+  it when `--out` makes the per-run file the shared one. The pre-load count
+  spans both layers and a `Fallback: <path> (N entries)` line follows `Cache:`.
+  **Deviation:** the CLI tests landed in `tests/test_config.py`, beside the
+  existing `verify` CLI tests, not `test_verify.py`, which only covers
+  `verify_entry`. Four cases: default fallback path and header, the flag, the
+  coincident-path guard, and an end-to-end run where the network is patched to
+  fail and the entry is still a hit with both cache files left untouched.
+- Step 4 (`b1f837d`): README verify example and cache-maintenance section
+  (header sample, what `0 entries` means), skill cache-maintenance paragraph,
+  and an Unreleased CHANGELOG entry. The skill never described the `Cache:`
+  header, so the paragraph claiming the caches "do not learn from each other"
+  was the part that needed rewriting.
+- Gate: ruff and pyrefly clean; 399 tests pass at 97.57% coverage. Seven
+  `test_install.py` tests fail for an environmental reason unrelated to this
+  plan: stray `.git` and `.claude` directories at the root of the system temp
+  dir make `find_repo_root` stop there for pytest's temp paths.
