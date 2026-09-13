@@ -5,7 +5,7 @@ status: active
 branch: feature/adopt-pkgskills
 created: 2026-09-13T10:42:53-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/66
 ---
 
 # Adopt pkgskills for skill packaging and install
