@@ -2,8 +2,8 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 019 | [Adopt pkgskills for skill packaging and install](plans/019-adopt-pkgskills/plan.md) | active | — | [#66](https://github.com/gitronald/citefinder/pull/66) |
 | 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | draft | — | — |
+| 019 | [Adopt pkgskills for skill packaging and install](plans/019-adopt-pkgskills/plan.md) | done | 2026-09-13 14:47 PT | [#66](https://github.com/gitronald/citefinder/pull/66) |
 | 018 | [Read the shared cache as a fallback for per-run caches](plans/018-read-through-shared-cache/plan.md) | done | 2026-09-12 21:52 PT | [#64](https://github.com/gitronald/citefinder/pull/64) |
 | 017 | [Track API quotas and add the ratelimit command](plans/017-ratelimit-command/plan.md) | done | 2026-09-10 01:28 PT | — |
 | 016 | [Add cache maintenance commands: merge, compact, and stats](plans/016-cache-maintenance-commands/plan.md) | done | 2026-09-09 12:21 PT | [#59](https://github.com/gitronald/citefinder/pull/59) |

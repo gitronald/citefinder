@@ -1,10 +1,10 @@
 ---
 id: 19
 slug: adopt-pkgskills
-status: active
+status: done
 branch: feature/adopt-pkgskills
 created: 2026-09-13T10:42:53-07:00
-concluded:
+concluded: 2026-09-13T14:47:03-07:00
 pr: https://github.com/gitronald/citefinder/pull/66
 ---
 
@@ -246,3 +246,53 @@ references and rewrites command prefixes, and changes nothing else about what
 the skill tells the model to do. Anything under `citefinder/` other than
 `host.py`, `install.py`, `cli.py`, and the prompt tree. The lookup, cache, and
 verification code and their tests are unaffected.
+
+## Log
+
+### 2026-09-13
+
+- `e5debb7` adopt pkgskills: `citefinder/host.py` declares the skill and four
+  reference `Doc`s (`openalex`, `given-names`, `year-mismatches`,
+  `inspect-table`); `register(app, HOST)` mounts `skill`, `doc`, and
+  `install`; `citefinder/install.py` and `tests/test_install.py` deleted;
+  `tests/test_host.py` added; `tests/test_skill_recipe.py` re-pointed.
+- `b6f5775` regenerated the committed local stub; `install --local --check`
+  reports `ok`.
+- `3488b0e` README, CHANGELOG, and `.claude/CLAUDE.md` updated.
+- `dceadae` recorded the PR URL (#66).
+
+#### Review follow-up
+
+A medium `/code-review` pass (two finders, four candidates, all confirmed)
+landed in `270bf8d`:
+
+- **Bootstrap check rendered by mode.** Step 2 converted the one
+  `uv run citefinder --help` to `{cli} --help`, as the plan prescribed, but
+  that line follows `uv add citefinder`, so a global render printed bare
+  `citefinder --help`, which a project-only dependency does not put on PATH.
+  Restored the literal `uv run` form; regression test
+  `test_bootstrap_check_runs_through_uv_in_every_mode`.
+- **Dead assertion disjunct** in `test_global_copy_wins_over_a_stale_local_one`:
+  `"citefinder cache"` never appears in the openalex reference; reduced to the
+  clause that does the work.
+- **Stale docstrings**: `package_version()` no longer labels the stub stamp
+  (pkgskills resolves the version itself), and `tests/test_cli.py` named the
+  deleted install suite.
+
+Gate after fixes: ruff check, ruff format --check, pyrefly, pytest (377 passed,
+coverage 97.98%); stub still `ok`.
+
+## Retrospective
+
+- The adoption went as planned: 342 lines of install machinery and 585 lines of
+  tests became a 25-line declaration and a ~200-line test file, with coverage
+  unchanged.
+- The one real defect came from the plan itself: "every command mention
+  becomes `{cli}`" was applied mechanically, but a mention's correct form
+  depends on its context, and a bootstrap step that runs before any install
+  has no mode to render. `assert_prompt_commands` checks that a command
+  exists, not that its prefix fits the surrounding step.
+- Next time a prompt adopts `{cli}`, sort mentions into mode-dependent and
+  mode-independent before rewriting, and pin the latter with a literal test.
+- Splitting reference material into `Doc`s halved the body without changing
+  its instructions; the recipe test re-pointing cleanly showed the split held.
