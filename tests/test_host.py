@@ -191,7 +191,7 @@ def test_global_copy_wins_over_a_stale_local_one(box: Sandbox) -> None:
 
     # With both present, printing follows the global copy's mode.
     result = runner.invoke(app, ["doc", "use-citefinder/openalex"])
-    assert "citefinder cache" in result.stdout or "citefinder doi" in result.stdout
+    assert "citefinder doi" in result.stdout
     assert "uv run citefinder" not in result.stdout
 
     # A bare check still judges every mode: the shadowed local stub is named,
@@ -201,3 +201,10 @@ def test_global_copy_wins_over_a_stale_local_one(box: Sandbox) -> None:
     assert "shadows the per-repo stub" in check.output
     assert runner.invoke(app, ["install", "--local", "--force"]).exit_code == 0
     assert runner.invoke(app, ["install", "--check"]).exit_code == 0
+
+
+def test_bootstrap_check_runs_through_uv_in_every_mode(box: Sandbox) -> None:
+    # The check follows `uv add citefinder`, so only `uv run` is sure to resolve,
+    # even when a global stub renders the other commands as bare `citefinder`.
+    result = runner.invoke(app, ["skill"])
+    assert "uv run citefinder --help" in result.stdout

@@ -68,8 +68,8 @@ def package_version() -> str:
     distribution record to read (a source tree run without an install).
 
     Degrading rather than raising keeps a missing record from taking down the
-    paths that only want a version string to label something — the User-Agent
-    below, and the skill stub `citefinder install` stamps.
+    paths that only want a version string to label something, such as the
+    User-Agent below.
     """
     try:
         return version("citefinder")

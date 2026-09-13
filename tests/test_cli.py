@@ -1,4 +1,4 @@
-"""Tests for CLI commands not covered by the config, install, or retry suites."""
+"""Tests for CLI commands not covered by the config, host, or retry suites."""
 
 import json
 from pathlib import Path

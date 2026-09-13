@@ -34,7 +34,7 @@ uv add citefinder  # or: uv add git+https://github.com/gitronald/citefinder
 Confirm it's wired:
 
 ```bash
-{cli} --help
+uv run citefinder --help
 ```
 
 ## Where these instructions come from
