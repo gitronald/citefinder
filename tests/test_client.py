@@ -183,3 +183,25 @@ def test_no_mailto_no_query_param(tmp_path: Path, mock_response) -> None:
     called_url = client.session.get.call_args[0][0]
     assert "mailto" not in called_url
     assert called_url == "https://api.crossref.org/works/10.1/test"
+
+
+def test_fallback_cache_hit_makes_no_request(tmp_path: Path, mock_response) -> None:
+    shared = JsonlCache(tmp_path / "shared.jsonl")
+    shared.put("https://api.crossref.org/works/10.1/old", {"message": {"DOI": "old"}})
+    shared.put("https://api.crossref.org/works/10.1/dead", None)
+    run = tmp_path / "run" / "crossref.jsonl"
+    client = CrossrefClient(cache_path=run, fallback_cache=shared.path, min_interval=0)
+    session = MagicMock()
+    client.session = session  # type: ignore[assignment]
+
+    assert client.lookup_doi("10.1/old") == {"DOI": "old"}
+    assert client.lookup_doi("10.1/dead") is None
+    assert session.get.call_count == 0
+    assert client.network_calls == 0
+
+    # A miss in both layers fetches, and lands in the per-run file only.
+    session.get.return_value = mock_response(200, {"message": {"DOI": "new"}})
+    client.lookup_doi("10.1/new")
+    assert session.get.call_count == 1
+    assert "https://api.crossref.org/works/10.1/new" in JsonlCache(run)
+    assert "https://api.crossref.org/works/10.1/new" not in JsonlCache(shared.path)

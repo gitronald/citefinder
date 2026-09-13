@@ -18,34 +18,10 @@ from citefinder.config import (
 
 runner = CliRunner()
 
-CONFIG_ENV = (
-    "CITEFINDER_CACHE_DIR",
-    "OPENALEX_API_KEY",
-    "OPENALEX_MAILTO",
-    "OPENALEX_MAX_RETRIES",
-    "OPENALEX_MIN_INTERVAL",
-    "CROSSREF_MAILTO",
-    "CROSSREF_MAX_RETRIES",
-    "CROSSREF_MIN_INTERVAL",
-)
-
 
 @pytest.fixture(autouse=True)
-def clean_env(tmp_path: Path, monkeypatch) -> None:
-    """Start from an empty config env, an empty user config dir, and a
-    sandboxed working directory.
-
-    The loader writes `os.environ` directly; `delenv` records the prior
-    (absent) state so monkeypatch removes whatever a test loads at teardown.
-    Pinning cwd keeps project-config discovery inside `tmp_path` rather
-    than walking the repo's ancestors, and a fresh `_config_sources` means
-    no source label leaks in from an earlier test.
-    """
-    for name in CONFIG_ENV:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("citefinder.cli._config_sources", {})
+def _env(config_env: None) -> None:
+    """Every test here starts from the sandboxed config environment."""
 
 
 def write_user_config(tmp_path: Path, body: str) -> Path:
@@ -53,14 +29,6 @@ def write_user_config(tmp_path: Path, body: str) -> Path:
     cfg.parent.mkdir(parents=True, exist_ok=True)
     cfg.write_text(body, encoding="utf-8")
     return cfg
-
-
-def write_bib(directory: Path, name: str = "refs.bib") -> Path:
-    """A one-entry bib with no DOI, so `verify` searches (and finds nothing)."""
-    directory.mkdir(parents=True, exist_ok=True)
-    bib = directory / name
-    bib.write_text("@article{k1,\n  title = {A Paper},\n  year = {2020},\n}\n")
-    return bib
 
 
 # --- resolve_cache_path -----------------------------------------------------
@@ -161,173 +129,6 @@ def test_relative_user_config_cache_dir_anchors_to_the_config_file(
     assert captured["cache_path"] == cfg.parent / "caches" / "openalex.jsonl"
 
 
-# --- verify ------------------------------------------------------------------
-
-
-def test_verify_default_output_is_under_cwd(
-    tmp_path: Path, monkeypatch, captured
-) -> None:
-    bib = write_bib(tmp_path / "paper")
-    monkeypatch.chdir(tmp_path)
-
-    result = runner.invoke(app, ["verify", str(bib)])
-
-    assert result.exit_code == 0, result.output
-    # `refs.bib` is filed under its parent directory's name.
-    out = tmp_path / "data" / "citefinder" / "paper" / "openalex"
-    assert (out / "results.json").is_file()
-    assert captured["cache_path"] == out / "openalex.jsonl"
-
-
-def test_verify_files_a_non_primary_bib_under_its_directory(
-    tmp_path: Path, captured
-) -> None:
-    """A bib not named `refs.bib` is keyed on its directory too, with the
-    stem as a qualifier, so it sits beside the directory's `refs.bib` run.
-    """
-    caches = tmp_path / "caches"
-    write_bib(tmp_path / "paper")
-    extra = write_bib(tmp_path / "paper", "extra.bib")
-
-    result = runner.invoke(app, ["verify", str(extra), "--cache-dir", str(caches)])
-
-    assert result.exit_code == 0, result.output
-    out = caches / "paper-extra" / "openalex"
-    assert (out / "results.json").is_file()
-    assert captured["cache_path"] == out / "openalex.jsonl"
-
-
-def test_verify_keeps_same_named_bibs_in_sibling_directories_apart(
-    tmp_path: Path, captured
-) -> None:
-    """Two directories that each hold an `extra.bib` used to share one
-    `extra/` output directory, the second run silently overwriting the first.
-    """
-    caches = tmp_path / "caches"
-    a = write_bib(tmp_path / "paper-a", "extra.bib")
-    b = write_bib(tmp_path / "paper-b", "extra.bib")
-
-    for bib in (a, b):
-        result = runner.invoke(app, ["verify", str(bib), "--cache-dir", str(caches)])
-        assert result.exit_code == 0, result.output
-
-    written = {p.parent.parent.name for p in caches.glob("*/openalex/results.json")}
-    assert written == {"paper-a-extra", "paper-b-extra"}
-    assert not (caches / "extra").exists()
-
-
-def test_verify_anchors_a_relative_bib_path_before_naming_its_directory(
-    tmp_path: Path, monkeypatch, captured
-) -> None:
-    """A bare `verify refs.bib` has no parent component; without anchoring
-    it to the working directory first, the directory name came out empty and
-    the output collapsed into `<root>/<source>/`.
-    """
-    write_bib(tmp_path / "paper")
-    monkeypatch.chdir(tmp_path / "paper")
-
-    result = runner.invoke(app, ["verify", "refs.bib"])
-
-    assert result.exit_code == 0, result.output
-    out = tmp_path / "paper" / "data" / "citefinder" / "paper" / "openalex"
-    assert (out / "results.json").is_file()
-    assert captured["cache_path"] == out / "openalex.jsonl"
-
-
-def test_verify_collapses_dot_dot_before_naming_the_directory(
-    tmp_path: Path, monkeypatch, captured
-) -> None:
-    """`verify ../refs.bib` from a subdirectory names the output after the
-    bib's real directory, not `..`.
-    """
-    write_bib(tmp_path / "paper")
-    (tmp_path / "paper" / "sub").mkdir()
-    monkeypatch.chdir(tmp_path / "paper" / "sub")
-    caches = tmp_path / "caches"
-
-    result = runner.invoke(app, ["verify", "../refs.bib", "--cache-dir", str(caches)])
-
-    assert result.exit_code == 0, result.output
-    assert (caches / "paper" / "openalex" / "results.json").is_file()
-    assert [p.name for p in caches.iterdir()] == ["paper"]
-
-
-def test_verify_keeps_a_symlinked_directory_under_its_own_name(
-    tmp_path: Path, captured
-) -> None:
-    """A bib reached through a symlinked directory is keyed on the name the
-    user pointed at, not the link's target, so the cache written under that
-    name before this layout change is the one that is read.
-    """
-    write_bib(tmp_path / "2026-foo-final")
-    link = tmp_path / "paper"
-    link.symlink_to(tmp_path / "2026-foo-final", target_is_directory=True)
-    caches = tmp_path / "caches"
-
-    result = runner.invoke(
-        app, ["verify", str(link / "refs.bib"), "--cache-dir", str(caches)]
-    )
-
-    assert result.exit_code == 0, result.output
-    out = caches / "paper" / "openalex"
-    assert (out / "results.json").is_file()
-    assert captured["cache_path"] == out / "openalex.jsonl"
-    assert not (caches / "2026-foo-final").exists()
-
-
-def test_verify_output_derives_from_cache_dir(tmp_path: Path, captured) -> None:
-    bib = write_bib(tmp_path / "paper")
-    caches = tmp_path / "caches"
-
-    result = runner.invoke(app, ["verify", str(bib), "--cache-dir", str(caches)])
-
-    assert result.exit_code == 0, result.output
-    assert (caches / "paper" / "openalex" / "results.json").is_file()
-    assert captured["cache_path"] == caches / "paper" / "openalex" / "openalex.jsonl"
-
-
-def test_verify_honors_env_cache_dir_and_source(
-    tmp_path: Path, monkeypatch, captured
-) -> None:
-    bib = write_bib(tmp_path / "paper", "thesis.bib")
-    monkeypatch.setenv("CITEFINDER_CACHE_DIR", str(tmp_path / "caches"))
-
-    result = runner.invoke(app, ["verify", str(bib), "--source", "crossref"])
-
-    assert result.exit_code == 0, result.output
-    out = tmp_path / "caches" / "paper-thesis" / "crossref"
-    assert (out / "results.json").is_file()
-
-
-def test_verify_out_beats_cache_dir(tmp_path: Path, captured) -> None:
-    bib = write_bib(tmp_path / "paper")
-    out, caches = tmp_path / "out", tmp_path / "caches"
-
-    result = runner.invoke(
-        app, ["verify", str(bib), "--out", str(out), "--cache-dir", str(caches)]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert (out / "results.json").is_file()
-    assert not caches.exists()
-
-
-def test_verify_out_expands_home_and_keeps_the_cache_beside_results(
-    tmp_path: Path, monkeypatch, captured
-) -> None:
-    """A quoted `~` reaches the command unexpanded; `--out` is anchored like
-    `--cache-dir`, so both output files land in the same expanded directory.
-    """
-    bib = write_bib(tmp_path / "paper")
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    result = runner.invoke(app, ["verify", str(bib), "--out", "~/vout"])
-
-    assert result.exit_code == 0, result.output
-    assert (tmp_path / "vout" / "results.json").is_file()
-    assert captured["cache_path"] == tmp_path / "vout" / "openalex.jsonl"
-
-
 # --- user config file ---------------------------------------------------------
 
 
@@ -365,45 +166,6 @@ def test_unknown_home_user_in_a_config_file_is_ignored_with_a_warning(
     _load_configs()
     assert "CITEFINDER_CACHE_DIR" not in os.environ
     assert "warning: ignoring cache_dir" in capsys.readouterr().err
-
-
-def test_verify_source_accepts_any_case_and_rejects_unknowns(
-    tmp_path: Path, captured
-) -> None:
-    # `case_sensitive=False` only takes effect on a choice-typed option; as a
-    # plain `str` it was a no-op and `--source OpenAlex` was refused.
-    bib = write_bib(tmp_path / "paper")
-    out = str(tmp_path / "out")
-    result = runner.invoke(
-        app, ["verify", str(bib), "--source", "OpenAlex", "--out", out]
-    )
-    assert result.exit_code == 0, result.output
-    assert "Source: openalex" in result.output
-
-    result = runner.invoke(app, ["verify", str(bib), "--source", "bogus", "--out", out])
-    assert result.exit_code == 2
-    assert "bogus" in result.output
-
-
-def test_verify_mailto_follows_the_chosen_source(
-    tmp_path: Path, monkeypatch, captured
-) -> None:
-    # `verify` used to hand `--mailto` only to OpenAlex; Crossref runs sent
-    # no polite-pool email at all, whatever the flag, env, or config said.
-    bib = write_bib(tmp_path / "paper")
-    out = str(tmp_path / "out")
-    monkeypatch.setenv("OPENALEX_MAILTO", "oa@example.com")
-    monkeypatch.setenv("CROSSREF_MAILTO", "cr@example.com")
-
-    runner.invoke(app, ["verify", str(bib), "--source", "crossref", "--out", out])
-    assert captured["mailto"] == "cr@example.com"
-
-    runner.invoke(app, ["verify", str(bib), "--source", "openalex", "--out", out])
-    assert captured["mailto"] == "oa@example.com"
-
-    args = ["verify", str(bib), "--source", "crossref", "--out", out]
-    runner.invoke(app, [*args, "--mailto", "flag@example.com"])
-    assert captured["mailto"] == "flag@example.com"
 
 
 def test_load_configs_populates_env(tmp_path: Path) -> None:
@@ -560,7 +322,7 @@ def test_precedence_matrix(winner: str, tmp_path: Path, monkeypatch, captured) -
 
 
 def test_relative_project_cache_dir_anchors_to_the_config_dir(
-    tmp_path: Path, monkeypatch, captured
+    tmp_path: Path, monkeypatch, captured, write_bib
 ) -> None:
     """`cache_dir = "data/citefinder"` means the repo's `data/citefinder`
     from any working directory inside it, for lookups and `verify` alike."""
@@ -730,7 +492,9 @@ def test_config_reports_a_cache_dir_flag_anchored_to_cwd(
     )
 
 
-def test_config_verify_output_is_where_verify_writes(tmp_path: Path, captured) -> None:
+def test_config_verify_output_is_where_verify_writes(
+    tmp_path: Path, captured, write_bib
+) -> None:
     """`config` and `verify` derive the output root from one helper, so the
     path `config` prints is the one `verify` writes to.
     """

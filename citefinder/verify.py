@@ -27,6 +27,7 @@ from citefinder.bib import (
     normalize_doi,
     strip_braces,
 )
+from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.client import CrossrefClient
 from citefinder.models import CrossrefWork, OpenAlexWork
 from citefinder.openalex import OpenAlexClient
@@ -119,9 +120,27 @@ class Source:
             return crossref_full_title(cast(CrossrefWork, item)) or ""
         return cast(OpenAlexWork, item).get("display_name") or ""
 
+    def _records(self, cache: JsonlCache | LayeredCache) -> int:
+        """Entries in `cache` that are records or cached 404s.
+
+        The client's quota snapshot lives in the same file under
+        `rate_limit_key`; a count that included it would call a cache
+        holding nothing but bookkeeping "1 entries".
+        """
+        key = self.client.rate_limit_key
+        return len(cache) - (1 if key is not None and key in cache else 0)
+
     def cache_size(self) -> int:
+        """Records the client can answer from cache, across every layer."""
         cache = getattr(self.client, "cache", None)
-        return len(cache) if cache is not None else 0
+        return self._records(cache) if cache is not None else 0
+
+    def fallback_size(self) -> int | None:
+        """Records in the read-only fallback layer, or `None` without one."""
+        cache = getattr(self.client, "cache", None)
+        if not isinstance(cache, LayeredCache) or not cache.fallbacks:
+            return None
+        return self._records(cache.fallbacks[0])
 
     @property
     def retries(self) -> int:

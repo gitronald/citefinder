@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-09-12
+
+### Added
+
+- `verify` reads the shared `<cache-dir>/<source>.jsonl` as a read-only
+  fallback behind its per-run cache, so a record or 404 an earlier run fetched
+  (and `cache merge` consolidated) is a cache hit rather than a refetch. The
+  per-run cache stays the only file a run writes. The header gains a
+  `Fallback:` line with the shared file's entry count, and `--no-fallback` pins
+  a run to its own cache.
+- `LayeredCache` (exported from `citefinder`) stacks read-only fallback caches
+  behind a writable primary, and both clients take a `fallback_cache` path to
+  build one.
+
+### Fixed
+
+- The `verify` header's cache and fallback entry counts no longer include
+  the rate-limit snapshot row, so a cache holding only that bookkeeping
+  reports 0 entries instead of 1.
+
 ## [0.11.0] - 2026-09-10
 
 ### Added

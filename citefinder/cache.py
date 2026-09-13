@@ -96,8 +96,49 @@ class JsonlCache:
             f.write(line)
         self._store[key] = value
 
+    def keys(self) -> Iterable[str]:
+        return self._store.keys()
+
     def __len__(self) -> int:
         return len(self._store)
+
+
+class LayeredCache:
+    """A writable primary cache backed by read-only fallbacks.
+
+    Lookups try the primary, then each fallback in order, so a value this
+    run stored wins over anything older. Writes go to the primary only: a
+    fallback changes solely through an explicit `cache merge`, never as a
+    side effect of a lookup. Membership is layered as well as `get`, since a
+    cached `None` (a 404) is only a hit if `in` sees it. A fallback whose
+    file does not exist yet is simply an empty layer.
+    """
+
+    def __init__(self, primary: JsonlCache, *fallbacks: JsonlCache) -> None:
+        self.primary = primary
+        self.fallbacks = fallbacks
+
+    def _layers(self) -> tuple[JsonlCache, ...]:
+        return (self.primary, *self.fallbacks)
+
+    def get(self, key: str) -> Any | None:
+        for layer in self._layers():
+            if key in layer:
+                return layer.get(key)
+        return None
+
+    def __contains__(self, key: str) -> bool:
+        return any(key in layer for layer in self._layers())
+
+    def put(self, key: str, value: Any) -> None:
+        self.primary.put(key, value)
+
+    def __len__(self) -> int:
+        """Distinct keys across every layer."""
+        keys: set[str] = set()
+        for layer in self._layers():
+            keys.update(layer.keys())
+        return len(keys)
 
 
 # --- Maintenance ------------------------------------------------------------

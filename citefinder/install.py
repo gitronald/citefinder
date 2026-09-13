@@ -228,9 +228,14 @@ def find_repo_root(start: Path | None = None) -> Path:
     """
     base = (start or Path.cwd()).resolve()
     for candidate in (base, *base.parents):
-        if (candidate / ".git").exists() or (candidate / ".claude").is_dir():
+        if _marks_repo_root(candidate):
             return candidate
     return base
+
+
+def _marks_repo_root(path: Path) -> bool:
+    """Whether `path` carries a repo-root marker: `.git` or a `.claude/` tree."""
+    return (path / ".git").exists() or (path / ".claude").is_dir()
 
 
 def write_skill(root: Path, version: str, mode: Mode = "global") -> Path:

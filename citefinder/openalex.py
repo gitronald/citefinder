@@ -34,7 +34,7 @@ from citefinder._base import (
     CachedJsonClient,
     _doi_path,
 )
-from citefinder.cache import JsonlCache
+from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.models import OpenAlexWork
 
 OPENALEX_BASE = "https://api.openalex.org"
@@ -108,7 +108,7 @@ class OpenAlexClient(CachedJsonClient):
 
     def __init__(
         self,
-        cache: JsonlCache | None = None,
+        cache: JsonlCache | LayeredCache | None = None,
         cache_path: str | Path | None = None,
         mailto: str | None = None,
         api_key: str | None = None,
@@ -122,6 +122,7 @@ class OpenAlexClient(CachedJsonClient):
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         clock: Callable[[], float] = time.time,
+        fallback_cache: str | Path | None = None,
     ) -> None:
         super().__init__(
             cache=cache,
@@ -136,6 +137,7 @@ class OpenAlexClient(CachedJsonClient):
             sleep=sleep,
             monotonic=monotonic,
             clock=clock,
+            fallback_cache=fallback_cache,
         )
         # Falls back to env var so users can `export OPENALEX_API_KEY=...` (or
         # set it in a `.env` file the CLI loads at startup) without threading

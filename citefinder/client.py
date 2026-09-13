@@ -32,7 +32,7 @@ from citefinder._base import (
     _default_user_agent,
     _doi_path,
 )
-from citefinder.cache import JsonlCache
+from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.models import CrossrefWork
 
 CROSSREF_BASE = "https://api.crossref.org"
@@ -79,7 +79,7 @@ class CrossrefClient(CachedJsonClient):
 
     def __init__(
         self,
-        cache: JsonlCache | None = None,
+        cache: JsonlCache | LayeredCache | None = None,
         cache_path: str | Path | None = None,
         mailto: str | None = None,
         user_agent: str | None = None,
@@ -92,6 +92,7 @@ class CrossrefClient(CachedJsonClient):
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         clock: Callable[[], float] = time.time,
+        fallback_cache: str | Path | None = None,
     ) -> None:
         if min_interval is None:
             min_interval = (
@@ -112,6 +113,7 @@ class CrossrefClient(CachedJsonClient):
             sleep=sleep,
             monotonic=monotonic,
             clock=clock,
+            fallback_cache=fallback_cache,
         )
 
     def lookup_doi(self, doi: str) -> CrossrefWork | None:
