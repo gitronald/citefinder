@@ -1,11 +1,11 @@
 ---
 id: 18
 slug: read-through-shared-cache
-status: active
+status: done
 branch: feature/read-through-shared-cache
 created: 2026-09-12T20:52:05-07:00
-concluded:
-pr:
+concluded: 2026-09-12T21:52:57-07:00
+pr: https://github.com/gitronald/citefinder/pull/64
 ---
 
 # Read the shared cache as a fallback for per-run caches
@@ -127,3 +127,69 @@ out to be useful; if it does, `hits_from_fallback` is a one-line addition.
    coincident-path case.
 4. Docs: README's verify and cache sections, the skill recipe if it describes
    the `Cache:` header, and a CHANGELOG entry under Unreleased.
+
+## Log
+
+### 2026-09-12
+
+- Activated on `dev` (`ad3fa6b`); work in a worktree on
+  `feature/read-through-shared-cache`. Draft PR opened after the first
+  implementation commit and recorded in `pr:` (`a4e7142`, with the regenerated
+  index — the frontmatter change alone failed `planners validate`).
+- Steps 1–2 (`889d056`): `LayeredCache` in `cache.py` as specified, exported
+  from `citefinder`. `JsonlCache` gained a `keys()` method so `__len__` can
+  count distinct keys across layers. `fallback_cache` added to `_base`,
+  `CrossrefClient`, and `OpenAlexClient`; it only applies when `cache_path` is
+  given, so a `cache=` object is used as-is. Tests: six `LayeredCache` cases in
+  `test_cache.py` (including the rate-limit snapshot inheriting from the
+  fallback until the run captures its own) and a `test_client.py` case showing
+  a fallback record and a fallback 404 make no request while a miss writes to
+  the per-run file only.
+- Step 3 (`12d9630`): `verify` passes the shared `<cache-dir>/<source>.jsonl` as
+  the fallback, `--no-fallback` disables it, and a resolved-path comparison drops
+  it when `--out` makes the per-run file the shared one. The pre-load count
+  spans both layers and a `Fallback: <path> (N entries)` line follows `Cache:`.
+  **Deviation:** the CLI tests landed in `tests/test_config.py`, beside the
+  existing `verify` CLI tests, not `test_verify.py`, which only covers
+  `verify_entry`. Four cases: default fallback path and header, the flag, the
+  coincident-path guard, and an end-to-end run where the network is patched to
+  fail and the entry is still a hit with both cache files left untouched.
+- Step 4 (`b1f837d`): README verify example and cache-maintenance section
+  (header sample, what `0 entries` means), skill cache-maintenance paragraph,
+  and an Unreleased CHANGELOG entry. The skill never described the `Cache:`
+  header, so the paragraph claiming the caches "do not learn from each other"
+  was the part that needed rewriting.
+- Gate: ruff and pyrefly clean; 399 tests pass at 97.57% coverage. Seven
+  `test_install.py` tests fail for an environmental reason unrelated to this
+  plan: stray `.git` and `.claude` directories at the root of the system temp
+  dir make `find_repo_root` stop there for pytest's temp paths.
+- Review follow-up (`27e966a`): the medium-level review confirmed one
+  defect and raised one cleanup. The `Fallback:` and `Cache:` counts were
+  raw key counts, so a shared cache holding only the rate-limit snapshot row
+  printed `1 entries` while the README reads a nonzero count as "something
+  was merged". `Source` now counts records excluding that row, and a new
+  `Source.fallback_size()` replaces the CLI's reach into
+  `client.cache.fallbacks[0]`; a CLI test seeds the shared cache with only
+  the snapshot and asserts both lines read `0 entries`. Two efficiency notes
+  on `LayeredCache` (a double layer walk on a hit, a tuple rebuilt per call)
+  were measured at sub-microsecond cost and left as conscious no-ops. Review
+  posted to the PR; CI green on Python 3.11–3.14 before the fix, rerun after.
+
+## Retrospective
+
+- The design held: `_base` touching the cache only through `in`, `get`,
+  `put`, and `len` meant `LayeredCache` slotted in without changing the
+  client protocol, exactly as the plan predicted.
+- The one thing the plan missed was that "entries" already meant "keys
+  including bookkeeping". Printing the shared file's count for the first
+  time, and documenting what `0 entries` means, turned a harmless
+  off-by-one into a misleading signal. Any new header line that a doc will
+  interpret deserves a look at what the number actually counts.
+- Putting the count behind `Source` rather than in the CLI was the right
+  home from the start; the review caught the reach-in before it spread.
+- The CLI tests live in `test_config.py` beside the other `verify` CLI
+  cases. That file's name no longer describes its contents; a rename to
+  `test_cli.py` would help the next plan find them.
+- The seven `test_install.py` failures are a machine artifact (stray `.git`
+  and `.claude` at the temp root). Making `find_repo_root` stop at the
+  temp root, or the tests use a nested tmp dir, would remove the noise.

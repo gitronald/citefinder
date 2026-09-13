@@ -27,7 +27,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
-from citefinder.cache import JsonlCache
+from citefinder.cache import JsonlCache, LayeredCache
 
 log = logging.getLogger("citefinder")
 
@@ -171,6 +171,11 @@ class CachedJsonClient:
     All four must be finite and non-negative; anything else raises
     `ValueError` here rather than from `sleep` on a later request.
 
+    `fallback_cache`, given alongside `cache_path`, is a file consulted
+    read-only on a miss (see `LayeredCache`): a hit there, including a cached
+    404, makes no request, and nothing is ever written to it. A `cache`
+    object passed directly is used as-is.
+
     `sleep`, `monotonic`, and `clock` are test seams (`time.sleep`,
     `time.monotonic`, and `time.time` by default) so a fake clock can drive
     the retry loop without waiting.
@@ -186,7 +191,7 @@ class CachedJsonClient:
 
     def __init__(
         self,
-        cache: JsonlCache | None = None,
+        cache: JsonlCache | LayeredCache | None = None,
         cache_path: str | Path | None = None,
         mailto: str | None = None,
         user_agent: str | None = None,
@@ -199,10 +204,13 @@ class CachedJsonClient:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         clock: Callable[[], float] = time.time,
+        fallback_cache: str | Path | None = None,
     ) -> None:
         if cache is None and cache_path is not None:
             cache = JsonlCache(cache_path)
-        self.cache = cache
+            if fallback_cache is not None:
+                cache = LayeredCache(cache, JsonlCache(fallback_cache))
+        self.cache: JsonlCache | LayeredCache | None = cache
         self.mailto = mailto
         self.timeout = timeout
         for name, value in (
