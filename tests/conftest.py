@@ -1,5 +1,7 @@
 """Shared pytest fixtures."""
 
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -75,3 +77,47 @@ def captured(monkeypatch) -> dict[str, Any]:
     monkeypatch.setattr("citefinder.cli.OpenAlexClient", FakeClient)
     monkeypatch.setattr("citefinder.cli.CrossrefClient", FakeClient)
     return seen
+
+
+CONFIG_ENV = (
+    "CITEFINDER_CACHE_DIR",
+    "OPENALEX_API_KEY",
+    "OPENALEX_MAILTO",
+    "OPENALEX_MAX_RETRIES",
+    "OPENALEX_MIN_INTERVAL",
+    "CROSSREF_MAILTO",
+    "CROSSREF_MAX_RETRIES",
+    "CROSSREF_MIN_INTERVAL",
+)
+
+
+@pytest.fixture
+def config_env(tmp_path: Path, monkeypatch) -> None:
+    """An empty config env, an empty user config dir, and a sandboxed
+    working directory, for CLI tests that resolve paths and config.
+
+    The loader writes `os.environ` directly; `delenv` records the prior
+    (absent) state so monkeypatch removes whatever a test loads at teardown.
+    Pinning cwd keeps project-config discovery inside `tmp_path` rather
+    than walking the repo's ancestors, and a fresh `_config_sources` means
+    no source label leaks in from an earlier test.
+    """
+    for name in CONFIG_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("citefinder.cli._config_sources", {})
+
+
+@pytest.fixture
+def write_bib() -> Callable[..., Path]:
+    """Write a one-entry bib with no DOI, so `verify` searches (and finds
+    nothing); returns the path."""
+
+    def _write(directory: Path, name: str = "refs.bib") -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        bib = directory / name
+        bib.write_text("@article{k1,\n  title = {A Paper},\n  year = {2020},\n}\n")
+        return bib
+
+    return _write
