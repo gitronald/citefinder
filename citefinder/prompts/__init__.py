@@ -1,7 +1,8 @@
 """Bundled prompt bodies shipped as package data.
 
-`skill.md` is the canonical `use-citefinder` Claude Code skill — frontmatter
-included, verbatim. `citefinder.install` loads it with `importlib.resources`
-and materializes a stamped copy into `.claude/skills/`. Edit the skill here,
-never in a generated `.claude/` copy.
+`skills/use-citefinder/SKILL.md` is the canonical `use-citefinder` Claude Code
+skill — frontmatter included, verbatim — and `references/` beside it holds the
+documents its steps load with `citefinder doc`. `citefinder.host` declares
+them; `pkgskills` prints them and materializes a stamped stub into
+`.claude/skills/`. Edit the skill here, never in a generated `.claude/` copy.
 """

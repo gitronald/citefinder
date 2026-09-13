@@ -136,6 +136,7 @@ version = "0.11.2a0"
 source = { editable = "." }
 dependencies = [
     { name = "bibtexparser" },
+    { name = "pkgskills" },
     { name = "polars" },
     { name = "python-dotenv" },
     { name = "requests" },
@@ -156,6 +157,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bibtexparser", specifier = ">=2.0.0" },
+    { name = "pkgskills", specifier = ">=0.5.1" },
     { name = "polars", specifier = ">=1.44.1" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "requests", specifier = ">=2.34.2" },
@@ -393,6 +395,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5a/82/42f767fc1c1143d6fd36efb827202a2d997a375e160a71eb2888a925aac1/pathspec-1.1.1.tar.gz", hash = "sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a", size = 135180, upload-time = "2026-04-27T01:46:08.907Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl", hash = "sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189", size = 57328, upload-time = "2026-04-27T01:46:07.06Z" },
+]
+
+[[package]]
+name = "pkgskills"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/da/7b/6f94425cd4c570716771ea1bedbebacb3a77c77fef3a3ecd177a9e95f0a9/pkgskills-0.5.1.tar.gz", hash = "sha256:40a7c195e505b06ef347b4e3bd3c443621e3ba21cdecdc1d5fa997a22287df67", size = 62277, upload-time = "2026-09-12T18:54:52.531Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/17/79/3f922641bedc6b4e048a85ff39ed58f7bd78fb5c1fb046dccb24a3b97f2b/pkgskills-0.5.1-py3-none-any.whl", hash = "sha256:dea60682675b0d2ea6f027da59943e9cadbe38c784aa0f981ec3b009ece514e6", size = 65045, upload-time = "2026-09-12T18:54:51.104Z" },
 ]
 
 [[package]]

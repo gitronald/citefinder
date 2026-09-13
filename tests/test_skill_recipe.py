@@ -1,7 +1,7 @@
-"""The given-name recipe printed by `citefinder skill` must run as written.
+"""The given-name recipe printed by `citefinder doc` must run as written.
 
-The skill body is documentation, so nothing imports it; this test extracts the
-python block from the "Given names and diacritics" section, points its three
+The reference is documentation, so nothing imports it; this test extracts the
+python block from `use-citefinder/given-names`, points its three
 literal paths at synthetic fixtures, and executes it. Each fixture entry covers
 one shape the recipe has to survive: a diacritic the deposit dropped, a
 corporate bib author, a Crossref organisational author with no `given`, an
@@ -17,7 +17,7 @@ import re
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from citefinder import install as install_mod
+from citefinder.host import HOST
 
 CR_PATH = "data/citefinder/paper/crossref/crossref.jsonl"
 OA_PATH = "data/citefinder/paper/openalex/openalex.jsonl"
@@ -81,10 +81,9 @@ def _oa(doi: str, authorships: list[dict]) -> str:
 
 
 def _recipe() -> str:
-    body = install_mod.skill_body()
-    section = body.split("### Given names and diacritics", 1)[1]
-    match = re.search(r"```python\n(.*?)```", section, re.S)
-    assert match, "recipe code block missing from the skill"
+    doc = HOST.doc("use-citefinder/given-names")
+    match = re.search(r"```python\n(.*?)```", HOST.read(doc.source), re.S)
+    assert match, "recipe code block missing from the given-names reference"
     return match.group(1)
 
 
