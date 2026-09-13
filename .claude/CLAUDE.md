@@ -8,7 +8,7 @@ This file provides guidance to [Claude Code](claude.ai/code).
 citefinder/
 ├── __init__.py         # public API re-exports
 ├── _base.py            # CachedJsonClient base for the HTTP clients
-├── cache.py            # JsonlCache (append-only JSONL key-value store) + merge/inventory/atomic-write maintenance
+├── cache.py            # JsonlCache (append-only JSONL key-value store), LayeredCache (read-only fallbacks) + merge/inventory/atomic-write maintenance
 ├── client.py           # CrossrefClient
 ├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
 ├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
