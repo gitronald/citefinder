@@ -29,6 +29,10 @@ def sandbox(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     home.mkdir()
     repo.mkdir()
+    # Marked as a root: without it `find_repo_root` walks past `tmp_path`
+    # and lands on whatever `.git` or `.claude/` the temp dir's ancestors
+    # happen to carry.
+    (repo / ".git").mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.chdir(repo)
@@ -220,7 +224,10 @@ def test_find_repo_root_walks_up_to_a_marker(tmp_path) -> None:
     assert install_mod.find_repo_root(sub) == repo
 
 
-def test_find_repo_root_falls_back_to_the_start(tmp_path) -> None:
+def test_find_repo_root_falls_back_to_the_start(tmp_path, monkeypatch) -> None:
+    # The marker check is stubbed out: a real walk climbs to the filesystem
+    # root, and what the temp dir's ancestors carry is not the test's to know.
+    monkeypatch.setattr(install_mod, "_marks_repo_root", lambda path: False)
     bare = tmp_path / "bare"
     bare.mkdir()
     assert install_mod.find_repo_root(bare) == bare
@@ -495,7 +502,6 @@ def test_cli_install_local_from_a_subdirectory_targets_the_repo_root(
     """Claude Code loads skills from the repo root at startup; an install run
     from `docs/` must not bury the stub in `docs/.claude/`."""
     repo = sandbox
-    (repo / ".git").mkdir()
     sub = repo / "docs"
     sub.mkdir()
     monkeypatch.chdir(sub)
