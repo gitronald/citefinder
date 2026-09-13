@@ -106,10 +106,12 @@ printed body cannot read a sibling file, so each reference is declared as a
 at the step that needs it:
 
 ```python
-docs=(
-    Doc(name="use-citefinder/given-names",
-        source="skills/use-citefinder/references/given-names.md"),
-    ...
+docs = (
+    Doc(
+        name="use-citefinder/given-names",
+        source="skills/use-citefinder/references/given-names.md",
+    ),
+    ...,
 )
 ```
 
