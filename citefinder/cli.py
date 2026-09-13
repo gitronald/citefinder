@@ -35,6 +35,7 @@ from citefinder._base import (
 from citefinder.bib import parse_entries
 from citefinder.cache import (
     SOURCE_HOSTS,
+    LayeredCache,
     MergeStats,
     SourceStats,
     merge_caches,
@@ -709,12 +710,21 @@ def verify(
             default=_VERIFY_MIN_INTERVAL_DEFAULT, env="<SOURCE>_MIN_INTERVAL"
         ),
     ),
+    no_fallback: bool = typer.Option(
+        False,
+        "--no-fallback",
+        help="Read only this run's cache, not the shared <cache-dir>/<source>.jsonl.",
+    ),
 ) -> None:
     """Verify a `.bib` against Crossref or OpenAlex.
 
     For each entry: if `doi` is present, look up that DOI directly;
     otherwise search by author + title + year. Writes a JSONL response
     cache and a structured `results.json` to the output directory.
+
+    A miss in that per-run cache falls back to the shared cache `cache
+    merge` maintains, read-only, so a record an earlier run fetched is not
+    refetched. Only the per-run cache is ever written.
     """
     _require_file(bib_file)
 
@@ -729,21 +739,31 @@ def verify(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cache_path = resolve_cache_path(source, out_dir)
+    # The shared file `cache merge` writes. When `--out` points the run at
+    # the cache root itself the two coincide, and layering a file over
+    # itself would only double-count it.
+    shared = resolve_cache_path(source, _verify_root(cache_dir))
+    coincide = shared.resolve() == cache_path.resolve()
+    fallback = None if no_fallback or coincide else shared
     knobs = _source_client_kwargs(source, max_retries, min_interval, mailto)
     if source == "crossref":
-        src = Source(
-            name="crossref", client=CrossrefClient(cache_path=cache_path, **knobs)
-        )
+        client = CrossrefClient(cache_path=cache_path, fallback_cache=fallback, **knobs)
+        src = Source(name="crossref", client=client)
     else:
-        src = Source(
-            name="openalex", client=OpenAlexClient(cache_path=cache_path, **knobs)
-        )
+        client = OpenAlexClient(cache_path=cache_path, fallback_cache=fallback, **knobs)
+        src = Source(name="openalex", client=client)
 
     entries = parse_entries(bib_file.read_text())
     starting_cache_size = src.cache_size()
     typer.echo(f"Parsed {len(entries)} entries from {bib_file}")
     typer.echo(f"Source: {source}")
-    typer.echo(f"Cache: {cache_path} ({starting_cache_size} entries pre-loaded)\n")
+    typer.echo(f"Cache: {cache_path} ({starting_cache_size} entries pre-loaded)")
+    if fallback is not None:
+        cache = client.cache
+        layer = cache.fallbacks[0] if isinstance(cache, LayeredCache) else None
+        count = len(layer) if layer is not None else 0
+        typer.echo(f"Fallback: {fallback} ({count} entries)")
+    typer.echo()
 
     status_counts: Counter[str] = Counter()
     results: list[Result] = []

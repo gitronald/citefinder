@@ -752,3 +752,71 @@ def test_config_verify_output_is_where_verify_writes(tmp_path: Path, captured) -
     assert expected == tmp_path / "caches" / "paper" / "openalex"
     assert (expected / "results.json").is_file()
     assert captured["cache_path"] == expected / "openalex.jsonl"
+
+
+# --- verify's shared-cache fallback -------------------------------------------
+
+
+def test_verify_falls_back_to_the_shared_cache(tmp_path: Path, captured) -> None:
+    bib = write_bib(tmp_path / "paper")
+    caches = tmp_path / "caches"
+
+    result = runner.invoke(app, ["verify", str(bib), "--cache-dir", str(caches)])
+
+    assert result.exit_code == 0, result.output
+    assert captured["fallback_cache"] == caches / "openalex.jsonl"
+    assert f"Fallback: {caches / 'openalex.jsonl'} (0 entries)" in result.output
+
+
+def test_verify_no_fallback_flag_pins_one_file(tmp_path: Path, captured) -> None:
+    bib = write_bib(tmp_path / "paper")
+    args = ["verify", str(bib), "--cache-dir", str(tmp_path), "--no-fallback"]
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    assert captured["fallback_cache"] is None
+    assert "Fallback:" not in result.output
+
+
+def test_verify_out_at_the_cache_root_does_not_layer_a_file_over_itself(
+    tmp_path: Path, captured
+) -> None:
+    bib = write_bib(tmp_path / "paper")
+    caches = tmp_path / "caches"
+
+    result = runner.invoke(
+        app, ["verify", str(bib), "--out", str(caches), "--cache-dir", str(caches)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["cache_path"] == caches / "openalex.jsonl"
+    assert captured["fallback_cache"] is None
+
+
+def test_verify_fallback_hit_makes_no_request_and_writes_only_the_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from citefinder.cache import JsonlCache
+
+    caches = tmp_path / "caches"
+    shared = JsonlCache(caches / "openalex.jsonl")
+    shared.put("https://api.openalex.org/works/doi:10.1/dead", None)
+    before = shared.path.read_bytes()
+    bib = tmp_path / "paper" / "refs.bib"
+    bib.parent.mkdir()
+    bib.write_text("@article{k1,\n  title = {A Paper},\n  doi = {10.1/dead},\n}\n")
+
+    def no_network(*args: object, **kwargs: object) -> None:
+        raise AssertionError("verify reached the network")
+
+    monkeypatch.setattr("requests.Session.get", no_network)
+    result = runner.invoke(app, ["verify", str(bib), "--cache-dir", str(caches)])
+
+    assert result.exit_code == 0, result.output
+    assert "(1 entries pre-loaded)" in result.output
+    assert "(1 entries)" in result.output
+    assert "[hit]" in result.output
+    assert "0 network call(s), 1 cache hit(s)" in result.output
+    assert shared.path.read_bytes() == before
+    assert not (caches / "paper" / "openalex" / "openalex.jsonl").exists()
