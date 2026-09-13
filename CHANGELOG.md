@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-13
+
 ### Added
 
 - `citefinder doc <name>` prints the skill's reference documents, and
