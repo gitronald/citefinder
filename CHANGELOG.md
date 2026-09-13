@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `citefinder doc <name>` prints the skill's reference documents, and
+  `citefinder doc --list` lists them. The OpenAlex fallback and API-key setup,
+  the given-names and diacritics check, the year-mismatch guidance, and the
+  `bib_to_table` inspection helper moved out of the skill body into
+  `use-citefinder/openalex`, `use-citefinder/given-names`,
+  `use-citefinder/year-mismatches`, and `use-citefinder/inspect-table`, which
+  the body loads at the step that needs them.
+- `citefinder skill use-citefinder` prints the body by name, and
+  `citefinder skill --list` lists the bodies. Bare `citefinder skill` still
+  prints it.
+- The skill's frontmatter carries `metadata.version`, which reaches the
+  installed stub.
+
+### Changed
+
+- The `skill`, `doc`, and `install` commands come from the
+  [pkgskills](https://pypi.org/project/pkgskills/) library, a new dependency
+  (`pkgskills>=0.5.1`, which also pulls in PyYAML). `citefinder.install` is
+  removed.
+- The skill source moved from `citefinder/prompts/skill.md` to
+  `citefinder/prompts/skills/use-citefinder/SKILL.md`, following the Agent
+  Skills specification layout.
+- Command examples in the skill render for the install mode: a local install
+  prints `uv run citefinder ...`, a global one `citefinder ...`.
+- `install --check` prints a status table, one row per stub with a reason on
+  anything not `ok`, instead of the `skill: <status> (<path>)` line. A bare
+  `--check` judges every installed copy, so a stale per-repo stub fails it
+  even when a global copy shadows it. The exit status is still non-zero
+  unless everything is `ok`.
+- **A stub installed by an earlier release reports `foreign`**, not `drifted`:
+  its stamp predates pkgskills, so the library cannot verify it wrote the
+  file. A bare `install` refuses to overwrite it; run
+  `citefinder install --force` (add `--local` for a per-repo stub) once to
+  replace it.
+
 ## [0.11.1] - 2026-09-12
 
 ### Added

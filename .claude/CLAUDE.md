@@ -18,19 +18,27 @@ citefinder/
 ├── adapters.py         # crossref_to_work, openalex_to_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
-├── install.py          # stub render/stamp/drift-check for the Claude Code skill
-├── prompts/skill.md    # canonical `use-citefinder` skill body (package data)
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, skill, install, crossref and cache subcommands
+├── host.py             # pkgskills Host declaration: the skill, its reference Docs, render_cli
+├── prompts/skills/use-citefinder/
+│   ├── SKILL.md        # canonical `use-citefinder` skill body (package data)
+│   └── references/     # docs the body loads with `citefinder doc use-citefinder/<name>`
+└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, crossref and cache subcommands; skill, doc, install mounted from pkgskills
 ```
 
-The `use-citefinder` skill follows the
-[planners](https://github.com/gitronald/planners) pattern: the body lives only
-in `citefinder/prompts/skill.md` and is printed by `citefinder skill`.
+The `use-citefinder` skill is packaged with
+[pkgskills](https://pypi.org/project/pkgskills/), declared in `host.py`
+(plan [`019-adopt-pkgskills`](.planners/plans/019-adopt-pkgskills/plan.md)):
+the body lives only in `citefinder/prompts/skills/use-citefinder/SKILL.md` and
+is printed by `citefinder skill`; each file in `references/` is a declared
+`Doc` printed by `citefinder doc use-citefinder/<name>`. Prompts write
+commands as `{cli} ...`, rendered to the mode-correct invocation, and
+`tests/test_host.py` checks every such mention resolves.
 `.claude/skills/use-citefinder/SKILL.md` is a **generated stub** — frontmatter
 triggers plus a pointer to that command — written by `citefinder install
 --local`. Edit the prompt body; the stub does not need regenerating unless the
 frontmatter or the stub template itself changes. `citefinder install --check`
-reports stub drift.
+reports stub drift. Bump the body's `metadata.version` when its instructions
+change materially.
 
 The four bib-verification modules (`bib`, `signals`, `adapters`, `verify`)
 were absorbed from external scripts in plan
