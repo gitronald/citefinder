@@ -820,3 +820,26 @@ def test_verify_fallback_hit_makes_no_request_and_writes_only_the_run(
     assert "0 network call(s), 1 cache hit(s)" in result.output
     assert shared.path.read_bytes() == before
     assert not (caches / "paper" / "openalex" / "openalex.jsonl").exists()
+
+
+def test_verify_counts_exclude_the_rate_limit_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A shared cache holding only quota bookkeeping is `0 entries`, since
+    the README reads a nonzero fallback count as "something was merged"."""
+    from citefinder.cache import JsonlCache
+    from citefinder.openalex import OpenAlexClient
+
+    caches = tmp_path / "caches"
+    key = OpenAlexClient.rate_limit_key
+    assert key is not None
+    JsonlCache(caches / "openalex.jsonl").put(key, {"headers": {}, "ts": 1.0})
+    bib = write_bib(tmp_path / "paper")
+    monkeypatch.setattr(
+        "requests.Session.get", lambda *a, **k: (_ for _ in ()).throw(OSError("off"))
+    )
+
+    result = runner.invoke(app, ["verify", str(bib), "--cache-dir", str(caches)])
+
+    assert "(0 entries pre-loaded)" in result.output
+    assert f"Fallback: {caches / 'openalex.jsonl'} (0 entries)" in result.output

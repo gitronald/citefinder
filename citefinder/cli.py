@@ -35,7 +35,6 @@ from citefinder._base import (
 from citefinder.bib import parse_entries
 from citefinder.cache import (
     SOURCE_HOSTS,
-    LayeredCache,
     MergeStats,
     SourceStats,
     merge_caches,
@@ -759,10 +758,7 @@ def verify(
     typer.echo(f"Source: {source}")
     typer.echo(f"Cache: {cache_path} ({starting_cache_size} entries pre-loaded)")
     if fallback is not None:
-        cache = client.cache
-        layer = cache.fallbacks[0] if isinstance(cache, LayeredCache) else None
-        count = len(layer) if layer is not None else 0
-        typer.echo(f"Fallback: {fallback} ({count} entries)")
+        typer.echo(f"Fallback: {fallback} ({src.fallback_size() or 0} entries)")
     typer.echo()
 
     status_counts: Counter[str] = Counter()
