@@ -6,6 +6,7 @@ from citefinder.adapters import crossref_to_work, openalex_to_work
 from citefinder.bib import Entry, parse_entries
 from citefinder.cache import (
     JsonlCache,
+    LayeredCache,
     MergeStats,
     SourceStats,
     merge_caches,
@@ -59,6 +60,7 @@ __all__ = [
     "CrossrefClient",
     "Entry",
     "JsonlCache",
+    "LayeredCache",
     "MergeStats",
     "OpenAlexClient",
     "Result",

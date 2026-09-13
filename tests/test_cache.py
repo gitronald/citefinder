@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from citefinder.cache import JsonlCache, read_records
+from citefinder.cache import JsonlCache, LayeredCache, read_records
 from citefinder.openalex import OpenAlexClient
 
 
@@ -156,3 +156,74 @@ def test_read_records_keeps_duplicates_and_skips_unreadable_lines(
     ]
     # The cache itself still lets the latest duplicate win.
     assert JsonlCache(path).get("k") == 2
+
+
+# --- LayeredCache -----------------------------------------------------------
+
+
+def _layered(tmp_path: Path) -> tuple[LayeredCache, JsonlCache, JsonlCache]:
+    primary = JsonlCache(tmp_path / "run" / "c.jsonl")
+    fallback = JsonlCache(tmp_path / "shared.jsonl")
+    return LayeredCache(primary, fallback), primary, fallback
+
+
+def test_layered_primary_wins_over_fallback(tmp_path: Path) -> None:
+    layered, primary, fallback = _layered(tmp_path)
+    fallback.put("k", "old")
+    primary.put("k", "new")
+    assert layered.get("k") == "new"
+
+
+def test_layered_fallback_hit_includes_a_cached_none(tmp_path: Path) -> None:
+    layered, _, fallback = _layered(tmp_path)
+    fallback.put("rec", {"id": 1})
+    fallback.put("dead", None)
+    assert "rec" in layered and layered.get("rec") == {"id": 1}
+    # A cached 404 is a hit, not a miss: membership must see it.
+    assert "dead" in layered and layered.get("dead") is None
+    assert "absent" not in layered and layered.get("absent") is None
+
+
+def test_layered_put_never_touches_the_fallback(tmp_path: Path) -> None:
+    primary = JsonlCache(tmp_path / "run" / "c.jsonl")
+    shared = tmp_path / "shared.jsonl"
+    shared.write_text('{"key": "x", "value": 1, "ts": 1.0}\n')
+    before = shared.read_bytes()
+    layered = LayeredCache(primary, JsonlCache(shared))
+    layered.put("y", 2)
+    assert shared.read_bytes() == before
+    assert JsonlCache(tmp_path / "run" / "c.jsonl").get("y") == 2
+
+
+def test_layered_missing_fallback_file_is_an_empty_layer(tmp_path: Path) -> None:
+    layered, _, _ = _layered(tmp_path)
+    assert "k" not in layered
+    assert len(layered) == 0
+    assert not (tmp_path / "shared.jsonl").exists()
+
+
+def test_layered_len_counts_distinct_keys(tmp_path: Path) -> None:
+    layered, primary, fallback = _layered(tmp_path)
+    primary.put("a", 1)
+    primary.put("b", 2)
+    fallback.put("b", 3)
+    fallback.put("c", None)
+    assert len(layered) == 3
+
+
+def test_layered_rate_limit_snapshot_prefers_the_primary(tmp_path: Path) -> None:
+    key = OpenAlexClient.rate_limit_key
+    assert key is not None
+    shared = JsonlCache(tmp_path / "shared.jsonl")
+    shared.put(key, {"headers": {"x-ratelimit-remaining": "10"}, "ts": 1.0})
+    run = tmp_path / "run" / "openalex.jsonl"
+
+    # A fresh per-run cache inherits the source-wide snapshot...
+    client = OpenAlexClient(cache_path=run, fallback_cache=shared.path)
+    assert client.rate_limit == shared.get(key)
+
+    # ...until the run captures its own, which then wins.
+    JsonlCache(run).put(key, {"headers": {"x-ratelimit-remaining": "5"}, "ts": 2.0})
+    client = OpenAlexClient(cache_path=run, fallback_cache=shared.path)
+    assert client.rate_limit is not None
+    assert client.rate_limit["headers"]["x-ratelimit-remaining"] == "5"
