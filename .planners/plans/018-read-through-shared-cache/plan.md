@@ -5,7 +5,7 @@ status: active
 branch: feature/read-through-shared-cache
 created: 2026-09-12T20:52:05-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/64
 ---
 
 # Read the shared cache as a fallback for per-run caches
