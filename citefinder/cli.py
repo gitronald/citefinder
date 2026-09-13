@@ -24,12 +24,11 @@ from typing import Any, Literal
 
 import typer
 from dotenv import find_dotenv, load_dotenv
+from pkgskills import register
 
-from citefinder import install as install_mod
 from citefinder._base import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_MIN_INTERVAL,
-    package_version,
     validate_knob,
 )
 from citefinder.bib import parse_entries
@@ -56,6 +55,7 @@ from citefinder.config import (
     resolve_cache_path,
     user_config_path,
 )
+from citefinder.host import HOST
 from citefinder.models import cache_drift
 from citefinder.openalex import OpenAlexClient
 from citefinder.verify import Result, Source, verify_entry
@@ -195,6 +195,8 @@ crossref_app = typer.Typer(
 app.add_typer(crossref_app, name="crossref")
 cache_app = typer.Typer(help="Inspect and consolidate the JSONL caches.")
 app.add_typer(cache_app, name="cache")
+# `skill`, `doc`, and `install`: the Claude Code skill, served by pkgskills.
+register(app, HOST)
 
 _CACHE_HELP = (
     "JSONL cache path (default: <cache-dir>/{source}.jsonl). Overrides --cache-dir."
@@ -802,111 +804,6 @@ def verify(
     (out_dir / "results.json").write_text(_to_json(payload) + "\n")
 
     typer.echo(f"\nWrote {out_dir}/results.json, {cache_path.name}")
-
-
-# --- claude code skill ------------------------------------------------------
-
-
-@app.command()
-def skill() -> None:
-    """Print the full `use-citefinder` skill instructions.
-
-    The generated stub in `.claude/skills/` points here rather than carrying a
-    copy of the body, so the instructions an agent reads always come from the
-    installed package and can never be a stale duplicate.
-    """
-    # The body uses characters beyond legacy console codepages (arrows, >=);
-    # on a non-UTF-8 stdout (Windows cp1252, PYTHONIOENCODING overrides)
-    # degrade them rather than crash — a traceback here would zero out the
-    # skill's whole delivery path.
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if reconfigure is not None:
-        reconfigure(errors="backslashreplace")
-    typer.echo(install_mod.skill_body(), nl=False)
-
-
-def _installed_status(
-    root: Path, version: str, mode: install_mod.Mode, local: bool
-) -> tuple[Path | None, Literal["ok", "drifted", "missing"], install_mod.Mode]:
-    """Where the checked stub sits, its drift status, and the mode it was judged by.
-
-    `--local` narrows the check to the per-repo copy; otherwise whichever copy
-    is installed (global first, matching Claude Code's own precedence) is
-    judged by where it sits. Raises `ValueError` when the bundled body cannot
-    be rendered to compare against.
-    """
-    if local:
-        where = install_mod.skill_path(root, mode)
-        return where, install_mod.check_mode(root, version, mode), mode
-    found = install_mod.resolve_installed(root)
-    if found is None:
-        return None, "missing", mode
-    where, mode = found
-    return where, install_mod.check_mode(root, version, mode), mode
-
-
-@app.command()
-def install(
-    local: bool = typer.Option(
-        False,
-        "--local",
-        help="Install into the enclosing repo's .claude/ instead of ~/.claude/.",
-    ),
-    check: bool = typer.Option(
-        False,
-        "--check",
-        help="Report ok/drifted/missing without writing; exits 1 unless ok.",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        help="Overwrite a file at the target path that citefinder did not generate.",
-    ),
-) -> None:
-    """Materialize the `use-citefinder` Claude Code skill stub.
-
-    Writes `.claude/skills/use-citefinder/SKILL.md`: the skill's frontmatter
-    triggers plus a short stub pointing at `citefinder skill`, which prints the
-    instructions from the installed package. Global by default (`~/.claude/`,
-    serving every repo); `--local` vendors the stub in the enclosing repo (the
-    nearest ancestor with `.git` or `.claude/` — where Claude Code loads skills
-    from). `--check` reports whether the stub still matches this version's
-    render.
-    """
-    version = package_version()
-    root = install_mod.find_repo_root()
-    mode: install_mod.Mode = "local" if local else "global"
-
-    if check:
-        with _report_errors(ValueError):
-            where, status, mode = _installed_status(root, version, mode, local)
-        typer.echo(f"skill: {status}" + (f" ({where})" if where else ""))
-        if status != "ok":
-            # `missing` has nothing to overwrite, so it needs a plain install,
-            # not the --force repair a drifted file calls for.
-            fix = install_mod.install_command(mode, force=status == "drifted")
-            typer.echo(f"  run: {fix}", err=True)
-            raise typer.Exit(code=1)
-        return
-
-    path = install_mod.skill_path(root, mode)
-    # A dangling symlink fails `exists()` (it follows the link) but still
-    # occupies the path — and is never ours, so it stays behind --force too.
-    occupied = path.is_symlink() or path.exists()
-    if occupied and not install_mod.is_generated(path) and not force:
-        typer.echo(
-            f"Error: {path} exists and was not generated by citefinder — "
-            "refusing to overwrite a hand-authored skill.\n"
-            "Re-run with --force to replace it.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    # OSError: a plain file squatting where `.claude/` should be, a directory at
-    # SKILL.md itself. ValueError: a bundled body with no frontmatter to lift.
-    with _report_errors(OSError, ValueError, prefix=f"cannot write {path}: "):
-        written = install_mod.write_skill(root, version, mode)
-    typer.echo(f"wrote {written} (citefinder {version}, mode={mode})")
 
 
 # --- config ------------------------------------------------------------------
