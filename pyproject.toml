@@ -9,10 +9,10 @@ requires-python = ">=3.11"
 dependencies = [
     "bibtexparser>=2.0.0",
     "pkgskills>=0.5.1",
-    "polars>=1.44.1",
+    "polars>=1.44.2",
     "python-dotenv>=1.2.3",
     "requests>=2.34.2",
-    "typer>=0.25.1",
+    "typer>=0.27.2",
 ]
 readme = "README.md"
 license = "MIT"
@@ -64,8 +64,8 @@ dev = [
     "pyrefly>=1.0.0",
     "pytest>=9.1.1",
     "pytest-cov",
-    "ruff>=0.15",
-    "types-requests>=2.33.0.20260518",
+    "ruff>=0.16.6",
+    "types-requests>=2.33.0.20260906",
 ]
 
 [tool.ruff]
