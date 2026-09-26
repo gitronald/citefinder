@@ -52,7 +52,11 @@ class Status(StrEnum):
     MISMATCH = "mismatch", "Mismatch (≥2 signals disagree — DOI to wrong work)"
     DOI_NOT_FOUND = (
         "doi-not-found",
-        "DOI not in metadata source (404 — likely arXiv / preprint)",
+        "DOI not in metadata source (404)",
+    )
+    NOT_INDEXED = (
+        "not-indexed",
+        "DOI registered outside this source (DataCite): verify with --source openalex",
     )
     UNMATCHED = "unmatched", "Unmatched (no plausible hit)"
     SKIP_SOURCE = "skip-source", "Skip source (@online / @misc — verify via URL)"

@@ -57,7 +57,7 @@ from citefinder.config import (
 )
 from citefinder.host import HOST
 from citefinder.models import cache_drift
-from citefinder.openalex import OpenAlexClient
+from citefinder.openalex import OpenAlexClient, datacite_registrar
 from citefinder.verify import Result, Source, verify_entry
 
 # Load `.env` from the current working directory (or any parent) so users can
@@ -1118,6 +1118,16 @@ def crossref_doi(
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Look up a single DOI via Crossref."""
+    # Crossref never indexes DataCite DOIs, so point at OpenAlex instead of
+    # spending a request on a guaranteed 404.
+    registrar = datacite_registrar(doi)
+    if registrar is not None:
+        typer.echo(
+            f"{doi}: {registrar} DOI registered with DataCite, not Crossref; "
+            f"try `citefinder doi {doi}`, which uses OpenAlex",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     client = _crossref_client(cache, cache_dir, mailto, max_retries, min_interval)
     _emit_or_exit(client.lookup_doi(doi), doi)
 
