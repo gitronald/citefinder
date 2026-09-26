@@ -16,7 +16,13 @@ from citefinder.cache import (
 )
 from citefinder.client import CrossrefClient
 from citefinder.config import resolve_cache_path
-from citefinder.openalex import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
+from citefinder.openalex import (
+    OpenAlexClient,
+    datacite_note,
+    datacite_registrar,
+    is_arxiv_doi,
+    reconstruct_abstract,
+)
 from citefinder.signals import (
     BibCitation,
     Status,
@@ -71,6 +77,8 @@ __all__ = [
     "bib_to_table",
     "compute_signals",
     "crossref_to_work",
+    "datacite_note",
+    "datacite_registrar",
     "is_arxiv_doi",
     "merge_caches",
     "openalex_to_work",

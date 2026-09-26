@@ -2,7 +2,7 @@
 name: use-citefinder
 description: Look up DOIs, search Crossref or OpenAlex, resolve book chapters, and verify whole `.bib` files with `citefinder` — a small Crossref + OpenAlex client with a JSONL cache that survives sessions and remembers 404s. Use this whenever the user wants to verify a DOI, find a paper by author + title, check whether a citation is real, resolve a chapter DOI, look up an arXiv/preprint DOI Crossref doesn't index, generate canonical metadata for a reference list, or audit a `.bib` file end-to-end — even when they don't say "Crossref" or "DOI" explicitly. Phrases like "is this paper real?", "find the published version", "look up this citation", "the subagent gave me these papers — verify them", "audit refs.bib", or "what's the DOI for X?" should trigger it.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Use citefinder
@@ -137,7 +137,7 @@ Output lands in `<cache_dir>/<bib-dir>[-<bib-stem>]/<source>/` — `data/citefin
 - `<source>.jsonl` — append-only response cache; re-running is cheap.
 - `results.json` — structured per-entry result (status, matched DOI, signals).
 
-Per-entry statuses: `matched` (signals confirm the work; for a DOI hit, `note` may record one disagreeing field), `probable` (one signal disagreed, or too few could be checked — review), `mismatch` (≥2 signals disagreed — DOI to wrong work), `doi-not-found` (404 — common for arXiv/preprint DOIs in Crossref), `unmatched` (no plausible hit), `skip-source` (`@online`/`@misc` — verify via URL), `error`.
+Per-entry statuses: `matched` (signals confirm the work; for a DOI hit, `note` may record one disagreeing field), `probable` (one signal disagreed, or too few could be checked — review), `mismatch` (≥2 signals disagreed — DOI to wrong work), `doi-not-found` (404 — the source has no record of the DOI), `not-indexed` (Crossref run only: a DataCite DOI such as arXiv `10.48550` or Zenodo `10.5281`, which Crossref never indexes; skipped without a request — verify with `--source openalex`), `unmatched` (no plausible hit), `skip-source` (`@online`/`@misc` — verify via URL), `error`.
 
 **Reading the report.** Read `results.json` by `method` × `status`:
 
@@ -147,6 +147,7 @@ Per-entry statuses: `matched` (signals confirm the work; for a DOI hit, `note` m
 - `method=search` with `matched` and a non-empty `matched_doi` — a DOI candidate for an entry that lacked one. Confirm the title, then add it.
 - `method=search` with `mismatch` / `probable` — usually a wrong-work false positive: books, reports, and other sources the index carries poorly get matched to a similarly titled record. Not a reason to rewrite the entry.
 - `unmatched` (or `skip-source` for `@online`/`@misc`) with a "title too short" note — the bib title has fewer than three words, so search cannot tell hits apart. Pick from `candidates` by hand, or complete the title and re-run.
+- `not-indexed` — expected in a Crossref run, not a defect; re-run those entries with `--source openalex`.
 - `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type; then look for a systematic cause (a preprint server the source doesn't index, a publisher whose DOI convention the search misses).
 
 Crossref and OpenAlex are complementary — Crossref has richer metadata for indexed records (full title + subtitle, multiple container aliases) but doesn't index arXiv/preprints; OpenAlex covers preprints but sometimes truncates titles or returns preprint years instead of publication years. For a thorough audit, run both and compare.

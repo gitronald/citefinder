@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `datacite_registrar(doi)` names the DataCite repository behind a DOI
+  prefix (`10.48550` arXiv, `10.5281` Zenodo), or returns `None`.
+  `is_arxiv_doi` is now built on it.
+- `datacite_note(registrar)` phrases why Crossref has no record of such a
+  DOI, shared by `verify` and `crossref doi`.
+- `Status.NOT_INDEXED` (`not-indexed`): a DOI registered outside the source.
+
+### Changed
+
+- `citefinder verify --source crossref` no longer looks up DataCite DOIs,
+  which Crossref never indexes. Those entries move from `doi-not-found` to
+  the new `not-indexed` status in `results.json` and the run summary, and
+  cost no request. A consumer that reads every status needs to recognize the
+  new value. OpenAlex runs are unchanged.
+- `citefinder crossref doi` prints a hint to use `citefinder doi` (OpenAlex)
+  for a DataCite DOI instead of a not-found, still exiting 1.
+- The `doi-not-found` note and header no longer suggest arXiv as the likely
+  cause, since a Crossref run now reports arXiv DOIs as `not-indexed`.
+
 ## [0.12.0] - 2026-09-13
 
 ### Added

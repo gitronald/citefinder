@@ -116,7 +116,12 @@ uv sync
 ### OpenAlex (default)
 
 ```python
-from citefinder import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
+from citefinder import (
+    OpenAlexClient,
+    datacite_registrar,
+    is_arxiv_doi,
+    reconstruct_abstract,
+)
 
 openalex = OpenAlexClient(
     cache_path="~/.cache/citefinder/openalex.jsonl",
@@ -138,8 +143,9 @@ hits = openalex.search("fact-checking large language models", rows=3)
 # OpenAlex stores abstracts as an inverted index — reconstruct to plain text
 abstract = reconstruct_abstract(work) if work else None
 
-# Helper for routing logic
+# Helpers for routing logic: DataCite DOIs are never in Crossref
 assert is_arxiv_doi("10.48550/arXiv.2410.21554")
+assert datacite_registrar("10.5281/zenodo.123") == "Zenodo"
 ```
 
 The `mailto` argument is optional but recommended: it puts requests into
@@ -277,7 +283,7 @@ for entry in parse_entries(open("refs.bib").read()):
     print(result.key, result.status, result.matched_doi)
 ```
 
-Each `Result` reports a `Status` (matched / probable / mismatch / doi-not-found / unmatched / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
+Each `Result` reports a `Status` (matched / probable / mismatch / doi-not-found / not-indexed / unmatched / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
 
 ### Bib ↔ table
 
@@ -350,6 +356,7 @@ Read `results.json` by `method` × `status`:
 - `method=search` with `matched` and a non-empty `matched_doi` — a DOI candidate for an entry that lacked one.
 - `method=search` with `mismatch` or `probable` — usually a wrong-work false positive (books, reports, and other sources the index carries poorly), not a reason to rewrite the entry.
 - `unmatched` (or `skip-source` for `@online`/`@misc`) with a "title too short" note — a bib title of fewer than three words cannot select a search hit; pick from `candidates` by hand.
+- `not-indexed` — a Crossref run skips DataCite DOIs (arXiv, Zenodo) without a request, since Crossref never indexes them; verify those with `--source openalex`.
 - `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type.
 
 `bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved. Input that cannot round-trip — a bib field named `key` or `entry_type`, a cell with unbalanced braces — is refused with an error and exit 1 rather than written out with data silently lost.

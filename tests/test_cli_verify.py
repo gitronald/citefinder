@@ -1,6 +1,7 @@
 """Tests for the `citefinder verify` CLI: output layout, source and
 mailto selection, and the shared-cache fallback."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -317,3 +318,21 @@ def test_verify_counts_exclude_the_rate_limit_snapshot(
 
     assert "(0 entries pre-loaded)" in result.output
     assert f"Fallback: {caches / 'openalex.jsonl'} (0 entries)" in result.output
+
+
+def test_verify_counts_not_indexed_in_its_own_bucket(tmp_path: Path, captured) -> None:
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        "@article{a, title = {A}, year = {2024}, doi = {10.48550/arXiv.1}}\n"
+        "@article{b, title = {B}, year = {2024}, doi = {10.1/missing}}\n"
+    )
+    out = tmp_path / "out"
+    args = ["verify", str(bib), "--source", "crossref", "--out", str(out)]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    # Every entry lands in exactly one bucket, so the totals add up.
+    assert "Final counts" in result.output
+    final = result.output.split("Final counts — ")[1].splitlines()[0]
+    assert sorted(final.split(", ")) == ["doi-not-found: 1", "not-indexed: 1"]
+    results = json.loads((out / "results.json").read_text())["results"]
+    assert [r["status"] for r in results] == ["not-indexed", "doi-not-found"]
