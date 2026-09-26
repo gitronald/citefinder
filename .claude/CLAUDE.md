@@ -11,7 +11,7 @@ citefinder/
 ├── cache.py            # JsonlCache (append-only JSONL key-value store), LayeredCache (read-only fallbacks) + merge/inventory/atomic-write maintenance
 ├── client.py           # CrossrefClient
 ├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
-├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
+├── openalex.py         # OpenAlexClient + abstract reconstruction + DataCite (arXiv/Zenodo) prefix routing
 ├── bib.py              # Entry, parse_entries, bib-side query helpers
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
 ├── models.py           # TypedDicts for raw Crossref/OpenAlex records + undeclared_keys/cache_drift drift check
