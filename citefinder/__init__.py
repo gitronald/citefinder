@@ -18,7 +18,13 @@ from citefinder.cache import (
 from citefinder.client import CrossrefClient
 from citefinder.config import resolve_cache_path
 from citefinder.loc import LocClient, marc_book, parse_marcxml
-from citefinder.openalex import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
+from citefinder.openalex import (
+    OpenAlexClient,
+    datacite_note,
+    datacite_registrar,
+    is_arxiv_doi,
+    reconstruct_abstract,
+)
 from citefinder.openlibrary import OpenLibraryClient, normalize_isbn
 from citefinder.signals import (
     BibCitation,
@@ -80,6 +86,8 @@ __all__ = [
     "book_record",
     "compute_signals",
     "crossref_to_work",
+    "datacite_note",
+    "datacite_registrar",
     "is_arxiv_doi",
     "marc_book",
     "merge_caches",

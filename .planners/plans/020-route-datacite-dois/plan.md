@@ -1,11 +1,11 @@
 ---
 id: 20
 slug: route-datacite-dois
-status: active
+status: done
 branch: feature/route-datacite-dois
 created: 2026-09-24T14:16:07-07:00
-concluded:
-pr:
+concluded: 2026-09-25T23:23:50-07:00
+pr: https://github.com/gitronald/citefinder/pull/72
 ---
 
 # Route DataCite DOIs away from Crossref in verify
@@ -81,3 +81,46 @@ as a minor version.
   repositories show up in practice.
 - A DataCite metadata source. OpenAlex already covers the registries that
   matter here.
+
+## Log
+
+### 2026-09-25
+
+- `40601e2` add `datacite_registrar` with an explicit `DATACITE_PREFIXES`
+  map (`10.48550` arXiv, `10.5281` Zenodo); `is_arxiv_doi` rebuilt on it.
+- `41f24e4` `Status.NOT_INDEXED`; `verify_entry` returns it for a DataCite
+  DOI on the Crossref source before any lookup; `crossref doi` prints a hint
+  to use `citefinder doi` and exits 1. The run summary needed no change: its
+  per-status counter gives the new status its own bucket.
+- `5a5f808` README, CHANGELOG (Added + Changed), skill body 1.1.0 with its
+  regenerated stub, `references/openalex.md`, and `.claude/CLAUDE.md`. The
+  `doi-not-found` note and header dropped their "likely arXiv" hint, which a
+  Crossref run no longer produces.
+- `61060fd` ruff-format the README import example (caught by the Stop hook).
+
+#### Review follow-up
+
+Medium review with a correctness finder and a reuse finder.
+
+- Actioned: `crossref doi` checked the raw argument, so the URL and `doi:`
+  forms skipped the hint and spent a request on a guaranteed 404. Now
+  normalized with `normalize_doi` first (`d351b4d`), with both forms in the CLI
+  test. The fix sits at the call site because `bib` imports `openalex`.
+- Actioned (`b8aa4cf`): the "registered with DataCite, not Crossref" phrasing
+  moved into one `datacite_note(registrar)` helper that both surfaces use; the
+  `NOT_INDEXED` header reworded to match; the verify test reuses
+  `_fake_source` via a new `lookup_forbidden` flag instead of a bespoke client.
+
+## Retrospective
+
+- The design held as written. Routing before `lookup_doi` meant no request
+  and no cached 404 row, and the per-status `Counter` in the summary meant the
+  "own bucket" requirement cost no code.
+- The one real defect was input normalization at a second entry point: `verify`
+  got it for free from `normalize_doi`, `crossref doi` did not. When a check
+  moves to a new call site, check that site's input is normalized the same way.
+- The helper could not normalize by itself because of the `bib` -> `openalex`
+  import direction. If more DOI helpers accumulate, a small `doi.py` module
+  with no package imports would let them all normalize at the source.
+- Dropping the "likely arXiv" wording from `doi-not-found` was not in the plan
+  but followed from it: after routing, that hint was misleading in both sources.

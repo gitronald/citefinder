@@ -3,7 +3,7 @@
 Crossref doesn't index arXiv DOIs (`10.48550/arXiv.*`) and many repository deposits — those return 404 from `lookup_doi`. Crossref also frequently has thin metadata (missing abstract, abbreviated title, no affiliations) on records that exist. Use OpenAlex as the second source in those cases:
 
 ```python
-from citefinder import CrossrefClient, OpenAlexClient, is_arxiv_doi
+from citefinder import CrossrefClient, OpenAlexClient, datacite_registrar
 
 crossref = CrossrefClient(cache_path="~/.cache/citefinder/crossref.jsonl")
 openalex = OpenAlexClient(
@@ -12,8 +12,8 @@ openalex = OpenAlexClient(
 )
 
 doi = "10.48550/arXiv.2410.21554"
-if is_arxiv_doi(doi):
-    work = openalex.lookup_doi(doi)  # arXiv DOIs go straight to OpenAlex
+if datacite_registrar(doi):  # arXiv, Zenodo: never in Crossref
+    work = openalex.lookup_doi(doi)
 else:
     work = crossref.lookup_doi(doi) or openalex.lookup_doi(
         doi

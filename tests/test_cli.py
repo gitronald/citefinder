@@ -60,6 +60,23 @@ def test_doi_commands_report_a_miss_and_exit_one(
         assert "not found: 10.1/missing" in result.output
 
 
+def test_crossref_doi_points_a_datacite_doi_at_openalex(
+    tmp_path: Path, captured: dict[str, Any]
+) -> None:
+    doi = "10.48550/arXiv.2410.21554"
+    cache = str(tmp_path / "c.jsonl")
+    result = runner.invoke(app, ["crossref", "doi", doi, "--cache", cache])
+    assert result.exit_code == 1
+    assert "registered with DataCite" in result.output
+    assert f"citefinder doi {doi}" in result.output
+    assert captured == {}  # no client was built, so no request was possible
+    # The URL and `doi:` forms exported bibs carry are recognized too.
+    for form in (f"https://doi.org/{doi}", f"doi:{doi}"):
+        result = runner.invoke(app, ["crossref", "doi", form, "--cache", cache])
+        assert "registered with DataCite" in result.output
+    assert captured == {}
+
+
 def test_crossref_chapter_pads_digits_and_passes_strings_through(
     tmp_path: Path, captured: dict[str, Any]
 ) -> None:

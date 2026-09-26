@@ -39,11 +39,18 @@ def _fake_source(
     work_for_doi: Work | None = None,
     search_items: list[dict[str, Any]] | None = None,
     work_for_search: Work | None = None,
+    lookup_forbidden: bool = False,
 ) -> Source:
-    """Build a Source whose methods return canned values."""
+    """Build a Source whose methods return canned values.
+
+    `lookup_forbidden` makes any DOI lookup fail the test, for paths that
+    must answer without a request.
+    """
 
     class FakeClient:
         def lookup_doi(self, doi: str) -> dict[str, Any] | None:
+            if lookup_forbidden:
+                raise AssertionError(f"lookup_doi called for {doi}")
             if doi_record is KeyError:
                 raise RuntimeError("network exploded")
             return doi_record  # type: ignore[return-value]
@@ -207,6 +214,23 @@ def test_doi_404_returns_doi_not_found() -> None:
     entry = _make_entry(text)
     src = _fake_source(doi_record=None, work_for_doi=None)
     r = verify_entry(entry, src)
+    assert r.status == Status.DOI_NOT_FOUND
+
+
+def test_datacite_doi_is_not_indexed_in_crossref_without_a_lookup() -> None:
+    text = "@article{x, title = {T}, year = {2024}, doi = {10.48550/arXiv.2410.21554}}"
+    src = _fake_source(lookup_forbidden=True)
+    r = verify_entry(_make_entry(text), src)
+    assert r.status == Status.NOT_INDEXED
+    assert r.note.startswith("arXiv DOI registered with DataCite")
+    assert r.matched_doi is None
+    assert r.signals == {}
+
+
+def test_datacite_doi_is_still_looked_up_in_openalex() -> None:
+    text = "@article{x, title = {T}, year = {2024}, doi = {10.5281/zenodo.123}}"
+    src = _fake_source("openalex", doi_record=None, work_for_doi=None)
+    r = verify_entry(_make_entry(text), src)
     assert r.status == Status.DOI_NOT_FOUND
 
 

@@ -11,7 +11,7 @@ citefinder/
 ├── cache.py            # JsonlCache (append-only JSONL key-value store), LayeredCache (read-only fallbacks) + merge/inventory/atomic-write maintenance
 ├── client.py           # CrossrefClient
 ├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
-├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
+├── openalex.py         # OpenAlexClient + abstract reconstruction + DataCite (arXiv/Zenodo) prefix routing
 ├── openlibrary.py      # OpenLibraryClient (editions by ISBN, search) + retailer-provenance check
 ├── loc.py              # LocClient (Library of Congress SRU, MARCXML parsed to JSON) + marc_book MARC reader
 ├── books.py            # BookRecord/BookField, book_record ISBN chain (Open Library -> LCCN -> LoC), compare_book

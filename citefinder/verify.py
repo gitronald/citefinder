@@ -38,7 +38,7 @@ from citefinder.books import BookLookup, compare_book
 from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.client import CrossrefClient
 from citefinder.models import CrossrefWork, OpenAlexWork
-from citefinder.openalex import OpenAlexClient
+from citefinder.openalex import OpenAlexClient, datacite_note, datacite_registrar
 from citefinder.openlibrary import normalize_isbn
 from citefinder.signals import (
     MIN_TITLE_TOKENS,
@@ -346,6 +346,13 @@ def _verify_against_source(
     # first-author / container) against the source record. DOI existence
     # isn't enough — a typoed or wrong DOI can resolve to a different work.
     if bib_doi:
+        # Crossref never indexes DataCite DOIs (arXiv, Zenodo), so a lookup
+        # could only 404. Report them apart from real misses, with no request.
+        registrar = datacite_registrar(bib_doi) if source.name == "crossref" else None
+        if registrar is not None:
+            base.status = Status.NOT_INDEXED
+            base.note = f"{datacite_note(registrar)}; verify with --source openalex"
+            return base
         try:
             raw = source.lookup_doi(bib_doi)
         except Exception as e:
@@ -355,7 +362,7 @@ def _verify_against_source(
         work = source.to_work(raw)
         if work is None:
             base.status = Status.DOI_NOT_FOUND
-            base.note = "DOI not in source (404) — common for arXiv / preprint DOIs"
+            base.note = "DOI not in source (404)"
             return base
         base.matched_doi = bib_doi
         base.matched_title = work.title
