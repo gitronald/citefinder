@@ -382,7 +382,17 @@ class CachedJsonClient:
             value: Any | None = None
         else:
             response.raise_for_status()
-            value = response.json()
+            value = self._decode(response)
         if self.cache is not None:
             self.cache.put(cache_key, value)
         return value
+
+    def _decode(self, response: requests.Response) -> Any:
+        """The JSON-serializable value a 2xx `response` caches as.
+
+        JSON by default. A source that answers in another format (the
+        Library of Congress returns MARCXML) overrides this to parse the
+        body into plain dicts and lists, so its cache stays JSONL like every
+        other source's.
+        """
+        return response.json()

@@ -1,0 +1,287 @@
+"""Library of Congress catalog client and a small MARC reader.
+
+`https://lccn.loc.gov/<lccn>/marcxml` returns the catalog record for a
+Library of Congress Control Number as MARCXML: for a trade book, the
+Cataloging in Publication record — what is printed on the copyright page,
+so the place of publication, the imprint and its parent, and the edition
+statement are as the publisher supplied them.
+
+The body is XML, not JSON, so `LocClient` parses it into plain dicts before
+caching (`parse_marcxml`), and the cache stays JSONL with one row per LCCN.
+`marc_book` then reads the handful of fields a citation uses:
+
+- `020` ISBN (`$a`, with a qualifier in `$q` or in parentheses)
+- `100`/`110`, `700`/`710` contributor names
+- `245 $a $b` title and subtitle
+- `250 $a` edition statement
+- `264` (indicator 2 = 1, publication) or the older `260`: `$a` place,
+  `$b` publisher, `$c` date
+- `040 $a` cataloging agency (`DLC` is the Library of Congress itself)
+
+ISBD punctuation — the ` :`, ` /`, and trailing `.` or `,` that separate
+subfields in a printed catalog card — is stripped on the way out. Casing is
+kept as cataloged: catalog titles are sentence case, and title case is the
+caller's job.
+"""
+
+from __future__ import annotations
+
+import re
+import time
+import xml.etree.ElementTree as ET
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import requests
+
+from citefinder._base import (
+    DEFAULT_BACKOFF_BASE,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_MAX_WAIT,
+    DEFAULT_TIMEOUT,
+    CachedJsonClient,
+)
+from citefinder.cache import JsonlCache, LayeredCache
+from citefinder.models import MarcField, MarcRecord
+
+LOC_BASE = "https://lccn.loc.gov"
+
+# The Library of Congress publishes per-endpoint burst limits for its
+# newer APIs and none for the LCCN permalink service; one request per
+# second is well inside all of them.
+LOC_MIN_INTERVAL = 1.0
+
+__all__ = [
+    "LOC_BASE",
+    "LOC_MIN_INTERVAL",
+    "LocClient",
+    "marc_book",
+    "normalize_lccn",
+    "parse_marcxml",
+    "strip_isbd",
+]
+
+_ISBD_TRAILING = re.compile(r"[\s:/;=,.]+$")
+_YEAR = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+_PAREN_QUALIFIER = re.compile(r"\s*\(([^)]*)\)\s*$")
+
+
+def normalize_lccn(lccn: str) -> str:
+    """`lccn` as the permalink service wants it: no spaces or hyphens.
+
+    Catalog records write LCCNs with internal spacing (`  2025007165`,
+    `sn 85-042021`); the permalink form is the compact one.
+    """
+    return re.sub(r"[\s-]+", "", lccn.strip())
+
+
+def strip_isbd(value: str) -> str:
+    """`value` without the ISBD separator punctuation a MARC subfield ends
+    with, and without a surrounding `[...]` where the whole value was
+    supplied by the cataloger rather than printed on the item."""
+    value = _ISBD_TRAILING.sub("", value.strip())
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1].strip()
+    return value
+
+
+def _local(tag: str) -> str:
+    """An element's tag without its `{namespace}` prefix."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def parse_marcxml(text: str) -> MarcRecord | None:
+    """The first `<record>` in a MARCXML document as plain JSON, or `None`
+    when the document holds no record (an HTML error page, an empty
+    `<collection>`).
+
+    Raises `ValueError` when `text` is not XML at all.
+    """
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as e:
+        raise ValueError(f"not MARCXML: {e}") from None
+    record = root if _local(root.tag) == "record" else None
+    if record is None:
+        record = next((el for el in root.iter() if _local(el.tag) == "record"), None)
+    if record is None:
+        return None
+    parsed: MarcRecord = {"leader": "", "controlfields": {}, "fields": []}
+    for el in record:
+        name = _local(el.tag)
+        if name == "leader":
+            parsed["leader"] = el.text or ""
+        elif name == "controlfield":
+            parsed["controlfields"][el.get("tag", "")] = el.text or ""
+        elif name == "datafield":
+            field: MarcField = {
+                "tag": el.get("tag", ""),
+                "ind1": el.get("ind1", " "),
+                "ind2": el.get("ind2", " "),
+                "subfields": [
+                    [sub.get("code", ""), sub.text or ""]
+                    for sub in el
+                    if _local(sub.tag) == "subfield"
+                ],
+            }
+            parsed["fields"].append(field)
+    return parsed
+
+
+def _fields(record: MarcRecord, *tags: str) -> list[MarcField]:
+    return [f for f in record.get("fields", []) if f.get("tag") in tags]
+
+
+def _sub(field: MarcField, code: str) -> str | None:
+    """The first `$code` subfield of `field`, ISBD-stripped, or `None`."""
+    for sub_code, value in field.get("subfields", []):
+        if sub_code == code and value.strip():
+            return strip_isbd(value)
+    return None
+
+
+def _subs(field: MarcField, code: str) -> list[str]:
+    return [
+        strip_isbd(value)
+        for sub_code, value in field.get("subfields", [])
+        if sub_code == code and value.strip()
+    ]
+
+
+def _isbns(record: MarcRecord) -> list[dict[str, str]]:
+    """Every `020 $a`, split from its qualifier (`$q`, or the older
+    parenthesized form inside `$a`)."""
+    out: list[dict[str, str]] = []
+    for field in _fields(record, "020"):
+        raw = _sub(field, "a")
+        if raw is None:
+            continue
+        qualifier = _sub(field, "q") or ""
+        match = _PAREN_QUALIFIER.search(raw)
+        if match:
+            qualifier = qualifier or match.group(1)
+            raw = raw[: match.start()]
+        isbn = re.sub(r"[\s-]+", "", raw).upper()
+        out.append({"isbn": isbn, "qualifier": strip_isbd(qualifier)})
+    return out
+
+
+def _contributors(record: MarcRecord) -> list[str]:
+    """Personal and corporate names from the main and added entries, in
+    record order, as cataloged (`Doctorow, Cory`)."""
+    names: list[str] = []
+    for field in _fields(record, "100", "110", "700", "710"):
+        name = _sub(field, "a")
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _publication(record: MarcRecord) -> MarcField | None:
+    """The publication statement: a `264` with indicator 2 = 1, else the
+    first `264` of any kind, else a `260`."""
+    fields = _fields(record, "264")
+    for field in fields:
+        if field.get("ind2") == "1":
+            return field
+    if fields:
+        return fields[0]
+    older = _fields(record, "260")
+    return older[0] if older else None
+
+
+def marc_book(record: MarcRecord) -> dict[str, Any]:
+    """The citation-relevant fields of a book record.
+
+    Returns a dict with `title`, `subtitle`, `contributors`, `publisher`,
+    `place`, `date`, `year`, `edition`, `isbns`, `lccn`, and
+    `cataloging_agency`; a field the record does not carry is `None` (or an
+    empty list). Nothing here is inferred: a record without a `264 $a` has
+    no place, and stays that way.
+    """
+    title_field = next(iter(_fields(record, "245")), None)
+    publication = _publication(record)
+    date = _sub(publication, "c") if publication else None
+    year_match = _YEAR.search(date) if date else None
+    lccn_field = next(iter(_fields(record, "010")), None)
+    agency = next(iter(_fields(record, "040")), None)
+    edition = next(iter(_fields(record, "250")), None)
+    return {
+        "title": _sub(title_field, "a") if title_field else None,
+        "subtitle": _sub(title_field, "b") if title_field else None,
+        "contributors": _contributors(record),
+        "publisher": _sub(publication, "b") if publication else None,
+        "place": _sub(publication, "a") if publication else None,
+        "date": date,
+        "year": int(year_match.group(1)) if year_match else None,
+        "edition": _sub(edition, "a") if edition else None,
+        "isbns": _isbns(record),
+        "lccn": normalize_lccn(_sub(lccn_field, "a") or "") or None
+        if lccn_field
+        else None,
+        "cataloging_agency": _sub(agency, "a") if agency else None,
+    }
+
+
+class LocClient(CachedJsonClient):
+    """Library of Congress LCCN lookups, cached as parsed MARC.
+
+    There is no polite pool and no contact parameter; `mailto` is accepted
+    for signature parity with the other clients and folded into the
+    User-Agent only. Every other knob behaves as documented on
+    `CachedJsonClient`.
+    """
+
+    def __init__(
+        self,
+        cache: JsonlCache | LayeredCache | None = None,
+        cache_path: str | Path | None = None,
+        mailto: str | None = None,
+        user_agent: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        backoff_base: float = DEFAULT_BACKOFF_BASE,
+        max_wait: float = DEFAULT_MAX_WAIT,
+        min_interval: float = LOC_MIN_INTERVAL,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.time,
+        fallback_cache: str | Path | None = None,
+    ) -> None:
+        super().__init__(
+            cache=cache,
+            cache_path=cache_path,
+            mailto=None,
+            user_agent=user_agent,
+            timeout=timeout,
+            max_retries=max_retries,
+            backoff_base=backoff_base,
+            max_wait=max_wait,
+            min_interval=min_interval,
+            sleep=sleep,
+            monotonic=monotonic,
+            clock=clock,
+            fallback_cache=fallback_cache,
+        )
+        if mailto and user_agent is None:
+            agent = str(self.session.headers["User-Agent"])
+            self.session.headers["User-Agent"] = f"{agent[:-1]}; mailto:{mailto})"
+
+    @staticmethod
+    def lccn_url(lccn: str) -> str:
+        """The human-readable permalink for `lccn`, for reports."""
+        return f"{LOC_BASE}/{normalize_lccn(lccn)}"
+
+    def _decode(  # pyrefly: ignore[missing-override-decorator]  (3.11 has no `override`)
+        self, response: requests.Response
+    ) -> Any:
+        # A 200 whose body holds no record (the service answers some unknown
+        # LCCNs with a search page rather than a 404) is cached as a miss,
+        # the same as a 404.
+        return parse_marcxml(response.text)
+
+    def lookup_lccn(self, lccn: str) -> MarcRecord | None:
+        """The parsed MARC record for `lccn`, or `None` when there is none."""
+        return self._get(f"{self.lccn_url(lccn)}/marcxml")

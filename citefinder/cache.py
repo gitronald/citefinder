@@ -150,6 +150,8 @@ class LayeredCache:
 SOURCE_HOSTS: dict[str, str] = {
     "api.crossref.org": "crossref",
     "api.openalex.org": "openalex",
+    "openlibrary.org": "openlibrary",
+    "lccn.loc.gov": "loc",
 }
 """Request host -> the source that answered it. The only reliable router."""
 
