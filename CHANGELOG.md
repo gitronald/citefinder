@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-25
+
 ### Added
 
 - Book metadata by ISBN (plan 021). `citefinder isbn <isbn>` runs the chain
