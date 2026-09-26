@@ -1,8 +1,8 @@
 ---
 id: 21
 slug: book-metadata-by-isbn
-status: draft
-branch:
+status: active
+branch: feature/book-metadata-by-isbn
 created: 2026-09-24T14:32:00-07:00
 concluded:
 pr:
