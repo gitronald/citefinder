@@ -1,8 +1,8 @@
 ---
 id: 20
 slug: route-datacite-dois
-status: draft
-branch:
+status: active
+branch: feature/route-datacite-dois
 created: 2026-09-24T14:16:07-07:00
 concluded:
 pr:
