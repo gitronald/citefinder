@@ -9,6 +9,7 @@ from citefinder._base import _strip_mailto
 from citefinder.cache import JsonlCache
 from citefinder.openalex import (
     OpenAlexClient,
+    datacite_note,
     datacite_registrar,
     is_arxiv_doi,
     normalize_title_query,
@@ -225,6 +226,12 @@ def test_datacite_registrar_maps_known_prefixes() -> None:
     assert datacite_registrar("10.1126/science.aap9559") is None
     assert datacite_registrar("10.48550") is None  # a prefix alone is no DOI
     assert datacite_registrar("") is None
+
+
+def test_datacite_note_names_the_registrar() -> None:
+    assert (
+        datacite_note("Zenodo") == "Zenodo DOI registered with DataCite, not Crossref"
+    )
 
 
 def test_is_arxiv_doi() -> None:

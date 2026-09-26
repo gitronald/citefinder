@@ -30,7 +30,7 @@ from citefinder.bib import (
 from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.client import CrossrefClient
 from citefinder.models import CrossrefWork, OpenAlexWork
-from citefinder.openalex import OpenAlexClient, datacite_registrar
+from citefinder.openalex import OpenAlexClient, datacite_note, datacite_registrar
 from citefinder.signals import (
     MIN_TITLE_TOKENS,
     Status,
@@ -187,10 +187,7 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         registrar = datacite_registrar(bib_doi) if source.name == "crossref" else None
         if registrar is not None:
             base.status = Status.NOT_INDEXED
-            base.note = (
-                f"{registrar} DOI registered with DataCite, not Crossref; "
-                "verify with --source openalex"
-            )
+            base.note = f"{datacite_note(registrar)}; verify with --source openalex"
             return base
         try:
             raw = source.lookup_doi(bib_doi)

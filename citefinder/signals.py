@@ -56,7 +56,7 @@ class Status(StrEnum):
     )
     NOT_INDEXED = (
         "not-indexed",
-        "DOI registered outside this source (DataCite): verify with --source openalex",
+        "DOI registered with DataCite, not this source: verify with --source openalex",
     )
     UNMATCHED = "unmatched", "Unmatched (no plausible hit)"
     SKIP_SOURCE = "skip-source", "Skip source (@online / @misc — verify via URL)"

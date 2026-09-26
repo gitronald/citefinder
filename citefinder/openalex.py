@@ -51,6 +51,7 @@ __all__ = [
     "DEFAULT_MIN_INTERVAL",
     "OPENALEX_BASE",
     "OpenAlexClient",
+    "datacite_note",
     "datacite_registrar",
     "is_arxiv_doi",
     "normalize_title_query",
@@ -76,6 +77,15 @@ def datacite_registrar(doi: str) -> str | None:
     """
     prefix, sep, _ = doi.strip().lower().partition("/")
     return DATACITE_PREFIXES.get(prefix) if sep else None
+
+
+def datacite_note(registrar: str) -> str:
+    """Why Crossref has no record of a DOI that `registrar` minted.
+
+    Shared by `verify`'s per-entry note and `crossref doi`'s hint, which each
+    append their own next step.
+    """
+    return f"{registrar} DOI registered with DataCite, not Crossref"
 
 
 def is_arxiv_doi(doi: str) -> bool:

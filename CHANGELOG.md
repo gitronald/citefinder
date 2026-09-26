@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `datacite_registrar(doi)` names the DataCite repository behind a DOI
   prefix (`10.48550` arXiv, `10.5281` Zenodo), or returns `None`.
   `is_arxiv_doi` is now built on it.
+- `datacite_note(registrar)` phrases why Crossref has no record of such a
+  DOI, shared by `verify` and `crossref doi`.
 - `Status.NOT_INDEXED` (`not-indexed`): a DOI registered outside the source.
 
 ### Changed

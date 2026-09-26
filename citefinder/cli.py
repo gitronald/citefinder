@@ -57,7 +57,7 @@ from citefinder.config import (
 )
 from citefinder.host import HOST
 from citefinder.models import cache_drift
-from citefinder.openalex import OpenAlexClient, datacite_registrar
+from citefinder.openalex import OpenAlexClient, datacite_note, datacite_registrar
 from citefinder.verify import Result, Source, verify_entry
 
 # Load `.env` from the current working directory (or any parent) so users can
@@ -1123,7 +1123,7 @@ def crossref_doi(
     registrar = datacite_registrar(normalize_doi(doi))
     if registrar is not None:
         typer.echo(
-            f"{doi}: {registrar} DOI registered with DataCite, not Crossref; "
+            f"{doi}: {datacite_note(registrar)}; "
             f"try `citefinder doi {doi}`, which uses OpenAlex",
             err=True,
         )
