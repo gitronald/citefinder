@@ -5,7 +5,7 @@ status: active
 branch: feature/route-datacite-dois
 created: 2026-09-24T14:16:07-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/72
 ---
 
 # Route DataCite DOIs away from Crossref in verify
