@@ -446,8 +446,8 @@ def test_config_names_the_source_of_each_value(tmp_path: Path, monkeypatch) -> N
     # A configured mailto reaches the polite pool, so the reported default is
     # the rate the client will really use, not the anonymous one.
     assert rows["crossref.min_interval"] == ("default", "0.34")
-    assert f"openalex cache:  {project_dir / 'data' / 'openalex.jsonl'}" in out
-    assert f"crossref cache:  {project_dir / 'data' / 'crossref.jsonl'}" in out
+    assert f"openalex cache:     {project_dir / 'data' / 'openalex.jsonl'}" in out
+    assert f"crossref cache:     {project_dir / 'data' / 'crossref.jsonl'}" in out
     assert (
         f"verify output:   {project_dir / 'data'}/<bib-dir>[-<bib-stem>]/<source>/"
         in out
@@ -469,7 +469,7 @@ def test_config_with_nothing_set_reports_defaults(tmp_path: Path, monkeypatch) -
     assert rows["openalex.mailto"] == ("default", "(none)")
     assert rows["openalex.min_interval"] == ("default", "0.1")
     assert rows["crossref.min_interval"] == ("default", "1.0")
-    assert f"openalex cache:  {default_cache_dir() / 'openalex.jsonl'}" in out
+    assert f"openalex cache:     {default_cache_dir() / 'openalex.jsonl'}" in out
     assert (
         f"verify output:   {tmp_path / 'data' / 'citefinder'}/<bib-dir>[-<bib-stem>]/"
         in out

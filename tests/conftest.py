@@ -79,6 +79,69 @@ def captured(monkeypatch) -> dict[str, Any]:
     return seen
 
 
+@pytest.fixture
+def captured_books(monkeypatch) -> dict[str, Any]:
+    """Swap the book clients for stubs serving the fixture records offline.
+
+    Records every constructor's kwargs under the client's source name, so a
+    test can check where each cache was pointed.
+    """
+    from citefinder.loc import LocClient
+    from citefinder.openlibrary import OpenLibraryClient
+    from tests import book_fixtures as fx
+
+    seen: dict[str, Any] = {}
+
+    class FakeOpenLibrary(OpenLibraryClient):
+        def __init__(self, **kwargs: Any) -> None:
+            seen["openlibrary"] = kwargs
+            self.cache = None
+            self.retries = 0
+            self.network_calls = 0
+            self.contact = kwargs.get("mailto")
+
+        def lookup_isbn(  # pyrefly: ignore[missing-override-decorator]
+            self, isbn: str
+        ) -> Any:
+            self.network_calls += 1
+            return dict(fx.EDITION) if isbn == fx.ISBN else None
+
+        def lookup_author(  # pyrefly: ignore[missing-override-decorator]
+            self, key: str
+        ) -> Any:
+            return dict(fx.AUTHOR)
+
+        def search(  # pyrefly: ignore[missing-override-decorator]
+            self, title: str, author: str | None = None, rows: int = 3
+        ) -> list[Any]:
+            return list(fx.SEARCH_PAGE["docs"])
+
+    class FakeLoc(LocClient):
+        def __init__(self, **kwargs: Any) -> None:
+            seen["loc"] = kwargs
+            self.cache = None
+            self.retries = 0
+            self.network_calls = 0
+
+        def lookup_lccn(  # pyrefly: ignore[missing-override-decorator]
+            self, lccn: str
+        ) -> Any:
+            from citefinder.loc import parse_marcxml
+
+            self.network_calls += 1
+            return parse_marcxml(fx.MARCXML) if lccn == fx.LCCN else None
+
+        def lookup_isbn(  # pyrefly: ignore[missing-override-decorator]
+            self, isbn: str
+        ) -> Any:
+            self.network_calls += 1
+            return None
+
+    monkeypatch.setattr("citefinder.cli.OpenLibraryClient", FakeOpenLibrary)
+    monkeypatch.setattr("citefinder.cli.LocClient", FakeLoc)
+    return seen
+
+
 CONFIG_ENV = (
     "CITEFINDER_CACHE_DIR",
     "OPENALEX_API_KEY",
@@ -88,6 +151,11 @@ CONFIG_ENV = (
     "CROSSREF_MAILTO",
     "CROSSREF_MAX_RETRIES",
     "CROSSREF_MIN_INTERVAL",
+    "OPENLIBRARY_MAILTO",
+    "OPENLIBRARY_MAX_RETRIES",
+    "OPENLIBRARY_MIN_INTERVAL",
+    "LOC_MAX_RETRIES",
+    "LOC_MIN_INTERVAL",
 )
 
 

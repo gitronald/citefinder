@@ -56,6 +56,11 @@ ENV_KEYS: dict[str, tuple[str | None, str]] = {
     "CROSSREF_MAILTO": ("crossref", "mailto"),
     "CROSSREF_MAX_RETRIES": ("crossref", "max_retries"),
     "CROSSREF_MIN_INTERVAL": ("crossref", "min_interval"),
+    "OPENLIBRARY_MAILTO": ("openlibrary", "mailto"),
+    "OPENLIBRARY_MAX_RETRIES": ("openlibrary", "max_retries"),
+    "OPENLIBRARY_MIN_INTERVAL": ("openlibrary", "min_interval"),
+    "LOC_MAX_RETRIES": ("loc", "max_retries"),
+    "LOC_MIN_INTERVAL": ("loc", "min_interval"),
 }
 
 # The sections a config file may carry, each of which must be a table.
