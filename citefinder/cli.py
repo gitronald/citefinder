@@ -31,7 +31,8 @@ from citefinder._base import (
     DEFAULT_MIN_INTERVAL,
     validate_knob,
 )
-from citefinder.bib import parse_entries
+from citefinder.bib import normalize_doi, parse_entries
+from citefinder.books import BookLookup
 from citefinder.cache import (
     SOURCE_HOSTS,
     MergeStats,
@@ -56,8 +57,10 @@ from citefinder.config import (
     user_config_path,
 )
 from citefinder.host import HOST
+from citefinder.loc import LOC_MIN_INTERVAL, LocClient
 from citefinder.models import cache_drift
-from citefinder.openalex import OpenAlexClient
+from citefinder.openalex import OpenAlexClient, datacite_note, datacite_registrar
+from citefinder.openlibrary import OPENLIBRARY_MIN_INTERVAL, OpenLibraryClient
 from citefinder.verify import Result, Source, verify_entry
 
 # Load `.env` from the current working directory (or any parent) so users can
@@ -305,6 +308,23 @@ OpenAlexMaxRetriesOption, OpenAlexMinIntervalOption = _pacing_options(
 CrossrefMaxRetriesOption, CrossrefMinIntervalOption = _pacing_options(
     "crossref", _CROSSREF_MIN_INTERVAL_DEFAULT
 )
+# `isbn` drives two clients; its pair binds to the Open Library env and the
+# Library of Congress client takes the same values.
+OpenLibraryMaxRetriesOption, OpenLibraryMinIntervalOption = _pacing_options(
+    "openlibrary", str(OPENLIBRARY_MIN_INTERVAL)
+)
+OpenLibraryMailtoOption = typer.Option(
+    None,
+    "--mailto",
+    envvar="OPENLIBRARY_MAILTO",
+    help="Contact email Open Library asks for, sent in the User-Agent "
+    "(also OPENLIBRARY_MAILTO env or config.toml).",
+)
+NoLocOption = typer.Option(
+    False,
+    "--no-loc",
+    help="Stop after Open Library; do not follow its LCCN to the Library of Congress.",
+)
 
 
 def _client_kwargs(
@@ -428,6 +448,47 @@ def _crossref_client(
     )
 
 
+def _book_lookup(
+    cache_dir: Path | None,
+    mailto: str | None,
+    max_retries: int | None,
+    min_interval: float | None,
+    *,
+    with_loc: bool = True,
+    out_dir: Path | None = None,
+    fallback: bool = False,
+) -> BookLookup:
+    """The Open Library + Library of Congress pair behind `isbn` and
+    `verify --books`.
+
+    Caches live at `<cache-dir>/openlibrary.jsonl` and `<cache-dir>/loc.jsonl`
+    — or under `out_dir` when `verify` passes one, with the shared files as
+    read-only fallbacks when `fallback` is set. The knobs apply to both
+    clients; each falls back to its own `<SOURCE>_*` env.
+    """
+    root = out_dir if out_dir is not None else _cache_dir(cache_dir)
+    shared = _verify_root(cache_dir) if fallback else None
+
+    def paths(source: str) -> dict[str, Any]:
+        path = resolve_cache_path(source, root)
+        if shared is None:
+            return {"cache_path": path}
+        shared_path = resolve_cache_path(source, shared)
+        coincide = shared_path.resolve() == path.resolve()
+        return {"cache_path": path, "fallback_cache": None if coincide else shared_path}
+
+    openlibrary = OpenLibraryClient(
+        **paths("openlibrary"),
+        **_source_client_kwargs("openlibrary", max_retries, min_interval, mailto),
+    )
+    if not with_loc:
+        return BookLookup(openlibrary)
+    knobs = _source_client_kwargs("loc", max_retries, min_interval, None)
+    knobs["mailto"] = openlibrary.contact
+    loc = LocClient(**paths("loc"), **knobs)
+    return BookLookup(openlibrary, loc)
+
+
 def _verify_root(cache_dir: Path | None) -> Path:
     """The directory `verify` files its output under: `cache_dir` when one
     is set, else `data/citefinder` under the working directory. Shared with
@@ -507,6 +568,29 @@ def doi(
         cache, cache_dir, mailto, api_key, max_retries, min_interval
     )
     _emit_or_exit(client.lookup_doi(doi), doi)
+
+
+@app.command()
+def isbn(
+    isbn: str,
+    cache_dir: Path | None = CacheDirOption,
+    mailto: str | None = OpenLibraryMailtoOption,
+    max_retries: int | None = OpenLibraryMaxRetriesOption,
+    min_interval: float | None = OpenLibraryMinIntervalOption,
+    no_loc: bool = NoLocOption,
+) -> None:
+    """Look up a book by ISBN: Open Library, then the Library of Congress.
+
+    Prints the merged record with each field's source — `loc` (the catalog
+    record, usually what the copyright page says), `openlibrary`, or
+    `openlibrary:retailer` (fed only by a retailer, a lead rather than a
+    confirmation) — plus the URL of each source's record.
+    """
+    books = _book_lookup(
+        cache_dir, mailto, max_retries, min_interval, with_loc=not no_loc
+    )
+    record = books.record(isbn)
+    _emit_or_exit(record.as_dict() if record is not None else None, isbn)
 
 
 @app.command()
@@ -716,12 +800,25 @@ def verify(
         "--no-fallback",
         help="Read only this run's cache, not the shared <cache-dir>/<source>.jsonl.",
     ),
+    books: bool = typer.Option(
+        False,
+        "--books",
+        help="Check @book/@inbook/@incollection entries with an `isbn` against "
+        "Open Library and the Library of Congress instead of the source; "
+        "entries without one get Open Library candidates.",
+    ),
 ) -> None:
     """Verify a `.bib` against Crossref or OpenAlex.
 
     For each entry: if `doi` is present, look up that DOI directly;
     otherwise search by author + title + year. Writes a JSONL response
     cache and a structured `results.json` to the output directory.
+
+    With `--books`, a book entry that has an `isbn` and no `doi` is checked
+    against its catalog record instead (`method=isbn`), and `results.json`
+    carries per-entry `suggestions` — fields the bib should add or change,
+    each with its source. The Open Library and Library of Congress caches
+    land beside the source cache.
 
     A miss in that per-run cache falls back to the shared cache `cache
     merge` maintains, read-only, so a record an earlier run fetched is not
@@ -754,10 +851,21 @@ def verify(
         client = OpenAlexClient(cache_path=cache_path, fallback_cache=fallback, **knobs)
         src = Source(name="openalex", client=client)
 
+    lookup = None
+    if books:
+        lookup = _book_lookup(
+            cache_dir,
+            None,
+            None,
+            None,
+            out_dir=out_dir,
+            fallback=not no_fallback,
+        )
+
     entries = parse_entries(bib_file.read_text())
     starting_cache_size = src.cache_size()
     typer.echo(f"Parsed {len(entries)} entries from {bib_file}")
-    typer.echo(f"Source: {source}")
+    typer.echo(f"Source: {source}" + (" (+ books: openlibrary, loc)" if books else ""))
     typer.echo(f"Cache: {cache_path} ({starting_cache_size} entries pre-loaded)")
     if fallback is not None:
         typer.echo(f"Fallback: {fallback} ({src.fallback_size() or 0} entries)")
@@ -768,15 +876,23 @@ def verify(
     width = len(str(len(entries)))
     t0 = time.monotonic()
 
+    def network_calls() -> int:
+        return src.network_calls + (lookup.network_calls if lookup else 0)
+
+    def retries() -> int:
+        return src.retries + (lookup.retries if lookup else 0)
+
     for i, entry in enumerate(entries, 1):
-        calls_before = src.network_calls
+        calls_before = network_calls()
         typer.echo(f"  [{i:>{width}}/{len(entries)}] {entry.key:<30}", nl=False)
-        r = verify_entry(entry, src)
+        r = verify_entry(entry, src, lookup)
         results.append(r)
-        # `verify_entry` makes at most one lookup per entry — the DOI path and
-        # the search path each return — so this reads as "this entry went to
-        # the network", and the run total below is a straight call count.
-        was_network = src.network_calls > calls_before
+        # Without `--books`, `verify_entry` makes at most one lookup per entry
+        # — the DOI path and the search path each return — so this reads as
+        # "this entry went to the network". A book check can make several
+        # (edition, authors, catalog record), so the run total below is a
+        # straight call count rather than one per entry.
+        was_network = network_calls() > calls_before
         status_counts[r.status] += 1
         sim = f"{r.similarity:.2f}" if r.similarity is not None else "  - "
         net_or_hit = "net" if was_network else "hit"
@@ -784,12 +900,12 @@ def verify(
         typer.echo(f" {r.status:<14} {r.method:<7} sim={sim} [{net_or_hit}]  {running}")
 
     elapsed = time.monotonic() - t0
-    retries = src.retries
-    network_calls = src.network_calls
+    total_retries = retries()
+    total_calls = network_calls()
     typer.echo(
-        f"\nDone in {elapsed:.1f}s — {network_calls} network call(s), "
-        f"{len(entries) - network_calls} cache hit(s), "
-        f"{retries} retr{'y' if retries == 1 else 'ies'}."
+        f"\nDone in {elapsed:.1f}s — {total_calls} network call(s), "
+        f"{max(len(entries) - total_calls, 0)} cache hit(s), "
+        f"{total_retries} retr{'y' if total_retries == 1 else 'ies'}."
     )
     typer.echo(
         "Final counts — "
@@ -813,6 +929,10 @@ _SETTING_DEFAULTS = {
     "OPENALEX_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
     "OPENALEX_MIN_INTERVAL": _MIN_INTERVAL_DEFAULT,
     "CROSSREF_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
+    "OPENLIBRARY_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
+    "OPENLIBRARY_MIN_INTERVAL": str(OPENLIBRARY_MIN_INTERVAL),
+    "LOC_MAX_RETRIES": str(DEFAULT_MAX_RETRIES),
+    "LOC_MIN_INTERVAL": str(LOC_MIN_INTERVAL),
 }
 
 
@@ -894,8 +1014,8 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
         typer.echo(f"{label:<{label_width}}  {source:<7}  {value}")
 
     typer.echo()
-    typer.echo(f"openalex cache:  {resolve_cache_path('openalex', root)}")
-    typer.echo(f"crossref cache:  {resolve_cache_path('crossref', root)}")
+    for name in ("openalex", "crossref", "openlibrary", "loc"):
+        typer.echo(f"{name + ' cache:':<19} {resolve_cache_path(name, root)}")
     verify_root = _verify_root(cache_dir)
     typer.echo(
         f"verify output:   {verify_root / '<bib-dir>[-<bib-stem>]' / '<source>'}/"
@@ -1118,6 +1238,16 @@ def crossref_doi(
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Look up a single DOI via Crossref."""
+    # Crossref never indexes DataCite DOIs, so point at OpenAlex instead of
+    # spending a request on a guaranteed 404.
+    registrar = datacite_registrar(normalize_doi(doi))
+    if registrar is not None:
+        typer.echo(
+            f"{doi}: {datacite_note(registrar)}; "
+            f"try `citefinder doi {doi}`, which uses OpenAlex",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     client = _crossref_client(cache, cache_dir, mailto, max_retries, min_interval)
     _emit_or_exit(client.lookup_doi(doi), doi)
 

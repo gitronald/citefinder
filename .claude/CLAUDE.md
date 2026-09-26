@@ -11,7 +11,10 @@ citefinder/
 ├── cache.py            # JsonlCache (append-only JSONL key-value store), LayeredCache (read-only fallbacks) + merge/inventory/atomic-write maintenance
 ├── client.py           # CrossrefClient
 ├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
-├── openalex.py         # OpenAlexClient + abstract reconstruction + arXiv routing
+├── openalex.py         # OpenAlexClient + abstract reconstruction + DataCite (arXiv/Zenodo) prefix routing
+├── openlibrary.py      # OpenLibraryClient (editions by ISBN, search) + retailer-provenance check
+├── loc.py              # LocClient (Library of Congress SRU, MARCXML parsed to JSON) + marc_book MARC reader
+├── books.py            # BookRecord/BookField, book_record ISBN chain (Open Library -> LCCN -> LoC), compare_book
 ├── bib.py              # Entry, parse_entries, bib-side query helpers
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
 ├── models.py           # TypedDicts for raw Crossref/OpenAlex records + undeclared_keys/cache_drift drift check
@@ -22,7 +25,7 @@ citefinder/
 ├── prompts/skills/use-citefinder/
 │   ├── SKILL.md        # canonical `use-citefinder` skill body (package data)
 │   └── references/     # docs the body loads with `citefinder doc use-citefinder/<name>`
-└── cli.py              # Typer CLI: doi, search, verify, bib-to-table, table-to-bib, drift, config, crossref and cache subcommands; skill, doc, install mounted from pkgskills
+└── cli.py              # Typer CLI: doi, search, isbn, verify (--books), bib-to-table, table-to-bib, drift, config, crossref and cache subcommands; skill, doc, install mounted from pkgskills
 ```
 
 The `use-citefinder` skill is packaged with
@@ -73,6 +76,15 @@ min_interval = 0.1
 mailto = "..."
 max_retries = 3
 min_interval = 0.34   # default: 1.0 anonymous, 0.34 in the polite pool
+
+[openlibrary]         # books by ISBN (plan 021); mailto goes in the User-Agent
+mailto = "..."
+max_retries = 3
+min_interval = 1.0
+
+[loc]                 # Library of Congress SRU gateway (plain HTTP, no TLS)
+max_retries = 3
+min_interval = 1.0
 ```
 
 Lookup precedence (CLI), highest first: flag (`--cache`/`--out` beat

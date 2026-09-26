@@ -5,6 +5,12 @@ shape-independent surface — `lookup_doi`, `search`, `to_work`,
 `candidate_doi`, `candidate_title` — so `verify_entry` doesn't need
 to know which source it's talking to. The two source-specific
 adapters live in `citefinder.adapters`.
+
+Books are the exception: most have no DOI, so a `BookLookup` (Open
+Library, then the Library of Congress; see `citefinder.books`) can be
+passed alongside the source. A book entry with an `isbn` is then checked
+against the catalog record instead of searched for, and one without gets
+Open Library candidates at most.
 """
 
 from __future__ import annotations
@@ -24,18 +30,23 @@ from citefinder.bib import (
     build_search_query,
     build_title_query,
     citation_from_entry,
+    first_author_surname,
     normalize_doi,
     strip_braces,
 )
+from citefinder.books import BookLookup, compare_book
 from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.client import CrossrefClient
 from citefinder.models import CrossrefWork, OpenAlexWork
-from citefinder.openalex import OpenAlexClient
+from citefinder.openalex import OpenAlexClient, datacite_note, datacite_registrar
+from citefinder.openlibrary import normalize_isbn
 from citefinder.signals import (
     MIN_TITLE_TOKENS,
+    BibCitation,
     Status,
     Work,
     compute_signals,
+    normalize_title,
     status_from_signals,
     title_similarity,
     title_tokens,
@@ -51,6 +62,12 @@ SKIP_SOURCE_TYPES = {"online", "misc"}
 # on the top hit is the simplest way to reject obviously-wrong matches.
 TITLE_MATCH_THRESHOLD = 0.55
 
+# Entry types a `BookLookup` applies to. For the two container types the
+# ISBN names the book the chapter is in, so the check runs against
+# `booktitle` and `editor` rather than the chapter's own title and author.
+BOOK_TYPES = {"book", "inbook", "incollection"}
+CONTAINER_BOOK_TYPES = {"inbook", "incollection"}
+
 
 SourceRecord = CrossrefWork | OpenAlexWork
 """A raw record from either source; `Source.name` says which."""
@@ -63,7 +80,7 @@ class Result:
     title: str
     year: str
     bib_doi: str | None
-    method: str  # "doi" | "search"
+    method: str  # "doi" | "search" | "isbn"
     status: Status
     matched_doi: str | None = None
     matched_title: str | None = None
@@ -71,6 +88,9 @@ class Result:
     note: str = ""
     candidates: list[dict[str, str]] = field(default_factory=list)
     signals: dict[str, dict[str, Any]] = field(default_factory=dict)
+    suggestions: list[dict[str, str]] = field(default_factory=list)
+    """Bib fields a book's catalog record would change or add (`isbn` path
+    only); see `citefinder.books.compare_book` for the shape."""
 
 
 @dataclass
@@ -153,7 +173,133 @@ class Source:
         return self.client.network_calls
 
 
-def verify_entry(entry: Entry, source: Source) -> Result:
+def _catalog_surname(name: str) -> str:
+    """The surname in a contributor name as a catalog or Open Library writes
+    it: `Doctorow, Cory` (inverted) or `Cory Doctorow` (direct order)."""
+    if "," in name:
+        return name.split(",", 1)[0].strip()
+    return name.split()[-1] if name.split() else ""
+
+
+def _book_fields(entry: Entry) -> dict[str, str]:
+    """The bib fields a book record is compared against, brace-stripped.
+
+    For a chapter entry the ISBN identifies the containing book, so its
+    `booktitle` stands in for `title` and its `editor` for `author`.
+    """
+    fields = {k: strip_braces(v) for k, v in entry.fields.items()}
+    if entry.etype in CONTAINER_BOOK_TYPES:
+        fields["title"] = fields.get("booktitle", "")
+        fields["author"] = fields.get("editor", "")
+    return fields
+
+
+def verify_book(entry: Entry, books: BookLookup, base: Result) -> Result:
+    """Check a book entry against its ISBN's catalog record, into `base`.
+
+    Title, year, and first contributor go through the same signal checks as
+    a DOI lookup — the ISBN resolved to this record, so one disagreement is
+    metadata loss rather than a different book. A record confirmed only by a
+    retailer feed tops out at `probable`. `base.suggestions` lists what the
+    bib should change or add to agree with the record.
+    """
+    isbn = normalize_isbn(entry.fields.get("isbn", ""))
+    base.method = "isbn"
+    try:
+        record = books.record(isbn)
+    except Exception as e:
+        base.status = Status.ERROR
+        base.note = f"ISBN lookup failed: {e}"
+        return base
+    if record is None:
+        base.status = Status.UNMATCHED
+        base.note = f"ISBN {isbn} not in Open Library"
+        return base
+
+    fields = _book_fields(entry)
+    # For a chapter the surname comes from `editor`, which the guard in
+    # `verify_entry` never parsed; a malformed name is this entry's error,
+    # not the run's.
+    try:
+        surname = (
+            first_author_surname(fields["author"]) if fields.get("author") else None
+        )
+    except Exception as e:
+        base.status = Status.ERROR
+        base.note = f"could not parse bib fields: {e}"
+        return base
+    citation = BibCitation(
+        title=fields.get("title") or None,
+        year=fields.get("year") or None,
+        first_author_surname=surname,
+    )
+    lead = record.contributors[0].value if record.contributors else None
+    # A bib title that is the catalog title without its subtitle is the same
+    # book; the subtitle rides along as a suggestion rather than failing the
+    # title signal against the longer form.
+    work_title = record.full_title
+    bib_title = citation.title or ""
+    if record.title is not None and normalize_title(bib_title) == normalize_title(
+        record.title.value
+    ):
+        work_title = record.title.value
+    work = Work(
+        title=work_title,
+        year=int(record.year.value) if record.year else None,
+        first_author_surname=_catalog_surname(lead) if lead else None,
+    )
+    base.matched_title = record.full_title
+    base.signals = compute_signals(citation, work)
+    base.similarity = base.signals["title"].get("sim")
+    base.status, base.note = status_from_signals(base.signals, doi_resolved=True)
+    base.suggestions = compare_book(record, fields)
+    where = "Library of Congress" if record.loc_url else "Open Library"
+    if not record.confirmed:
+        if base.status == Status.MATCHED:
+            base.status = Status.PROBABLE
+        base.note = (
+            "Open Library record is retailer-fed, not confirmed by a catalog"
+            + (f"; {base.note}" if base.note else "")
+        )
+    elif base.note:
+        base.note = f"{base.note} ({where} record)"
+    else:
+        base.note = f"{where} record"
+    return base
+
+
+def _book_candidates(
+    entry: Entry, books: BookLookup, title: str
+) -> list[dict[str, str]]:
+    """Open Library search hits for a book entry with no ISBN, as
+    candidates carrying an `isbn` to confirm."""
+    fields = _book_fields(entry)
+    query = fields.get("title") or title
+    if not query:
+        return []
+    author = first_author_surname(fields["author"]) if fields.get("author") else None
+    docs = books.search(query, author or None, rows=3)
+    out: list[dict[str, str]] = []
+    for doc in docs:
+        hit_title = doc.get("title") or ""
+        if doc.get("subtitle"):
+            hit_title = f"{hit_title}: {doc['subtitle']}"
+        isbns = doc.get("isbn") or []
+        out.append(
+            {
+                "doi": "",
+                "title": hit_title,
+                "similarity": f"{title_similarity(query, hit_title):.2f}",
+                "isbn": isbns[0] if isbns else "",
+                "source": "openlibrary",
+            }
+        )
+    return out
+
+
+def verify_entry(
+    entry: Entry, source: Source, books: BookLookup | None = None
+) -> Result:
     title = strip_braces(entry.fields.get("title", ""))
     year = strip_braces(entry.fields.get("year", ""))
     # `or None` folds an empty `doi = {}` into "no DOI", like a missing field.
@@ -178,10 +324,44 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         base.note = f"could not parse bib fields: {e}"
         return base
 
+    is_book = books is not None and entry.etype in BOOK_TYPES
+    # A book with an ISBN and no DOI is checked against its catalog record;
+    # the academic indexes rarely carry trade books at all.
+    if is_book and not bib_doi and strip_braces(entry.fields.get("isbn", "")):
+        assert books is not None
+        return verify_book(entry, books, base)
+
+    result = _verify_against_source(entry, source, citation, title, bib_doi, base)
+    # A book with no ISBN keeps its source verdict; the Open Library hits
+    # are leads a reader can confirm, appended rather than applied.
+    if is_book and not bib_doi and result.status != Status.MATCHED:
+        assert books is not None
+        try:
+            result.candidates.extend(_book_candidates(entry, books, title))
+        except Exception as e:
+            result.note = f"{result.note}; Open Library search failed: {e}"
+    return result
+
+
+def _verify_against_source(
+    entry: Entry,
+    source: Source,
+    citation: BibCitation,
+    title: str,
+    bib_doi: str | None,
+    base: Result,
+) -> Result:
     # If a DOI is in the bib, resolve it AND check four signals (title / year /
     # first-author / container) against the source record. DOI existence
     # isn't enough — a typoed or wrong DOI can resolve to a different work.
     if bib_doi:
+        # Crossref never indexes DataCite DOIs (arXiv, Zenodo), so a lookup
+        # could only 404. Report them apart from real misses, with no request.
+        registrar = datacite_registrar(bib_doi) if source.name == "crossref" else None
+        if registrar is not None:
+            base.status = Status.NOT_INDEXED
+            base.note = f"{datacite_note(registrar)}; verify with --source openalex"
+            return base
         try:
             raw = source.lookup_doi(bib_doi)
         except Exception as e:
@@ -191,7 +371,7 @@ def verify_entry(entry: Entry, source: Source) -> Result:
         work = source.to_work(raw)
         if work is None:
             base.status = Status.DOI_NOT_FOUND
-            base.note = "DOI not in source (404) — common for arXiv / preprint DOIs"
+            base.note = "DOI not in source (404)"
             return base
         base.matched_doi = bib_doi
         base.matched_title = work.title

@@ -57,6 +57,12 @@ __all__ = [
     "OpenAlexTopic",
     "OpenAlexWork",
     "OpenAlexWorkType",
+    "OpenLibraryAuthor",
+    "OpenLibraryDoc",
+    "OpenLibraryEdition",
+    "OpenLibrarySearchPage",
+    "MarcField",
+    "MarcRecord",
     "cache_drift",
     "undeclared_keys",
 ]
@@ -479,6 +485,83 @@ class OpenAlexSearchPage(TypedDict, total=False):
     meta: OpenAlexMeta
     results: list[OpenAlexWork]
     group_by: list[dict[str, Any]]
+
+
+# --- Open Library -----------------------------------------------------------
+#
+# Modelled from the edition record's documented shape and a handful of live
+# lookups rather than a cache survey (plan 021); the coverage comments used
+# above are omitted until a survey exists.
+
+
+class OpenLibraryEdition(TypedDict, total=False):
+    """One edition, as `/isbn/{isbn}.json` (redirecting to `/books/OL…M.json`)
+    returns it."""
+
+    key: str  # `/books/OL…M`
+    title: str
+    subtitle: str
+    authors: list[dict[str, str]]  # `[{"key": "/authors/OL…A"}]`
+    by_statement: str  # the title page's statement of responsibility
+    publishers: list[str]
+    publish_places: list[str]
+    publish_date: str  # free text: `2025`, `Oct 21, 2025`, `[2025]`
+    edition_name: str
+    isbn_10: list[str]
+    isbn_13: list[str]
+    lccn: list[str]
+    oclc_numbers: list[str]
+    number_of_pages: int
+    works: list[dict[str, str]]
+    # Where the record came from: `amazon:…`, `bwb:…` (retailer feeds),
+    # `marc:…`, `ia:…` (library catalogs and scans). The provenance signal.
+    source_records: list[str]
+    physical_format: str
+
+
+class OpenLibraryAuthor(TypedDict, total=False):
+    key: str  # `/authors/OL…A`
+    name: str
+    personal_name: str
+
+
+class OpenLibraryDoc(TypedDict, total=False):
+    """One work in a `/search.json` page, restricted to the fields the client
+    asks for. `isbn` spans every edition of the work."""
+
+    key: str  # `/works/OL…W`
+    title: str
+    subtitle: str
+    author_name: list[str]
+    first_publish_year: int
+    isbn: list[str]
+    publisher: list[str]
+
+
+class OpenLibrarySearchPage(TypedDict, total=False):
+    numFound: int
+    start: int
+    docs: list[OpenLibraryDoc]
+
+
+# --- Library of Congress ----------------------------------------------------
+
+
+class MarcField(TypedDict, total=False):
+    """One MARC data field, as `citefinder.loc.parse_marcxml` flattens it."""
+
+    tag: str  # `245`
+    ind1: str
+    ind2: str
+    subfields: list[list[str]]  # `[["a", "Enshittification :"], ["b", …]]`
+
+
+class MarcRecord(TypedDict, total=False):
+    """A MARCXML record parsed into plain JSON, the value `LocClient` caches."""
+
+    leader: str
+    controlfields: dict[str, str]  # `{"001": …, "008": …}`
+    fields: list[MarcField]
 
 
 # --- Drift check ------------------------------------------------------------

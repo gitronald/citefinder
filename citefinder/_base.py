@@ -77,8 +77,17 @@ def package_version() -> str:
         return "0.0.0"
 
 
-def _default_user_agent() -> str:
-    return f"citefinder/{package_version()} (https://github.com/gitronald/citefinder)"
+def _default_user_agent(contact: str | None = None) -> str:
+    """`citefinder/<version> (<project url>[; mailto:<contact>])`.
+
+    Sources without a polite-pool parameter (Open Library, the Library of
+    Congress) ask for contact details in the User-Agent instead; `contact`
+    puts them there, in one place, so no client splices the string itself.
+    """
+    agent = f"citefinder/{package_version()} (https://github.com/gitronald/citefinder"
+    if contact:
+        agent = f"{agent}; mailto:{contact}"
+    return f"{agent})"
 
 
 def _doi_path(doi: str) -> str:
@@ -382,7 +391,17 @@ class CachedJsonClient:
             value: Any | None = None
         else:
             response.raise_for_status()
-            value = response.json()
+            value = self._decode(response)
         if self.cache is not None:
             self.cache.put(cache_key, value)
         return value
+
+    def _decode(self, response: requests.Response) -> Any:
+        """The JSON-serializable value a 2xx `response` caches as.
+
+        JSON by default. A source that answers in another format (the
+        Library of Congress returns MARCXML) overrides this to parse the
+        body into plain dicts and lists, so its cache stays JSONL like every
+        other source's.
+        """
+        return response.json()
