@@ -116,7 +116,12 @@ uv sync
 ### OpenAlex (default)
 
 ```python
-from citefinder import OpenAlexClient, datacite_registrar, is_arxiv_doi, reconstruct_abstract
+from citefinder import (
+    OpenAlexClient,
+    datacite_registrar,
+    is_arxiv_doi,
+    reconstruct_abstract,
+)
 
 openalex = OpenAlexClient(
     cache_path="~/.cache/citefinder/openalex.jsonl",
