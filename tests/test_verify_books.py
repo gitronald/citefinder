@@ -120,6 +120,38 @@ def test_retailer_only_record_tops_out_at_probable(source: Source) -> None:
     assert all(s["confirmed"] == "no" for s in r.suggestions)
 
 
+def test_malformed_editor_is_this_entrys_error(
+    source: Source, books: BookLookup
+) -> None:
+    text = f"""@incollection{{ch1,
+  author = {{Someone, Else}},
+  editor = {{Doctorow, Cory,}},
+  title = {{A chapter}},
+  booktitle = {{Enshittification}},
+  year = {{2025}},
+  isbn = {{{ISBN}}},
+}}
+"""
+    r = verify_entry(_entry(text), source, books)  # must not raise
+    assert r.method == "isbn"
+    assert r.status == Status.ERROR
+    assert r.note.startswith("could not parse bib fields")
+
+
+def test_retailer_year_behind_a_catalog_title_caps_at_probable(
+    source: Source,
+) -> None:
+    # Both 264s go: the copyright one (indicator 4) would otherwise stand in.
+    undated = MARCXML.replace('<datafield tag="264"', '<datafield tag="999"')
+    books = BookLookup(
+        FakeOpenLibrary({ISBN: EDITION}), FakeLoc({LCCN: parse_marcxml(undated)})
+    )
+    r = verify_entry(_entry(BOOK_BIB), source, books)
+    assert r.signals["year"]["verdict"] == "pass"  # the retailer year agreed
+    assert r.status == Status.PROBABLE
+    assert r.note.startswith("Open Library record is retailer-fed")
+
+
 def test_wrong_book_is_a_mismatch(source: Source, books: BookLookup) -> None:
     text = (
         BOOK_BIB.replace("Doctorow, Cory", "Jones, Alice")

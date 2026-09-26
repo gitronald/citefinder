@@ -217,12 +217,21 @@ def verify_book(entry: Entry, books: BookLookup, base: Result) -> Result:
         return base
 
     fields = _book_fields(entry)
+    # For a chapter the surname comes from `editor`, which the guard in
+    # `verify_entry` never parsed; a malformed name is this entry's error,
+    # not the run's.
+    try:
+        surname = (
+            first_author_surname(fields["author"]) if fields.get("author") else None
+        )
+    except Exception as e:
+        base.status = Status.ERROR
+        base.note = f"could not parse bib fields: {e}"
+        return base
     citation = BibCitation(
         title=fields.get("title") or None,
         year=fields.get("year") or None,
-        first_author_surname=(
-            first_author_surname(fields["author"]) if fields.get("author") else None
-        ),
+        first_author_surname=surname,
     )
     lead = record.contributors[0].value if record.contributors else None
     # A bib title that is the catalog title without its subtitle is the same

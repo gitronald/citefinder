@@ -30,7 +30,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from citefinder.loc import LocClient, marc_book
+from citefinder.loc import YEAR_RE, LocClient, marc_book
 from citefinder.models import OpenLibraryDoc, OpenLibraryEdition
 from citefinder.openlibrary import OpenLibraryClient, normalize_isbn, retailer_only
 from citefinder.signals import normalize_title
@@ -48,7 +48,6 @@ __all__ = [
     "publisher_names",
 ]
 
-_YEAR = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 _PUBLISHER_SPLIT = re.compile(r"\s*(?:,|;|/|:)\s*")
 
 
@@ -94,8 +93,17 @@ class BookRecord:
 
     @property
     def confirmed(self) -> bool:
-        """Whether the title itself comes from a catalog source."""
-        return self.title is not None and self.title.confirmed
+        """Whether every field a verdict rests on — the title, the year, and
+        the first contributor, where present — comes from a catalog source.
+
+        A catalog record that lacks a publication date leaves the year to
+        Open Library; if that edition is retailer-fed, a match decided partly
+        by that year is not a catalog confirmation.
+        """
+        if self.title is None or not self.title.confirmed:
+            return False
+        signal_fields = [self.year, self.contributors[0] if self.contributors else None]
+        return all(f is None or f.confirmed for f in signal_fields)
 
     def as_dict(self) -> dict[str, Any]:
         """A JSON-ready view: each field as `{"value", "source"}`."""
@@ -143,7 +151,7 @@ def _openlibrary_fields(
     publishers = edition.get("publishers") or []
     places = edition.get("publish_places") or []
     date = edition.get("publish_date") or ""
-    year_match = _YEAR.search(date)
+    year_match = YEAR_RE.search(date)
     isbns = [*(edition.get("isbn_13") or []), *(edition.get("isbn_10") or [])]
     lccns = edition.get("lccn") or []
     return {
@@ -255,7 +263,9 @@ def compare_book(record: BookRecord, fields: dict[str, str]) -> list[dict[str, s
         if not _same(bib_title, full):
             if record.subtitle is not None and _same(bib_title, record.title.value):
                 suggest("title", BookField(full, record.subtitle.source), bib_title)
-            elif bib_title and not _same(bib_title, record.title.value):
+            elif not _same(bib_title, record.title.value):
+                # Differs, or the bib has no title at all: silence is not
+                # agreement, so a missing title is suggested like any field.
                 suggest("title", BookField(full, record.title.source), bib_title)
 
     bib_publisher = fields.get("publisher")
@@ -276,7 +286,7 @@ def compare_book(record: BookRecord, fields: dict[str, str]) -> list[dict[str, s
 
     bib_year = fields.get("year")
     if record.year is not None:
-        year_match = _YEAR.search(bib_year or "")
+        year_match = YEAR_RE.search(bib_year or "")
         if not year_match or year_match.group(1) != record.year.value:
             suggest("year", record.year, bib_year)
 

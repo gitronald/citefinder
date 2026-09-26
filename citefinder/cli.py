@@ -32,7 +32,7 @@ from citefinder._base import (
     validate_knob,
 )
 from citefinder.bib import normalize_doi, parse_entries
-from citefinder.books import BookLookup, book_record
+from citefinder.books import BookLookup
 from citefinder.cache import (
     SOURCE_HOSTS,
     MergeStats,
@@ -589,7 +589,7 @@ def isbn(
     books = _book_lookup(
         cache_dir, mailto, max_retries, min_interval, with_loc=not no_loc
     )
-    record = book_record(isbn, books.openlibrary, books.loc)
+    record = books.record(isbn)
     _emit_or_exit(record.as_dict() if record is not None else None, isbn)
 
 

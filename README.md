@@ -306,9 +306,9 @@ record = book_record(
     OpenLibraryClient(cache_path="openlibrary.jsonl", mailto="you@example.com"),
     LocClient(cache_path="loc.jsonl"),
 )
-record.full_title      # 'Enshittification: why everything suddenly got worse and ...'
-record.place           # BookField(value='New York', source='loc')
-record.publisher.value # 'MCD, Farrar, Straus and Giroux' — the imprint and its parent
+record.full_title  # 'Enshittification: why everything suddenly got worse and ...'
+record.place  # BookField(value='New York', source='loc')
+record.publisher.value  # 'MCD, Farrar, Straus and Giroux' — the imprint and its parent
 ```
 
 Every field is a `BookField` carrying its `source`: `loc` for the catalog record, `openlibrary` for an edition a library catalog fed, or `openlibrary:retailer` for one fed only by retailer feeds (Amazon, Better World Books) — usually right, never confirmed, so it is reported as a lead rather than a value to apply. A source that lacks a field leaves it `None`; silence never counts as agreement. When Open Library has no edition or no LCCN, the catalog is asked by ISBN directly. `LocClient` talks to the catalog's SRU gateway (plain HTTP; it speaks no TLS) and caches the MARCXML parsed into JSON, so both caches stay JSONL; `parse_marcxml` and `marc_book` are exposed for reading other MARC records.

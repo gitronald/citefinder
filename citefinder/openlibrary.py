@@ -116,9 +116,7 @@ class OpenLibraryClient(CachedJsonClient):
         fallback_cache: str | Path | None = None,
     ) -> None:
         if user_agent is None:
-            user_agent = _default_user_agent()
-            if mailto:
-                user_agent = f"{user_agent[:-1]}; mailto:{mailto})"
+            user_agent = _default_user_agent(mailto)
         super().__init__(
             cache=cache,
             cache_path=cache_path,

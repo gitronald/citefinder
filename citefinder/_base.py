@@ -77,8 +77,17 @@ def package_version() -> str:
         return "0.0.0"
 
 
-def _default_user_agent() -> str:
-    return f"citefinder/{package_version()} (https://github.com/gitronald/citefinder)"
+def _default_user_agent(contact: str | None = None) -> str:
+    """`citefinder/<version> (<project url>[; mailto:<contact>])`.
+
+    Sources without a polite-pool parameter (Open Library, the Library of
+    Congress) ask for contact details in the User-Agent instead; `contact`
+    puts them there, in one place, so no client splices the string itself.
+    """
+    agent = f"citefinder/{package_version()} (https://github.com/gitronald/citefinder"
+    if contact:
+        agent = f"{agent}; mailto:{contact}"
+    return f"{agent})"
 
 
 def _doi_path(doi: str) -> str:

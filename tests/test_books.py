@@ -273,4 +273,40 @@ def test_compare_book_place_qualifier_and_retailer_flag(
 def test_compare_book_is_silent_where_the_record_is() -> None:
     record = BookRecord(isbn=ISBN, title=BookField("T", "loc"))
     assert compare_book(record, {"title": "T"}) == []
-    assert compare_book(record, {}) == []  # no bib title: nothing to compare
+    assert compare_book(record, {"title": "T", "publisher": "P", "year": "1"}) == []
+
+
+def test_compare_book_suggests_a_missing_title() -> None:
+    record = BookRecord(isbn=ISBN, title=BookField("Some Title", "loc"))
+    for fields in ({}, {"title": ""}):
+        (suggestion,) = compare_book(record, fields)
+        assert suggestion["field"] == "title"
+        assert suggestion["reason"] == "missing"
+        assert suggestion["value"] == "Some Title"
+
+
+def test_confirmed_needs_every_signal_field_from_a_catalog() -> None:
+    title = BookField("T", "loc")
+    assert BookRecord(isbn=ISBN, title=title).confirmed
+    assert BookRecord(isbn=ISBN, title=title, year=BookField("2019", "loc")).confirmed
+    retailer_year = BookField("2019", "openlibrary:retailer")
+    assert not BookRecord(isbn=ISBN, title=title, year=retailer_year).confirmed
+    retailer_name = BookField("A. Writer", "openlibrary:retailer")
+    assert not BookRecord(
+        isbn=ISBN, title=title, contributors=[retailer_name]
+    ).confirmed
+    assert not BookRecord(
+        isbn=ISBN, title=BookField("T", "openlibrary:retailer")
+    ).confirmed
+
+
+def test_loc_record_without_a_date_leaves_the_year_unconfirmed(
+    openlibrary: FakeOpenLibrary,
+) -> None:
+    # Both 264s go: the copyright one (indicator 4) would otherwise stand in.
+    undated = MARCXML.replace('<datafield tag="264"', '<datafield tag="999"')
+    record = book_record(ISBN, openlibrary, FakeLoc({LCCN: parse_marcxml(undated)}))
+    assert record is not None
+    assert record.title is not None and record.title.source == "loc"
+    assert record.year == BookField("2025", "openlibrary:retailer")
+    assert not record.confirmed

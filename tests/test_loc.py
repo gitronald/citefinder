@@ -147,7 +147,7 @@ def test_lookup_lccn_parses_and_caches_marcxml(
 ) -> None:
     client, session = setup
     response = mock_response(200)
-    response.text = SRU_RESPONSE
+    response.content = SRU_RESPONSE.encode()
     session.get.return_value = response
     record = client.lookup_lccn(f"  {LCCN}")
     assert record is not None
@@ -176,7 +176,7 @@ def test_lookup_lccn_200_without_record_is_none(
 ) -> None:
     client, session = setup
     response = mock_response(200)
-    response.text = SRU_EMPTY
+    response.content = SRU_EMPTY.encode()
     session.get.return_value = response
     assert client.lookup_lccn(LCCN) is None
     assert client.lookup_lccn(LCCN) is None
@@ -188,10 +188,30 @@ def test_lookup_isbn_queries_by_isbn(
 ) -> None:
     client, session = setup
     response = mock_response(200)
-    response.text = MARCXML  # a bare record parses too
+    response.content = MARCXML.encode()  # a bare record parses too
     session.get.return_value = response
     assert client.lookup_isbn("978-0-374-61932-9") is not None
     assert "query=bath.isbn%3D9780374619329" in session.get.call_args[0][0]
+    # The same normalizer as Open Library's: a bib list keeps its first ISBN.
+    client.lookup_isbn("9780374619329, 0374619328")
+    assert "query=bath.isbn%3D9780374619329" in session.get.call_args[0][0]
+    assert session.get.call_count == 1  # same cache key as the first call
+
+
+def test_lookup_decodes_utf8_from_bytes_not_a_header_guess(
+    setup: tuple[LocClient, MagicMock], mock_response
+) -> None:
+    # The gateway sends `text/xml` with no charset; `response.text` would be
+    # ISO-8859-1 and turn `Müller` into `MÃ¼ller`.
+    xml = MARCXML.replace("Doctorow, Cory,", "Müller, Anna,").encode("utf-8")
+    response = mock_response(200, headers={"Content-Type": "text/xml"})
+    response.content = xml
+    response.text = xml.decode("iso-8859-1")
+    session = setup[1]
+    session.get.return_value = response
+    record = setup[0].lookup_lccn(LCCN)
+    assert record is not None
+    assert marc_book(record)["contributors"] == ["Müller, Anna"]
 
 
 def test_mailto_lands_in_user_agent_not_url() -> None:
@@ -200,4 +220,6 @@ def test_mailto_lands_in_user_agent_not_url() -> None:
     assert agent.endswith("; mailto:you@example.com)")
     assert client.mailto is None
     assert "mailto" not in str(LocClient().session.headers["User-Agent"])
+    custom = LocClient(mailto="you@example.com", user_agent="mine/1")
+    assert custom.session.headers["User-Agent"] == "mine/1"
     assert client.lccn_url(" 2025007165") == "https://lccn.loc.gov/2025007165"

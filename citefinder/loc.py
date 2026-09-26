@@ -46,9 +46,11 @@ from citefinder._base import (
     DEFAULT_MAX_WAIT,
     DEFAULT_TIMEOUT,
     CachedJsonClient,
+    _default_user_agent,
 )
 from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.models import MarcField, MarcRecord
+from citefinder.openlibrary import normalize_isbn
 
 LOC_BASE = "https://lccn.loc.gov"
 LOC_SRU = "http://lx2.loc.gov:210/LCDB"
@@ -62,6 +64,7 @@ __all__ = [
     "LOC_BASE",
     "LOC_MIN_INTERVAL",
     "LOC_SRU",
+    "YEAR_RE",
     "LocClient",
     "marc_book",
     "normalize_lccn",
@@ -70,7 +73,9 @@ __all__ = [
 ]
 
 _ISBD_TRAILING = re.compile(r"[\s:/;=,.]+$")
-_YEAR = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+YEAR_RE = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+"""The first four-digit run in a date string (`2025.`, `[2025]`, `Oct 21, 2025`).
+Shared with `citefinder.books` so both sources read dates one way."""
 _PAREN_QUALIFIER = re.compile(r"\s*\(([^)]*)\)\s*$")
 
 
@@ -109,12 +114,14 @@ def _is_marc_record(el: ET.Element) -> bool:
     )
 
 
-def parse_marcxml(text: str) -> MarcRecord | None:
+def parse_marcxml(text: str | bytes) -> MarcRecord | None:
     """The first MARC `<record>` in an XML document as plain JSON, or `None`
     when the document holds none (an SRU response with zero records, an
     empty `<collection>`, an HTML error page).
 
-    Accepts a bare record, a `<collection>`, or an SRU `searchRetrieveResponse`.
+    Accepts a bare record, a `<collection>`, or an SRU `searchRetrieveResponse`,
+    as text or as the raw bytes of the response — bytes are preferred, so the
+    XML declaration decides the encoding rather than an HTTP header guess.
     Raises `ValueError` when `text` is not XML at all.
     """
     try:
@@ -179,8 +186,12 @@ def _isbns(record: MarcRecord) -> list[dict[str, str]]:
         if match:
             qualifier = qualifier or match.group(1)
             raw = raw[: match.start()]
-        isbn = re.sub(r"[\s-]+", "", raw).upper()
-        out.append({"isbn": isbn, "qualifier": strip_isbd(qualifier).strip("()")})
+        out.append(
+            {
+                "isbn": normalize_isbn(raw),
+                "qualifier": strip_isbd(qualifier).strip("()"),
+            }
+        )
     return out
 
 
@@ -220,7 +231,7 @@ def marc_book(record: MarcRecord) -> dict[str, Any]:
     title_field = next(iter(_fields(record, "245")), None)
     publication = _publication(record)
     date = _sub(publication, "c") if publication else None
-    year_match = _YEAR.search(date) if date else None
+    year_match = YEAR_RE.search(date) if date else None
     lccn_field = next(iter(_fields(record, "010")), None)
     agency = next(iter(_fields(record, "040")), None)
     edition = next(iter(_fields(record, "250")), None)
@@ -242,10 +253,10 @@ def marc_book(record: MarcRecord) -> dict[str, Any]:
 
 
 class LocClient(CachedJsonClient):
-    """Library of Congress LCCN lookups, cached as parsed MARC.
+    """Library of Congress LCCN and ISBN lookups, cached as parsed MARC.
 
     There is no polite pool and no contact parameter; `mailto` is accepted
-    for signature parity with the other clients and folded into the
+    for signature parity with the other clients and goes into the
     User-Agent only. Every other knob behaves as documented on
     `CachedJsonClient`.
     """
@@ -267,6 +278,8 @@ class LocClient(CachedJsonClient):
         clock: Callable[[], float] = time.time,
         fallback_cache: str | Path | None = None,
     ) -> None:
+        if user_agent is None:
+            user_agent = _default_user_agent(mailto)
         super().__init__(
             cache=cache,
             cache_path=cache_path,
@@ -282,9 +295,6 @@ class LocClient(CachedJsonClient):
             clock=clock,
             fallback_cache=fallback_cache,
         )
-        if mailto and user_agent is None:
-            agent = str(self.session.headers["User-Agent"])
-            self.session.headers["User-Agent"] = f"{agent[:-1]}; mailto:{mailto})"
 
     @staticmethod
     def lccn_url(lccn: str) -> str:
@@ -306,10 +316,12 @@ class LocClient(CachedJsonClient):
     def _decode(  # pyrefly: ignore[missing-override-decorator]  (3.11 has no `override`)
         self, response: requests.Response
     ) -> Any:
-        # A 200 whose body holds no record (the service answers some unknown
-        # LCCNs with a search page rather than a 404) is cached as a miss,
-        # the same as a 404.
-        return parse_marcxml(response.text)
+        # The gateway sends `text/xml` with no charset, which `requests`
+        # would decode as ISO-8859-1 (`response.text`); the raw bytes let the
+        # XML declaration decide, so a `Müller` stays a `Müller`. A 200 whose
+        # body holds no record (an unknown number is a zero-record response,
+        # not a 404) is cached as a miss, the same as a 404.
+        return parse_marcxml(response.content)
 
     def lookup_lccn(self, lccn: str) -> MarcRecord | None:
         """The parsed MARC record for `lccn`, or `None` when there is none."""
@@ -321,5 +333,4 @@ class LocClient(CachedJsonClient):
         An ISBN can sit on more than one record (a reissue cataloged
         separately); the first the catalog ranks is returned.
         """
-        digits = re.sub(r"[\s-]+", "", isbn).upper()
-        return self._get(self.sru_url(f"bath.isbn={digits}"))
+        return self._get(self.sru_url(f"bath.isbn={normalize_isbn(isbn)}"))
