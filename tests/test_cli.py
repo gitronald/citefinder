@@ -70,6 +70,11 @@ def test_crossref_doi_points_a_datacite_doi_at_openalex(
     assert "registered with DataCite" in result.output
     assert f"citefinder doi {doi}" in result.output
     assert captured == {}  # no client was built, so no request was possible
+    # The URL and `doi:` forms exported bibs carry are recognized too.
+    for form in (f"https://doi.org/{doi}", f"doi:{doi}"):
+        result = runner.invoke(app, ["crossref", "doi", form, "--cache", cache])
+        assert "registered with DataCite" in result.output
+    assert captured == {}
 
 
 def test_crossref_chapter_pads_digits_and_passes_strings_through(

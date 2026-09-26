@@ -31,7 +31,7 @@ from citefinder._base import (
     DEFAULT_MIN_INTERVAL,
     validate_knob,
 )
-from citefinder.bib import parse_entries
+from citefinder.bib import normalize_doi, parse_entries
 from citefinder.cache import (
     SOURCE_HOSTS,
     MergeStats,
@@ -1120,7 +1120,7 @@ def crossref_doi(
     """Look up a single DOI via Crossref."""
     # Crossref never indexes DataCite DOIs, so point at OpenAlex instead of
     # spending a request on a guaranteed 404.
-    registrar = datacite_registrar(doi)
+    registrar = datacite_registrar(normalize_doi(doi))
     if registrar is not None:
         typer.echo(
             f"{doi}: {registrar} DOI registered with DataCite, not Crossref; "
