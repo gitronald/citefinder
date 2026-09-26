@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Book metadata by ISBN (plan 021). `citefinder isbn <isbn>` runs the chain
+  ISBN → Open Library edition → LCCN → Library of Congress catalog record and
+  prints the merged record with each field's source (`loc`, `openlibrary`, or
+  `openlibrary:retailer` for an edition fed only by retailer feeds), plus the
+  URL of each source's record. When Open Library has no edition or no LCCN
+  the catalog is asked by ISBN directly. In the library: `OpenLibraryClient`,
+  `LocClient` (the catalog's SRU gateway; MARCXML is parsed to JSON before
+  caching, so the cache stays JSONL), `parse_marcxml` / `marc_book`,
+  `book_record`, `BookRecord` / `BookField`, and `BookLookup`.
+- `citefinder verify --books` checks `@book`, `@inbook`, and `@incollection`
+  entries that carry an `isbn` and no `doi` against that record
+  (`method=isbn`) and adds per-entry `suggestions` to `results.json` — a
+  missing `location`, a dropped subtitle, a wrong year — each with its source
+  and whether a catalog confirms it. A `publisher` naming only the imprint is
+  not flagged; a chapter entry is checked as its container (`booktitle`,
+  `editor`). Entries without an `isbn` get Open Library search hits as
+  `candidates` carrying an `isbn` to confirm. `verify_entry` takes the
+  lookup as an optional `books` argument.
+- `[openlibrary]` and `[loc]` config sections (`OPENLIBRARY_MAILTO`,
+  `<SOURCE>_MAX_RETRIES`, `<SOURCE>_MIN_INTERVAL`), reported by
+  `citefinder config` alongside the two new cache paths; `cache merge` and
+  `cache stats` route the new hosts.
+- The `use-citefinder` skill gains a fifth operation, the ISBN lookup, and
+  its description now triggers on book questions (`metadata.version`
+  1.1.0).
+
 ## [0.12.0] - 2026-09-13
 
 ### Added

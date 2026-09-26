@@ -1015,7 +1015,7 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
 
     typer.echo()
     for name in ("openalex", "crossref", "openlibrary", "loc"):
-        typer.echo(f"{name + ' cache:':<17}{resolve_cache_path(name, root)}")
+        typer.echo(f"{name + ' cache:':<19} {resolve_cache_path(name, root)}")
     verify_root = _verify_root(cache_dir)
     typer.echo(
         f"verify output:   {verify_root / '<bib-dir>[-<bib-stem>]' / '<source>'}/"

@@ -1,8 +1,9 @@
 """Book metadata by ISBN: Open Library, then the Library of Congress.
 
 The chain is `ISBN -> Open Library edition -> LCCN -> Library of Congress
-MARC record`, merged field by field with the Library of Congress winning
-wherever it has a value. Every field remembers where it came from:
+MARC record`, with a direct ISBN query on the catalog when Open Library has
+no edition or no LCCN, merged field by field with the Library of Congress
+winning wherever it has a value. Every field remembers where it came from:
 
 - `loc` — the catalog record, usually Cataloging in Publication data
   supplied by the publisher and printed on the copyright page.
@@ -177,35 +178,46 @@ def _merge(record: BookRecord, values: dict[str, Any], source: str) -> None:
 def book_record(
     isbn: str, openlibrary: OpenLibraryClient, loc: LocClient | None = None
 ) -> BookRecord | None:
-    """The merged record for `isbn`, or `None` when Open Library has no
-    edition for it.
+    """The merged record for `isbn`, or `None` when neither source has it.
 
-    The Library of Congress is consulted only through the LCCN the edition
-    carries — there is no ISBN search on that side — and only when a `loc`
-    client is given. Its values are laid down first so they win the merge;
-    Open Library then fills whatever the catalog record left empty. Both
-    lookups go through their clients' caches, so a second run is offline.
+    Open Library is asked first, for the edition and the LCCN it carries.
+    The Library of Congress (when a `loc` client is given) is then asked by
+    that LCCN, or by the ISBN itself when there is no edition or no LCCN.
+    Catalog values are laid down first so they win the merge; Open Library
+    fills whatever the catalog record left empty. Every lookup goes through
+    its client's cache, so a second run is offline.
     """
     isbn = normalize_isbn(isbn)
     edition = openlibrary.lookup_isbn(isbn)
-    if edition is None:
-        return None
-    record = BookRecord(isbn=isbn, openlibrary_url=openlibrary.isbn_url(isbn))
-    from_openlibrary = _openlibrary_fields(edition, openlibrary)
-    lccn = from_openlibrary.get("lccn")
-    if loc is not None and lccn:
-        marc = loc.lookup_lccn(lccn)
-        if marc is not None:
-            record.loc_url = loc.lccn_url(lccn)
-            from_loc = marc_book(marc)
-            from_loc["isbns"] = [i["isbn"] for i in from_loc["isbns"]]
-            _merge(record, from_loc, LOC_SOURCE)
-    source = (
-        RETAILER_SOURCE
-        if retailer_only(edition.get("source_records"))
-        else (OPENLIBRARY_SOURCE)
+    from_openlibrary = (
+        _openlibrary_fields(edition, openlibrary) if edition is not None else None
     )
-    _merge(record, from_openlibrary, source)
+    marc = None
+    if loc is not None:
+        lccn = from_openlibrary.get("lccn") if from_openlibrary else None
+        marc = loc.lookup_lccn(lccn) if lccn else None
+        if marc is None:
+            marc = loc.lookup_isbn(isbn)
+    if edition is None and marc is None:
+        return None
+    record = BookRecord(isbn=isbn)
+    if marc is not None:
+        assert loc is not None
+        from_loc = marc_book(marc)
+        from_loc["isbns"] = [i["isbn"] for i in from_loc["isbns"]]
+        _merge(record, from_loc, LOC_SOURCE)
+        loc_lccn = from_loc.get("lccn") or (
+            from_openlibrary.get("lccn") if from_openlibrary else None
+        )
+        record.loc_url = loc.lccn_url(loc_lccn) if loc_lccn else None
+    if edition is not None and from_openlibrary is not None:
+        record.openlibrary_url = openlibrary.isbn_url(isbn)
+        source = (
+            RETAILER_SOURCE
+            if retailer_only(edition.get("source_records"))
+            else OPENLIBRARY_SOURCE
+        )
+        _merge(record, from_openlibrary, source)
     return record
 
 

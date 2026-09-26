@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from citefinder.adapters import crossref_to_work, openalex_to_work
 from citefinder.bib import Entry, parse_entries
+from citefinder.books import BookField, BookLookup, BookRecord, book_record
 from citefinder.cache import (
     JsonlCache,
     LayeredCache,
@@ -16,7 +17,9 @@ from citefinder.cache import (
 )
 from citefinder.client import CrossrefClient
 from citefinder.config import resolve_cache_path
+from citefinder.loc import LocClient, marc_book, parse_marcxml
 from citefinder.openalex import OpenAlexClient, is_arxiv_doi, reconstruct_abstract
+from citefinder.openlibrary import OpenLibraryClient, normalize_isbn
 from citefinder.signals import (
     BibCitation,
     Status,
@@ -57,23 +60,32 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "BibCitation",
+    "BookField",
+    "BookLookup",
+    "BookRecord",
     "CrossrefClient",
     "Entry",
     "JsonlCache",
     "LayeredCache",
+    "LocClient",
     "MergeStats",
     "OpenAlexClient",
+    "OpenLibraryClient",
     "Result",
     "Source",
     "SourceStats",
     "Status",
     "Work",
     "bib_to_table",
+    "book_record",
     "compute_signals",
     "crossref_to_work",
     "is_arxiv_doi",
+    "marc_book",
     "merge_caches",
+    "normalize_isbn",
     "openalex_to_work",
+    "parse_marcxml",
     "parse_entries",
     "read_records",
     "reconstruct_abstract",

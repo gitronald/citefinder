@@ -50,17 +50,26 @@ min_interval = 0.1
 mailto = "you@example.com"
 max_retries = 3
 min_interval = 0.34             # optional — the polite-pool rate is the default
+
+[openlibrary]                   # books by ISBN — see "Book metadata by ISBN"
+mailto = "you@example.com"      # sent in the User-Agent, as Open Library asks
+max_retries = 3
+min_interval = 1.0
+
+[loc]                           # Library of Congress; no contact parameter
+max_retries = 3
+min_interval = 1.0
 ```
 
 In `pyproject.toml` the same keys sit under `[tool.citefinder]`,
-`[tool.citefinder.openalex]`, and `[tool.citefinder.crossref]`.
+`[tool.citefinder.openalex]`, `[tool.citefinder.crossref]`, and so on.
 
 Precedence, highest first:
 
 | Source | Names |
 |---|---|
 | CLI flag | `--cache`, `--out`, `--cache-dir`, `--api-key`, `--mailto`, `--max-retries`, `--min-interval` |
-| Shell environment, then a project-local `.env` (cwd or any parent) | `CITEFINDER_CACHE_DIR`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`, `OPENALEX_MAX_RETRIES`, `OPENALEX_MIN_INTERVAL`, `CROSSREF_MAX_RETRIES`, `CROSSREF_MIN_INTERVAL` |
+| Shell environment, then a project-local `.env` (cwd or any parent) | `CITEFINDER_CACHE_DIR`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO`, `CROSSREF_MAILTO`, `OPENLIBRARY_MAILTO`, and `<SOURCE>_MAX_RETRIES` / `<SOURCE>_MIN_INTERVAL` for `OPENALEX`, `CROSSREF`, `OPENLIBRARY`, and `LOC` |
 | Project config | `citefinder.toml` or `[tool.citefinder]` in `pyproject.toml` |
 | User config | `~/.config/citefinder/config.toml` |
 | Built-in default | `~/.cache/citefinder/` for lookups, `data/citefinder/` under cwd for `verify`, 3 retries, `0.1` s / `0` s pacing |
@@ -279,6 +288,27 @@ for entry in parse_entries(open("refs.bib").read()):
 
 Each `Result` reports a `Status` (matched / probable / mismatch / doi-not-found / unmatched / skip-source / error) plus the four signals — title, year, first-author surname, container — that drove the verdict. `BibCitation` and `Work` are the canonical shapes; `crossref_to_work` and `openalex_to_work` adapt source-specific JSON into `Work`. See `citefinder/signals.py` for the signal-check thresholds.
 
+### Book metadata by ISBN
+
+Most trade books have no DOI, so Crossref and OpenAlex return `unmatched` or a same-word article, and the fields a book citation needs — full title with subtitle, publisher or imprint, place of publication, year — go unchecked. `book_record` runs the chain a librarian would: the ISBN to an [Open Library](https://openlibrary.org) edition, its Library of Congress Control Number to the [Library of Congress](https://www.loc.gov) catalog record (the Cataloging in Publication data printed on the copyright page), merged field by field with the catalog winning:
+
+```python
+from citefinder import LocClient, OpenLibraryClient, book_record
+
+record = book_record(
+    "978-0-374-61932-9",
+    OpenLibraryClient(cache_path="openlibrary.jsonl", mailto="you@example.com"),
+    LocClient(cache_path="loc.jsonl"),
+)
+record.full_title      # 'Enshittification: why everything suddenly got worse and ...'
+record.place           # BookField(value='New York', source='loc')
+record.publisher.value # 'MCD, Farrar, Straus and Giroux' — the imprint and its parent
+```
+
+Every field is a `BookField` carrying its `source`: `loc` for the catalog record, `openlibrary` for an edition a library catalog fed, or `openlibrary:retailer` for one fed only by retailer feeds (Amazon, Better World Books) — usually right, never confirmed, so it is reported as a lead rather than a value to apply. A source that lacks a field leaves it `None`; silence never counts as agreement. When Open Library has no edition or no LCCN, the catalog is asked by ISBN directly. `LocClient` talks to the catalog's SRU gateway (plain HTTP; it speaks no TLS) and caches the MARCXML parsed into JSON, so both caches stay JSONL; `parse_marcxml` and `marc_book` are exposed for reading other MARC records.
+
+`verify_entry(entry, source, books=BookLookup(openlibrary, loc))` uses the chain for `@book`, `@inbook`, and `@incollection` entries that carry an `isbn` and no `doi` (`method="isbn"`), checking title, year, and first contributor as the DOI path does and filling `Result.suggestions` with what the bib should add or change (a missing `location`, a dropped subtitle) and where each value came from. A bib `publisher` that names only the imprint is not flagged. A chapter entry is checked as its container: `booktitle` and `editor` stand in for `title` and `author`. Entries without an `isbn` keep their source verdict and get Open Library search hits as `candidates`, each with an `isbn` to confirm.
+
 ### Bib ↔ table
 
 A `.bib` file can be loaded into a wide polars DataFrame (one row per entry, one column per field) for inspection or bulk editing, then serialized back:
@@ -309,6 +339,11 @@ citefinder verify refs.bib                               # full pipeline (defaul
 citefinder verify refs.bib --source crossref             # ...or against Crossref
 citefinder verify refs.bib --out path/to/output/dir/     # custom output directory
 citefinder verify refs.bib --no-fallback                 # skip the shared cache; read only this run's
+citefinder verify refs.bib --books                       # + check @book/@inbook/@incollection by ISBN
+
+# Books by ISBN: Open Library, then the Library of Congress
+citefinder isbn 978-0-374-61932-9                        # merged record, each field with its source
+citefinder isbn 9780374619329 --no-loc                   # stop at Open Library
 
 # .bib ↔ table
 citefinder bib-to-table refs.bib                            # wide polars table to terminal
@@ -352,6 +387,8 @@ Read `results.json` by `method` × `status`:
 - `unmatched` (or `skip-source` for `@online`/`@misc`) with a "title too short" note — a bib title of fewer than three words cannot select a search hit; pick from `candidates` by hand.
 - `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type.
 
+With `--books`, a book entry that has an `isbn` and no `doi` is checked against its catalog record instead of searched for (`method=isbn`), and each such result carries `suggestions` — fields the bib should add or change, each with the `source` it came from and whether it is `confirmed` by a catalog or only offered by a retailer-fed record. The Open Library and Library of Congress caches land beside the source cache in the output directory. `isbn` prints the same merged record for one ISBN, with the URL of each source's record. See [Book metadata by ISBN](#book-metadata-by-isbn).
+
 `bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved. Input that cannot round-trip — a bib field named `key` or `entry_type`, a cell with unbalanced braces — is refused with an error and exit 1 rather than written out with data silently lost.
 
 ### CLI arguments
@@ -383,9 +420,16 @@ Read `results.json` by `method` × `status`:
   `CROSSREF_MAX_RETRIES` in the env or `max_retries` in `config.toml`.
 - `--min-interval SECONDS` — Minimum gap between consecutive requests.
   Default `0.1` for OpenAlex; for Crossref `1.0`, or `0.34` with a `mailto`
-  set. Also `OPENALEX_MIN_INTERVAL` / `CROSSREF_MIN_INTERVAL`
-  in the env or `min_interval` in `config.toml`.
+  set; `1.0` for Open Library and the Library of Congress. Also
+  `OPENALEX_MIN_INTERVAL` / `CROSSREF_MIN_INTERVAL` in the env or
+  `min_interval` in `config.toml`.
   `verify` reads the variables for whichever `--source` it runs against.
+- `--books` *(verify only)* — Check book entries with an `isbn` against
+  Open Library and the Library of Congress; see above. The two clients read
+  `OPENLIBRARY_*` / `LOC_*` from the env or `[openlibrary]` / `[loc]` in
+  `config.toml`; `isbn` takes them as `--mailto` (the contact Open Library
+  asks for, sent in the User-Agent), `--max-retries`, and `--min-interval`,
+  applied to both, plus `--no-loc` to stop at Open Library.
 
 ## Claude Code skill
 

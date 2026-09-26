@@ -46,6 +46,7 @@ from citefinder.signals import (
     Status,
     Work,
     compute_signals,
+    normalize_title,
     status_from_signals,
     title_similarity,
     title_tokens,
@@ -224,8 +225,17 @@ def verify_book(entry: Entry, books: BookLookup, base: Result) -> Result:
         ),
     )
     lead = record.contributors[0].value if record.contributors else None
+    # A bib title that is the catalog title without its subtitle is the same
+    # book; the subtitle rides along as a suggestion rather than failing the
+    # title signal against the longer form.
+    work_title = record.full_title
+    bib_title = citation.title or ""
+    if record.title is not None and normalize_title(bib_title) == normalize_title(
+        record.title.value
+    ):
+        work_title = record.title.value
     work = Work(
-        title=record.full_title,
+        title=work_title,
         year=int(record.year.value) if record.year else None,
         first_author_surname=_catalog_surname(lead) if lead else None,
     )

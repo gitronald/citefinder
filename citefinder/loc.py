@@ -1,14 +1,18 @@
 """Library of Congress catalog client and a small MARC reader.
 
-`https://lccn.loc.gov/<lccn>/marcxml` returns the catalog record for a
-Library of Congress Control Number as MARCXML: for a trade book, the
-Cataloging in Publication record — what is printed on the copyright page,
-so the place of publication, the imprint and its parent, and the edition
-statement are as the publisher supplied them.
+The catalog's SRU gateway (`http://lx2.loc.gov:210/LCDB`, plain HTTP — it
+speaks no TLS) returns a record as MARCXML for a Library of Congress
+Control Number (`bath.lccn=`) or an ISBN (`bath.isbn=`). For a trade book
+that is the Cataloging in Publication record — what is printed on the
+copyright page, so the place of publication, the imprint and its parent,
+and the edition statement are as the publisher supplied them. (The older
+`https://lccn.loc.gov/<lccn>/marcxml` permalinks now 404; the bare
+permalink still redirects to the catalog's search page, so `lccn_url`
+keeps it as the human-readable link.)
 
 The body is XML, not JSON, so `LocClient` parses it into plain dicts before
-caching (`parse_marcxml`), and the cache stays JSONL with one row per LCCN.
-`marc_book` then reads the handful of fields a citation uses:
+caching (`parse_marcxml`), and the cache stays JSONL with one row per
+query. `marc_book` then reads the handful of fields a citation uses:
 
 - `020` ISBN (`$a`, with a qualifier in `$q` or in parentheses)
 - `100`/`110`, `700`/`710` contributor names
@@ -32,6 +36,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 
@@ -46,6 +51,7 @@ from citefinder.cache import JsonlCache, LayeredCache
 from citefinder.models import MarcField, MarcRecord
 
 LOC_BASE = "https://lccn.loc.gov"
+LOC_SRU = "http://lx2.loc.gov:210/LCDB"
 
 # The Library of Congress publishes per-endpoint burst limits for its
 # newer APIs and none for the LCCN permalink service; one request per
@@ -55,6 +61,7 @@ LOC_MIN_INTERVAL = 1.0
 __all__ = [
     "LOC_BASE",
     "LOC_MIN_INTERVAL",
+    "LOC_SRU",
     "LocClient",
     "marc_book",
     "normalize_lccn",
@@ -91,20 +98,30 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def parse_marcxml(text: str) -> MarcRecord | None:
-    """The first `<record>` in a MARCXML document as plain JSON, or `None`
-    when the document holds no record (an HTML error page, an empty
-    `<collection>`).
+_MARC_CHILDREN = {"leader", "controlfield", "datafield"}
 
+
+def _is_marc_record(el: ET.Element) -> bool:
+    """A `<record>` holding MARC fields — not the `<zs:record>` envelope an
+    SRU response wraps it in, whose local name is also `record`."""
+    return _local(el.tag) == "record" and any(
+        _local(child.tag) in _MARC_CHILDREN for child in el
+    )
+
+
+def parse_marcxml(text: str) -> MarcRecord | None:
+    """The first MARC `<record>` in an XML document as plain JSON, or `None`
+    when the document holds none (an SRU response with zero records, an
+    empty `<collection>`, an HTML error page).
+
+    Accepts a bare record, a `<collection>`, or an SRU `searchRetrieveResponse`.
     Raises `ValueError` when `text` is not XML at all.
     """
     try:
         root = ET.fromstring(text)
     except ET.ParseError as e:
         raise ValueError(f"not MARCXML: {e}") from None
-    record = root if _local(root.tag) == "record" else None
-    if record is None:
-        record = next((el for el in root.iter() if _local(el.tag) == "record"), None)
+    record = next((el for el in root.iter() if _is_marc_record(el)), None)
     if record is None:
         return None
     parsed: MarcRecord = {"leader": "", "controlfields": {}, "fields": []}
@@ -163,7 +180,7 @@ def _isbns(record: MarcRecord) -> list[dict[str, str]]:
             qualifier = qualifier or match.group(1)
             raw = raw[: match.start()]
         isbn = re.sub(r"[\s-]+", "", raw).upper()
-        out.append({"isbn": isbn, "qualifier": strip_isbd(qualifier)})
+        out.append({"isbn": isbn, "qualifier": strip_isbd(qualifier).strip("()")})
     return out
 
 
@@ -274,6 +291,18 @@ class LocClient(CachedJsonClient):
         """The human-readable permalink for `lccn`, for reports."""
         return f"{LOC_BASE}/{normalize_lccn(lccn)}"
 
+    @staticmethod
+    def sru_url(query: str) -> str:
+        """The SRU request for one MARCXML record matching a CQL `query`."""
+        params = {
+            "version": "1.1",
+            "operation": "searchRetrieve",
+            "query": query,
+            "maximumRecords": "1",
+            "recordSchema": "marcxml",
+        }
+        return f"{LOC_SRU}?{urlencode(params)}"
+
     def _decode(  # pyrefly: ignore[missing-override-decorator]  (3.11 has no `override`)
         self, response: requests.Response
     ) -> Any:
@@ -284,4 +313,13 @@ class LocClient(CachedJsonClient):
 
     def lookup_lccn(self, lccn: str) -> MarcRecord | None:
         """The parsed MARC record for `lccn`, or `None` when there is none."""
-        return self._get(f"{self.lccn_url(lccn)}/marcxml")
+        return self._get(self.sru_url(f"bath.lccn={normalize_lccn(lccn)}"))
+
+    def lookup_isbn(self, isbn: str) -> MarcRecord | None:
+        """The parsed MARC record cataloged under `isbn`, or `None`.
+
+        An ISBN can sit on more than one record (a reissue cataloged
+        separately); the first the catalog ranks is returned.
+        """
+        digits = re.sub(r"[\s-]+", "", isbn).upper()
+        return self._get(self.sru_url(f"bath.isbn={digits}"))
