@@ -51,10 +51,31 @@ __all__ = [
     "DEFAULT_MIN_INTERVAL",
     "OPENALEX_BASE",
     "OpenAlexClient",
+    "datacite_registrar",
     "is_arxiv_doi",
     "normalize_title_query",
     "reconstruct_abstract",
 ]
+
+
+# DOI prefixes registered with DataCite rather than Crossref, mapped to the
+# repository that mints them. Crossref never indexes these, so a Crossref
+# lookup can only 404. Adding a prefix is a one-line change (with a test).
+DATACITE_PREFIXES = {
+    "10.48550": "arXiv",
+    "10.5281": "Zenodo",
+}
+
+
+def datacite_registrar(doi: str) -> str | None:
+    """The DataCite repository that minted `doi`, or `None`.
+
+    Matches the DOI's prefix (case-insensitive) against `DATACITE_PREFIXES`,
+    e.g. `10.48550/arXiv.2410.21554` -> `"arXiv"`. `None` means the prefix is
+    not a known DataCite one, not that the DOI is registered with Crossref.
+    """
+    prefix, sep, _ = doi.strip().lower().partition("/")
+    return DATACITE_PREFIXES.get(prefix) if sep else None
 
 
 def is_arxiv_doi(doi: str) -> bool:
@@ -64,7 +85,7 @@ def is_arxiv_doi(doi: str) -> bool:
     `10.48550/arXiv.2410.21554`). Crossref does not index these, so callers
     should route them to a source that does (OpenAlex, arXiv API).
     """
-    return doi.lower().startswith("10.48550/arxiv.")
+    return datacite_registrar(doi) == "arXiv"
 
 
 def reconstruct_abstract(work: OpenAlexWork) -> str | None:

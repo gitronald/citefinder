@@ -9,6 +9,7 @@ from citefinder._base import _strip_mailto
 from citefinder.cache import JsonlCache
 from citefinder.openalex import (
     OpenAlexClient,
+    datacite_registrar,
     is_arxiv_doi,
     normalize_title_query,
     reconstruct_abstract,
@@ -214,6 +215,16 @@ def test_strip_mailto_alone_leaves_no_dangling_query() -> None:
 def test_strip_mailto_no_query_passthrough() -> None:
     url = "https://api.openalex.org/works/doi:10.1/test"
     assert _strip_mailto(url) == url
+
+
+def test_datacite_registrar_maps_known_prefixes() -> None:
+    assert datacite_registrar("10.48550/arXiv.2410.21554") == "arXiv"
+    assert datacite_registrar("10.48550/ARXIV.2410.21554") == "arXiv"
+    assert datacite_registrar("10.5281/zenodo.123") == "Zenodo"
+    assert datacite_registrar("10.5281/Zenodo.123") == "Zenodo"
+    assert datacite_registrar("10.1126/science.aap9559") is None
+    assert datacite_registrar("10.48550") is None  # a prefix alone is no DOI
+    assert datacite_registrar("") is None
 
 
 def test_is_arxiv_doi() -> None:
