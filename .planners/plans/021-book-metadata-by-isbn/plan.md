@@ -5,7 +5,7 @@ status: active
 branch: feature/book-metadata-by-isbn
 created: 2026-09-24T14:32:00-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/73
 ---
 
 # Look up book metadata by ISBN through Open Library and the Library of Congress

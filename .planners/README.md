@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 021 | [Look up book metadata by ISBN through Open Library and the Library of Congress](plans/021-book-metadata-by-isbn/plan.md) | active | — | — |
+| 021 | [Look up book metadata by ISBN through Open Library and the Library of Congress](plans/021-book-metadata-by-isbn/plan.md) | active | — | [#73](https://github.com/gitronald/citefinder/pull/73) |
 | 020 | [Route DataCite DOIs away from Crossref in verify](plans/020-route-datacite-dois/plan.md) | active | — | — |
 | 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | draft | — | — |
 | 019 | [Adopt pkgskills for skill packaging and install](plans/019-adopt-pkgskills/plan.md) | done | 2026-09-13 14:47 PT | [#66](https://github.com/gitronald/citefinder/pull/66) |
