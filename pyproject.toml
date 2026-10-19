@@ -26,6 +26,13 @@ citefinder = "citefinder.cli:app"
 [project.entry-points."pkgskills.hosts"]
 citefinder = "citefinder.host:HOST"
 
+# Which proj-template release this repo was scaffolded from, stamped by
+# proj-init.sh and re-stamped by the install-template skill on upgrade. Inert to
+# consumers: build backends translate only [project], so this never reaches the
+# wheel or the PyPI metadata. Read it to audit template drift across repos.
+[tool.proj-template]
+version = "0.11.4"
+
 [build-system]
 # Floor mirrored by the dev-group pin, so the wheel test exercises the same
 # backend family as an isolated release build.
