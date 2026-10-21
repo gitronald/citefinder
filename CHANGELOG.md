@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-21
+
 ### Changed
 
 - Shorter `--help` text for the CLI commands, and comments and docstrings
