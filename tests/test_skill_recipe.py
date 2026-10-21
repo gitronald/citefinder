@@ -1,12 +1,9 @@
 """The given-name recipe printed by `citefinder doc` must run as written.
 
-The reference is documentation, so nothing imports it; this test extracts the
-python block from `use-citefinder/given-names`, points its three
-literal paths at synthetic fixtures, and executes it. Each fixture entry covers
-one shape the recipe has to survive: a diacritic the deposit dropped, a
-corporate bib author, a Crossref organisational author with no `given`, an
-OpenAlex authorship with no linked author, an `Anonymous` bib author, a torn
-trailing cache line, and a DOI-less entry that must count as unchecked.
+The test extracts the python block from `use-citefinder/given-names`, points its
+literal paths at synthetic fixtures, and executes it. The fixtures cover the
+edge shapes the recipe must survive (dropped diacritics, corporate authors, torn
+cache lines, DOI-less entries).
 """
 
 from __future__ import annotations

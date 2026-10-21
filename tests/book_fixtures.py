@@ -1,8 +1,7 @@
 """Trimmed Open Library and Library of Congress records for the book tests.
 
-Shaped after live lookups of ISBN 9780374619329 (the plan's worked
-example): the Open Library edition is retailer-fed and carries the LCCN,
-and the MARCXML is the Cataloging in Publication record that LCCN leads to.
+The Open Library edition is retailer-fed and carries the LCCN; the MARCXML is
+the Cataloging in Publication record that LCCN leads to.
 """
 
 from typing import Any
@@ -100,8 +99,7 @@ MARCXML = f"""<?xml version="1.0" encoding="UTF-8"?>
 </record>
 """
 
-# The same record as the SRU gateway wraps it: `<zs:record>` envelopes whose
-# local name is also `record`, around the MARC record.
+# The same record wrapped in SRU `<zs:record>` envelopes.
 SRU_RESPONSE = f"""<?xml version="1.0"?>
 <zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/">
 <zs:version>1.1</zs:version><zs:numberOfRecords>1</zs:numberOfRecords>
@@ -118,8 +116,7 @@ SRU_EMPTY = """<?xml version="1.0"?>
 </zs:searchRetrieveResponse>
 """
 
-# An older record: `260` instead of `264`, a corporate added entry, and a
-# bracketed (cataloger-supplied) place and date.
+# An older record: `260` not `264`, a corporate added entry, bracketed place and date.
 MARCXML_260 = """<collection xmlns="http://www.loc.gov/MARC21/slim">
 <record>
   <leader>00000cam a2200000 a 4500</leader>

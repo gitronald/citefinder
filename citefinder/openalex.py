@@ -1,19 +1,7 @@
 """OpenAlex API client with optional caching.
 
-OpenAlex (https://api.openalex.org) merges Crossref + Unpaywall + ORCID + ROR
-+ repository sources, so it often has metadata that Crossref alone is missing
-(abstracts, full author lists, affiliations) and indexes records that Crossref
-404s (arXiv preprints, repository deposits).
-
-Three lookup styles, each cached separately:
-
-- `lookup_doi(doi)` — single-DOI metadata via `/works/doi:{doi}`
-- `search(query, rows)` — free-text search across titles and abstracts
-- `search_title(title, rows)` — title-only search via `filter=title.search:`
-
-Caching is keyed by URL with the polite-pool `mailto` stripped (handled by
-the base client), so changing the email used for a request does not
-invalidate prior cache entries. Negative results (404) are cached as `None`.
+Looks up works by DOI, free-text search, or title-only search. Cache keys
+drop the polite-pool `mailto`; 404s are cached as `None`.
 """
 
 from __future__ import annotations
@@ -40,10 +28,8 @@ from citefinder.models import OpenAlexWork
 OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
 
-# OpenAlex `filter=` syntax reserves these characters (`,` separates filters,
-# `|` is OR, `:` separates field from value, `!` is negation). Including them
-# in the value returns HTTP 400, so they're stripped before quoting. `?` is
-# stripped too as a defense against URL-parsing oddities.
+# Characters reserved by OpenAlex `filter=` syntax (a value containing them
+# returns HTTP 400); `?` is stripped defensively.
 _FILTER_RESERVED_RE = re.compile(r"[,:|!?]")
 
 __all__ = [
@@ -59,9 +45,7 @@ __all__ = [
 ]
 
 
-# DOI prefixes registered with DataCite rather than Crossref, mapped to the
-# repository that mints them. Crossref never indexes these, so a Crossref
-# lookup can only 404. Adding a prefix is a one-line change (with a test).
+# DOI prefixes registered with DataCite, which Crossref never indexes.
 DATACITE_PREFIXES = {
     "10.48550": "arXiv",
     "10.5281": "Zenodo",
@@ -71,39 +55,28 @@ DATACITE_PREFIXES = {
 def datacite_registrar(doi: str) -> str | None:
     """The DataCite repository that minted `doi`, or `None`.
 
-    Matches the DOI's prefix (case-insensitive) against `DATACITE_PREFIXES`,
-    e.g. `10.48550/arXiv.2410.21554` -> `"arXiv"`. `None` means the prefix is
-    not a known DataCite one, not that the DOI is registered with Crossref.
+    Matches the prefix (case-insensitive), e.g. `10.48550/arXiv.2410.21554`
+    -> `"arXiv"`. `None` means an unknown prefix, not a Crossref DOI.
     """
     prefix, sep, _ = doi.strip().lower().partition("/")
     return DATACITE_PREFIXES.get(prefix) if sep else None
 
 
 def datacite_note(registrar: str) -> str:
-    """Why Crossref has no record of a DOI that `registrar` minted.
-
-    Shared by `verify`'s per-entry note and `crossref doi`'s hint, which each
-    append their own next step.
-    """
+    """Why Crossref has no record of a DOI that `registrar` minted."""
     return f"{registrar} DOI registered with DataCite, not Crossref"
 
 
 def is_arxiv_doi(doi: str) -> bool:
-    """Whether a DOI is an arXiv-issued DOI.
-
-    arXiv mints DOIs under the `10.48550` prefix (e.g.
-    `10.48550/arXiv.2410.21554`). Crossref does not index these, so callers
-    should route them to a source that does (OpenAlex, arXiv API).
-    """
+    """Whether a DOI is an arXiv-issued DOI (`10.48550` prefix)."""
     return datacite_registrar(doi) == "arXiv"
 
 
 def reconstruct_abstract(work: OpenAlexWork) -> str | None:
     """Reassemble OpenAlex's `abstract_inverted_index` into plain text.
 
-    OpenAlex stores abstracts as `{word: [positions, ...]}` rather than a
-    string, ostensibly to sidestep copyright concerns. Invert the mapping to
-    recover the abstract.
+    OpenAlex stores abstracts as `{word: [positions, ...]}`; this inverts
+    the mapping.
     """
     index = work.get("abstract_inverted_index")
     if not index:
@@ -117,14 +90,8 @@ def reconstruct_abstract(work: OpenAlexWork) -> str | None:
 def normalize_title_query(title: str) -> str:
     """Prepare a title for OpenAlex's `filter=title.search:` syntax.
 
-    Two known quirks:
-
-    - OpenAlex's title index stores curly right-single-quotes (U+2019), not
-      straight ASCII apostrophes. A query for `Backstabber's` returns zero
-      hits while `Backstabber's` finds the paper. Remap before sending.
-    - The `filter=` syntax reserves `,`, `:`, `|`, and `!`; including them
-      returns HTTP 400. Strip them out — `title.search` is fuzzy, so missing
-      punctuation doesn't hurt recall.
+    The title index stores curly apostrophes (U+2019), so straight ones are
+    remapped; filter-reserved punctuation is replaced with spaces.
     """
     title = title.replace("'", "’")
     title = _FILTER_RESERVED_RE.sub(" ", title)
@@ -132,8 +99,7 @@ def normalize_title_query(title: str) -> str:
 
 
 class OpenAlexClient(CachedJsonClient):
-    # A single entity by ID costs zero credits (measured; see
-    # docs/openalex.md), so refreshing the budget never spends any of it.
+    # A single-entity lookup costs no credits, so probing the budget is free.
     rate_limit_key = f"{OPENALEX_BASE}/__ratelimit"
     rate_limit_probe = f"{OPENALEX_BASE}/works/W2741809807"
 
@@ -170,17 +136,14 @@ class OpenAlexClient(CachedJsonClient):
             clock=clock,
             fallback_cache=fallback_cache,
         )
-        # Falls back to env var so users can `export OPENALEX_API_KEY=...` (or
-        # set it in a `.env` file the CLI loads at startup) without threading
-        # the key through every call site.
+        # Falls back to the env var so callers need not thread the key through.
         self.api_key = api_key or os.environ.get(API_KEY_ENV_VAR)
         if self.api_key:
-            # Header (not query param) so the key never lands in cache keys,
-            # logs, or HTTP referer trails.
+            # A header, not a query param, so the key stays out of cache keys and logs.
             self.session.headers["Authorization"] = f"Bearer {self.api_key}"
 
     def lookup_doi(self, doi: str) -> OpenAlexWork | None:
-        """Fetch OpenAlex metadata for a DOI. Returns None if not found."""
+        """OpenAlex metadata for a DOI, or `None` if not found."""
         return self._get(f"{OPENALEX_BASE}/works/doi:{_doi_path(doi)}")
 
     def search(self, query: str, rows: int = 3) -> list[OpenAlexWork]:
@@ -194,12 +157,8 @@ class OpenAlexClient(CachedJsonClient):
     def search_title(self, title: str, rows: int = 3) -> list[OpenAlexWork]:
         """Search OpenAlex by title only (`filter=title.search:`).
 
-        Title-restricted matching is the right shape for citation
-        verification: the default `?search=` query runs full-text against
-        title + abstract and returns unrelated noise for typical
-        author+title+year inputs. The query is normalized first to handle
-        OpenAlex's curly-apostrophe quirk and to drop filter-reserved
-        punctuation that would 400 the request.
+        Less noisy than `search`, which also matches abstracts. The title is
+        passed through `normalize_title_query` first.
         """
         normalized = normalize_title_query(title)
         if not normalized:

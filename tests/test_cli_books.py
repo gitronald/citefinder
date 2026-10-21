@@ -83,8 +83,7 @@ def test_verify_books_checks_the_isbn(
     assert entry["method"] == "isbn"
     assert entry["status"] == "matched"
     assert {s["field"] for s in entry["suggestions"]} == {"title", "location"}
-    # The book caches land beside the source cache, with the shared root
-    # as the read-only fallback.
+    # Book caches sit beside the source cache; the shared root is the fallback.
     assert captured_books["openlibrary"]["cache_path"] == out_dir / "openlibrary.jsonl"
     assert (
         captured_books["openlibrary"]["fallback_cache"] == caches / "openlibrary.jsonl"

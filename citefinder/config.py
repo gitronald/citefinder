@@ -1,10 +1,6 @@
 """Cache-path resolution and the config-file layer behind the CLI.
 
-`resolve_cache_path` is the one rule for where a source's JSONL cache
-lives, shared by the CLI and by wrappers that build clients themselves.
-The config-file helpers are what `citefinder.cli` reads at startup; the
-library never loads a config file on its own — clients take an explicit
-`cache_path`, `mailto`, and `api_key`.
+The library never loads a config file itself; clients take explicit values.
 """
 
 from __future__ import annotations
@@ -16,13 +12,9 @@ from typing import Any
 
 
 def default_cache_dir() -> Path:
-    """`~/.cache/citefinder`, the root every cache path derives from when
-    nothing sets `cache_dir`.
+    """`~/.cache/citefinder`, the default cache root.
 
-    A function rather than a module constant so that importing the package
-    never touches the home directory: `Path.home()` raises when no home can
-    be determined (an unnamed UID in a container, say), and a caller that
-    passes its own `cache_dir` never needs it.
+    A function, not a constant: `Path.home()` can raise, and import must not.
     """
     return Path.home() / ".cache" / "citefinder"
 
@@ -31,12 +23,8 @@ def resolve_cache_path(source: str, cache_dir: str | Path | None = None) -> Path
     """Path of `source`'s JSONL cache: `<cache_dir>/<source>.jsonl`.
 
     `cache_dir` defaults to `~/.cache/citefinder`; a leading `~` is
-    expanded. A relative `cache_dir` comes back relative — what it is
-    anchored to is the caller's call. The CLI resolves a flag or env value
-    against the working directory and a config-file value against the
-    file's own directory, so `cache_dir = "data/citefinder"` in a
-    project's config means that project's `data/citefinder` wherever the
-    command runs from.
+    expanded. A relative `cache_dir` stays relative; anchoring it is the
+    caller's job.
     """
     root = default_cache_dir() if cache_dir is None else Path(cache_dir).expanduser()
     return root / f"{source}.jsonl"
@@ -44,9 +32,7 @@ def resolve_cache_path(source: str, cache_dir: str | Path | None = None) -> Path
 
 PROJECT_CONFIG_NAME = "citefinder.toml"
 
-# Env name -> (section, key) in a config file; a `None` section is the
-# file's top level. The CLI reads config files into these env names, so a
-# config value and a shell/`.env` value reach the commands the same way.
+# Env name -> (section, key) in a config file; a `None` section is top level.
 ENV_KEYS: dict[str, tuple[str | None, str]] = {
     "CITEFINDER_CACHE_DIR": (None, "cache_dir"),
     "OPENALEX_API_KEY": ("openalex", "api_key"),
@@ -63,7 +49,7 @@ ENV_KEYS: dict[str, tuple[str | None, str]] = {
     "LOC_MIN_INTERVAL": ("loc", "min_interval"),
 }
 
-# The sections a config file may carry, each of which must be a table.
+# Sections a config file may carry; each must be a table.
 SECTIONS: tuple[str, ...] = tuple(
     dict.fromkeys(section for section, _ in ENV_KEYS.values() if section is not None)
 )
@@ -77,14 +63,11 @@ def user_config_path() -> Path:
 
 
 def find_project_config(start: Path | None = None) -> Path | None:
-    """The nearest project config at or above `start` (the working directory).
+    """The nearest project config at or above `start` (default: cwd).
 
-    Walks up the way `.env` discovery does, for the first `citefinder.toml`
-    or `pyproject.toml` carrying a `[tool.citefinder]` table; when both sit
-    in one directory the dedicated file wins. A `pyproject.toml` that fails
-    to parse is returned as the candidate rather than skipped, so the
-    caller's `load_config` surfaces the error instead of silently reading
-    a config further up.
+    Finds `citefinder.toml`, or a `pyproject.toml` with `[tool.citefinder]`;
+    the dedicated file wins in one directory. An unparsable `pyproject.toml`
+    is returned so `load_config` raises rather than a parent config winning.
     """
     here = (Path.cwd() if start is None else start).resolve()
     for directory in (here, *here.parents):
@@ -111,9 +94,7 @@ def load_config(path: Path) -> dict[str, Any]:
     """Parse a config file; for a `pyproject.toml`, its `[tool.citefinder]`.
 
     Raises `OSError`, `tomllib.TOMLDecodeError`, or `ValueError` (a
-    `tool.citefinder`, or one of `SECTIONS`, that is not a table) — how to
-    report a broken file is the caller's decision (the CLI warns and falls
-    through).
+    `tool.citefinder` or section that is not a table).
     """
     with open(path, "rb") as f:
         data = tomllib.load(f)
@@ -125,18 +106,14 @@ def load_config(path: Path) -> dict[str, Any]:
         if table is None:
             return {}
         if not isinstance(table, dict):
-            # A scalar or array under `[tool]` is a broken config, not an
-            # absent one: raise so the caller warns instead of silently
-            # reading an empty table over a real config further up the tree.
+            # Broken, not absent: raise rather than shadow a parent config.
             kind = type(table).__name__
             raise ValueError(f"[tool.citefinder] is not a table (got {kind})")
         config = table
     for section in SECTIONS:
         value = config.get(section)
         if value is not None and not isinstance(value, dict):
-            # `openalex = 5` where `[openalex]` was meant: the same kind of
-            # broken file, raised here so the caller never reads keys off a
-            # scalar.
+            # e.g. `openalex = 5`: keep callers from reading keys off a scalar.
             kind = type(value).__name__
             raise ValueError(f"[{section}] is not a table (got {kind})")
     return config

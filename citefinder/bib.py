@@ -1,11 +1,4 @@
-"""BibTeX parsing and bib-side query helpers.
-
-bibtexparser v2 does the heavy lifting — handles brace/quote-delimited
-values, nested braces, `@string` and `@comment` blocks, and quirky
-real-world bib files. This module adapts the result into the small
-`Entry` shape used by the verifier and exposes the helpers that turn
-a bib entry into something Crossref/OpenAlex can search for.
-"""
+"""BibTeX parsing (via bibtexparser) and bib-side query helpers."""
 
 from __future__ import annotations
 
@@ -35,10 +28,8 @@ class Entry:
 def parse_entries(text: str) -> list[Entry]:
     """Parse a BibTeX string into a list of `Entry` records.
 
-    A block bibtexparser cannot turn into an entry — a duplicated field key,
-    a repeated citation key, an unterminated brace — is left out of the
-    result and reported with a warning, so a shorter-than-expected entry
-    count has a visible cause rather than a silent one.
+    A block bibtexparser cannot parse (duplicate field or citation key,
+    unterminated brace) is skipped with a logged warning.
     """
     library = parse_bib_string(text)
     for block in library.failed_blocks:
@@ -59,9 +50,8 @@ _DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNO
 def normalize_doi(s: str) -> str:
     """A bare DOI from the forms a `.bib` or a source may carry.
 
-    Braces and whitespace go, as does a `https://doi.org/` (or `dx.doi.org`)
-    URL prefix or a `doi:` label — exported bibs use all three, and a source
-    given the URL form 404s on a DOI it does index.
+    Strips braces, whitespace, a `https://doi.org/` (or `dx.doi.org`)
+    prefix, and a `doi:` label.
     """
     return _DOI_PREFIX_RE.sub("", strip_braces(s).strip()).strip()
 
@@ -69,12 +59,8 @@ def normalize_doi(s: str) -> str:
 def first_author_surname(author_field: str) -> str:
     """Surname of the first author in a BibTeX `author = {...}` value.
 
-    Uses bibtexparser's name parser, which (a) keeps corporate authors
-    like `{Association for Computing Machinery}` together instead of
-    splitting on whitespace and " and ", and (b) separates name particles
-    (`van de Rijt, Arnout` → von=['van','de'], last=['Rijt']). Crossref
-    stores `family` as the combined von+last (e.g. "van de Rijt"), so we
-    join both here for a like-for-like comparison.
+    Keeps braced corporate authors whole and joins von and last parts
+    ("van de Rijt"), matching how Crossref stores `family`.
     """
     if not author_field:
         return ""
@@ -100,14 +86,7 @@ def build_search_query(entry: Entry) -> str:
 def build_title_query(entry: Entry) -> str:
     """Title-only query for OpenAlex `filter=title.search:`.
 
-    OpenAlex's plain `?search=` runs full-text against title + abstract
-    and was returning unrelated noise for our author + title + year
-    queries. Restricting to title-only via the filter syntax matches
-    what verifies search hits in the first place: title similarity.
-
-    The OpenAlex-specific normalisation (curly apostrophes, reserved
-    filter punctuation) lives with the client in `normalize_title_query`;
-    this adds only the bib side, dropping the protective braces.
+    Plain `?search=` matches abstracts too and returns noise.
     """
     return normalize_title_query(strip_braces(entry.fields.get("title", "")))
 

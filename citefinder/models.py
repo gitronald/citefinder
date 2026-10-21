@@ -1,27 +1,19 @@
 """Typed shapes for the raw Crossref and OpenAlex records the package handles.
 
-These are `TypedDict`s, not parsers: a record read from the cache or the wire
-is already a dict, and stays one. The classes exist so the type checker can
-see which keys a consumer reaches for, and so a reader has one place that
-says what a record looks like without opening a cache file.
+These are `TypedDict`s, not parsers: a record stays a plain dict. The model is
+deliberately incomplete:
 
-The model is deliberately rough and incomplete. It was pieced together from a
-survey of caches written by real verify runs (a few hundred work records and
-search pages per source, spanning journal articles, proceedings papers,
-chapters, books, preprints, and reports) and it is expected to change as the
-sources do. Rules for growing it:
-
-- Every key is optional (`total=False`). The comment after a key records the
-  share of surveyed records that carried it; `100%` means "always seen", not
-  "guaranteed", and a record missing that key must not crash a consumer.
+- Every key is optional (`total=False`). The percentage after a key is the
+  share of surveyed records that carried it; a record missing any key must not
+  crash a consumer.
 - A key whose value was sometimes JSON `null` is typed `X | None`.
-- Keys seen on fewer than about 5% of records are left out unless a consumer
-  reads them. Absence from the model does not mean the source never sends it.
-- Add a key when a consumer starts reading it; add a nested class when a
+- Keys on fewer than about 5% of records are left out unless a consumer reads
+  them.
+- Add a key when a consumer starts reading it, or a nested class when a
   consumer reaches inside a dict-valued field.
 
-`undeclared_keys` reports what a real record carries that the model does not,
-so drift can be measured against any cache file rather than guessed at.
+`undeclared_keys` and `cache_drift` report what real records carry that the
+model does not.
 """
 
 from __future__ import annotations
@@ -74,9 +66,7 @@ class CacheRow(TypedDict):
     """One line of a `JsonlCache` file.
 
     `key` is the request URL with the `mailto` stripped. A cached 404 has
-    `value: None`. The file name does not guarantee the source: route by the
-    host in `key` (`api.crossref.org` / `api.openalex.org`) when reading a
-    cache by hand, because a misdirected record has been seen in practice.
+    `value: None`. Route by the host in `key`, not the file name.
     """
 
     key: str
@@ -98,7 +88,7 @@ CrossrefWorkType = Literal[
     "report",
     "other",
 ]
-"""Values of `CrossrefWork["type"]` seen in the survey. Crossref defines more."""
+"""Values of `CrossrefWork["type"]` seen so far. Crossref defines more."""
 
 CrossrefDate = TypedDict(
     "CrossrefDate",
@@ -309,12 +299,11 @@ OpenAlexWorkType = Literal[
     "dissertation",
     "other",
 ]
-"""Values of `OpenAlexWork["type"]` seen in the survey. OpenAlex defines more."""
+"""Values of `OpenAlexWork["type"]` seen so far. OpenAlex defines more."""
 
 
 class OpenAlexAuthor(TypedDict, total=False):
-    """The profile stub embedded in an authorship. The full profile lives at
-    `/authors/{id}` and is not modelled here."""
+    """The profile stub embedded in an authorship."""
 
     id: str  # `https://openalex.org/A...`
     display_name: str  # the profile's canonical spelling, not the byline
@@ -332,8 +321,7 @@ class OpenAlexInstitution(TypedDict, total=False):
 
 class OpenAlexAuthorship(TypedDict, total=False):
     author_position: Literal["first", "middle", "last"]
-    # Present on every surveyed record, but seen missing in the wild on
-    # authorships OpenAlex could not link to a profile.
+    # Missing on authorships OpenAlex could not link to a profile.
     author: OpenAlexAuthor
     raw_author_name: str  # what the byline printed
     raw_orcid: str | None  # 81%
@@ -406,8 +394,7 @@ class OpenAlexTopic(TypedDict, total=False):
 
 
 class OpenAlexWork(TypedDict, total=False):
-    """An OpenAlex work. Every key below was present on every surveyed record;
-    the nullable ones are typed `| None`."""
+    """An OpenAlex work."""
 
     # --- identity
     id: str  # `https://openalex.org/W...`
@@ -488,15 +475,10 @@ class OpenAlexSearchPage(TypedDict, total=False):
 
 
 # --- Open Library -----------------------------------------------------------
-#
-# Modelled from the edition record's documented shape and a handful of live
-# lookups rather than a cache survey (plan 021); the coverage comments used
-# above are omitted until a survey exists.
 
 
 class OpenLibraryEdition(TypedDict, total=False):
-    """One edition, as `/isbn/{isbn}.json` (redirecting to `/books/OL…M.json`)
-    returns it."""
+    """One edition, as `/isbn/{isbn}.json` returns it."""
 
     key: str  # `/books/OL…M`
     title: str
@@ -513,8 +495,7 @@ class OpenLibraryEdition(TypedDict, total=False):
     oclc_numbers: list[str]
     number_of_pages: int
     works: list[dict[str, str]]
-    # Where the record came from: `amazon:…`, `bwb:…` (retailer feeds),
-    # `marc:…`, `ia:…` (library catalogs and scans). The provenance signal.
+    # Provenance: `amazon:…`, `bwb:…` (retailer feeds), `marc:…`, `ia:…` (library).
     source_records: list[str]
     physical_format: str
 
@@ -526,8 +507,7 @@ class OpenLibraryAuthor(TypedDict, total=False):
 
 
 class OpenLibraryDoc(TypedDict, total=False):
-    """One work in a `/search.json` page, restricted to the fields the client
-    asks for. `isbn` spans every edition of the work."""
+    """One work in a `/search.json` page. `isbn` spans every edition."""
 
     key: str  # `/works/OL…W`
     title: str
@@ -580,12 +560,7 @@ def _nested_model(hint: Any) -> type | None:
 
 @cache
 def _hints(model: type) -> dict[str, Any]:
-    """Resolved annotations of a TypedDict, computed once per class.
-
-    `get_type_hints` evaluates the string annotations every call; the walker
-    visits every nested dict of every record, so without this a drift run
-    over a large cache would resolve the same few classes thousands of times.
-    """
+    """Resolved annotations of a TypedDict, cached per class."""
     return get_type_hints(model)
 
 
@@ -622,12 +597,11 @@ def undeclared_keys(record: Any, model: type, prefix: str = "") -> list[str]:
 
 
 def _model_for(row: CacheRow) -> tuple[str, type, Any] | None:
-    """Which model a cache row's value should be measured against.
+    """Which model a cache row's value is measured against.
 
-    Routes by the request host in the key, never by the file the row came
-    from, and by `/works/` (one record) versus `/works?` (a search page).
-    Returns `(kind, model, record)` with the Crossref envelope already
-    unwrapped, or None for a cached 404 or a key the model does not cover.
+    Routes by the host in the key and by `/works/` versus `/works?`. Returns
+    `(kind, model, record)` with the Crossref envelope unwrapped, or None for a
+    cached 404 or an uncovered key.
     """
     key, value = row.get("key", ""), row.get("value")
     if not isinstance(value, dict):
@@ -650,10 +624,7 @@ def cache_drift(rows: Iterable[CacheRow]) -> dict[str, tuple[int, Counter[str]]]
 
     Returns `{kind: (records_checked, Counter(path -> records carrying it))}`
     for the kinds seen (`crossref-work`, `crossref-search`, `openalex-work`,
-    `openalex-search`). Cached 404s and keys outside the modelled endpoints
-    are skipped. This is the survey that produced the model, made repeatable:
-    run it over a fresh cache to see what the sources now send that the model
-    does not yet declare.
+    `openalex-search`). Cached 404s and unmodelled endpoints are skipped.
     """
     seen: dict[str, tuple[int, Counter[str]]] = {}
     for row in rows:

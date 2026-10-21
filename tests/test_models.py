@@ -16,9 +16,8 @@ from citefinder.models import (
     undeclared_keys,
 )
 
-# Synthetic records that touch every nested shape the model declares. They
-# are the fixtures the drift check is measured against, so a key added here
-# must also be added to the model (or the test that expects zero drift fails).
+# Synthetic records touching every nested shape the model declares; a key added
+# here must also be added to the model.
 
 CROSSREF_WORK: CrossrefWork = {
     "DOI": "10.1000/xyz123",

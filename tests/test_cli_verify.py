@@ -38,9 +38,7 @@ def test_verify_default_output_is_under_cwd(
 def test_verify_files_a_non_primary_bib_under_its_directory(
     tmp_path: Path, captured, write_bib
 ) -> None:
-    """A bib not named `refs.bib` is keyed on its directory too, with the
-    stem as a qualifier, so it sits beside the directory's `refs.bib` run.
-    """
+    """A bib not named `refs.bib` is keyed on its directory plus the stem."""
     caches = tmp_path / "caches"
     write_bib(tmp_path / "paper")
     extra = write_bib(tmp_path / "paper", "extra.bib")
@@ -56,9 +54,7 @@ def test_verify_files_a_non_primary_bib_under_its_directory(
 def test_verify_keeps_same_named_bibs_in_sibling_directories_apart(
     tmp_path: Path, captured, write_bib
 ) -> None:
-    """Two directories that each hold an `extra.bib` used to share one
-    `extra/` output directory, the second run silently overwriting the first.
-    """
+    """Same-named bibs in different directories get separate output directories."""
     caches = tmp_path / "caches"
     a = write_bib(tmp_path / "paper-a", "extra.bib")
     b = write_bib(tmp_path / "paper-b", "extra.bib")
@@ -75,10 +71,7 @@ def test_verify_keeps_same_named_bibs_in_sibling_directories_apart(
 def test_verify_anchors_a_relative_bib_path_before_naming_its_directory(
     tmp_path: Path, monkeypatch, captured, write_bib
 ) -> None:
-    """A bare `verify refs.bib` has no parent component; without anchoring
-    it to the working directory first, the directory name came out empty and
-    the output collapsed into `<root>/<source>/`.
-    """
+    """A bare `verify refs.bib` is keyed on the working directory's name."""
     write_bib(tmp_path / "paper")
     monkeypatch.chdir(tmp_path / "paper")
 
@@ -93,9 +86,7 @@ def test_verify_anchors_a_relative_bib_path_before_naming_its_directory(
 def test_verify_collapses_dot_dot_before_naming_the_directory(
     tmp_path: Path, monkeypatch, captured, write_bib
 ) -> None:
-    """`verify ../refs.bib` from a subdirectory names the output after the
-    bib's real directory, not `..`.
-    """
+    """`verify ../refs.bib` is keyed on the bib's real directory, not `..`."""
     write_bib(tmp_path / "paper")
     (tmp_path / "paper" / "sub").mkdir()
     monkeypatch.chdir(tmp_path / "paper" / "sub")
@@ -111,10 +102,7 @@ def test_verify_collapses_dot_dot_before_naming_the_directory(
 def test_verify_keeps_a_symlinked_directory_under_its_own_name(
     tmp_path: Path, captured, write_bib
 ) -> None:
-    """A bib reached through a symlinked directory is keyed on the name the
-    user pointed at, not the link's target, so the cache written under that
-    name before this layout change is the one that is read.
-    """
+    """A bib in a symlinked directory is keyed on the link's name."""
     write_bib(tmp_path / "2026-foo-final")
     link = tmp_path / "paper"
     link.symlink_to(tmp_path / "2026-foo-final", target_is_directory=True)
@@ -173,9 +161,7 @@ def test_verify_out_beats_cache_dir(tmp_path: Path, captured, write_bib) -> None
 def test_verify_out_expands_home_and_keeps_the_cache_beside_results(
     tmp_path: Path, monkeypatch, captured, write_bib
 ) -> None:
-    """A quoted `~` reaches the command unexpanded; `--out` is anchored like
-    `--cache-dir`, so both output files land in the same expanded directory.
-    """
+    """A quoted `~` in `--out` expands like `--cache-dir`."""
     bib = write_bib(tmp_path / "paper")
     monkeypatch.setenv("HOME", str(tmp_path))
 
@@ -189,8 +175,7 @@ def test_verify_out_expands_home_and_keeps_the_cache_beside_results(
 def test_verify_source_accepts_any_case_and_rejects_unknowns(
     tmp_path: Path, captured, write_bib
 ) -> None:
-    # `case_sensitive=False` only takes effect on a choice-typed option; as a
-    # plain `str` it was a no-op and `--source OpenAlex` was refused.
+    # `--source` is case-insensitive.
     bib = write_bib(tmp_path / "paper")
     out = str(tmp_path / "out")
     result = runner.invoke(
@@ -207,8 +192,7 @@ def test_verify_source_accepts_any_case_and_rejects_unknowns(
 def test_verify_mailto_follows_the_chosen_source(
     tmp_path: Path, monkeypatch, captured, write_bib
 ) -> None:
-    # `verify` used to hand `--mailto` only to OpenAlex; Crossref runs sent
-    # no polite-pool email at all, whatever the flag, env, or config said.
+    # `--mailto` and its env/config fallbacks reach Crossref as well as OpenAlex.
     bib = write_bib(tmp_path / "paper")
     out = str(tmp_path / "out")
     monkeypatch.setenv("OPENALEX_MAILTO", "oa@example.com")
@@ -300,8 +284,7 @@ def test_verify_fallback_hit_makes_no_request_and_writes_only_the_run(
 def test_verify_counts_exclude_the_rate_limit_snapshot(
     tmp_path: Path, monkeypatch, write_bib
 ) -> None:
-    """A shared cache holding only quota bookkeeping is `0 entries`, since
-    the README reads a nonzero fallback count as "something was merged"."""
+    """A shared cache holding only quota bookkeeping reports `0 entries`."""
     from citefinder.cache import JsonlCache
     from citefinder.openalex import OpenAlexClient
 

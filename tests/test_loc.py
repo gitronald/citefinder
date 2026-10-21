@@ -201,8 +201,7 @@ def test_lookup_isbn_queries_by_isbn(
 def test_lookup_decodes_utf8_from_bytes_not_a_header_guess(
     setup: tuple[LocClient, MagicMock], mock_response
 ) -> None:
-    # The gateway sends `text/xml` with no charset; `response.text` would be
-    # ISO-8859-1 and turn `Müller` into `MÃ¼ller`.
+    # `text/xml` with no charset must still decode as UTF-8.
     xml = MARCXML.replace("Doctorow, Cory,", "Müller, Anna,").encode("utf-8")
     response = mock_response(200, headers={"Content-Type": "text/xml"})
     response.content = xml

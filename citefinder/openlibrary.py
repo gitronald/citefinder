@@ -1,22 +1,8 @@
 """Open Library client with optional caching.
 
-Open Library (https://openlibrary.org) is the book counterpart of Crossref:
-an edition record per ISBN carrying title, subtitle, publishers, places of
-publication, and — the useful part — the Library of Congress Control Number
-(LCCN) that leads to the cataloging record printed on the copyright page
-(see `citefinder.loc`).
-
-Two lookup styles, each cached separately:
-
-- `lookup_isbn(isbn)` — one edition via `/isbn/{isbn}.json`; a 404 is
-  cached as `None`.
-- `search(title, author)` — `/search.json`, for a book entry with no ISBN.
-  Hits carry candidate ISBNs to confirm, never to apply.
-
-Open Library has no polite pool: it asks callers for a descriptive
-User-Agent with contact details and a modest request rate, so `mailto`
-goes into the User-Agent rather than the query string, and the client is
-paced at one request per second by default.
+Looks up book editions by ISBN (`/isbn/{isbn}.json`) and searches by title
+and author for entries with no ISBN. `mailto` goes into the User-Agent, and
+requests are paced at one per second.
 """
 
 from __future__ import annotations
@@ -40,16 +26,12 @@ from citefinder.models import OpenLibraryAuthor, OpenLibraryDoc, OpenLibraryEdit
 
 OPENLIBRARY_BASE = "https://openlibrary.org"
 
-# Open Library documents no hard limit but asks for "modest" rates; one
-# request per second keeps a long `verify --books` run unremarkable.
+# Open Library asks for modest request rates.
 OPENLIBRARY_MIN_INTERVAL = 1.0
 
-# `source_records` prefixes that mean a retailer feed rather than a library
-# catalog. An edition fed only by these is a lead: the data is usually right
-# but nobody with the book in hand has checked it.
+# `source_records` prefixes that mean a retailer feed rather than a library catalog.
 RETAILER_PREFIXES = ("amazon:", "bwb:", "promise:")
 
-# What a search hit is asked to carry; `isbn` is the point of the request.
 _SEARCH_FIELDS = "key,title,subtitle,author_name,first_publish_year,isbn,publisher"
 
 __all__ = [
@@ -67,9 +49,7 @@ _ISBN_SEPARATORS = re.compile(r"[\s-]+")
 def normalize_isbn(isbn: str) -> str:
     """`isbn` with hyphens and spaces removed and a check digit `x` uppercased.
 
-    A bib `isbn` field may list several (`978-0-374-61932-9, 0374619328`);
-    only the first is kept — that is the one the citation identifies the
-    book by.
+    Only the first of several listed ISBNs is kept.
     """
     first = re.split(r"[,;]", isbn.strip(), maxsplit=1)[0]
     return _ISBN_SEPARATORS.sub("", first).upper()
@@ -78,8 +58,7 @@ def normalize_isbn(isbn: str) -> str:
 def retailer_only(source_records: list[str] | None) -> bool:
     """Whether every `source_records` entry names a retailer feed.
 
-    An empty or missing list is *not* retailer-only: it says nothing about
-    provenance, and the record is reported as plain Open Library data.
+    An empty or missing list is not retailer-only.
     """
     if not source_records:
         return False
@@ -91,11 +70,8 @@ def retailer_only(source_records: list[str] | None) -> bool:
 class OpenLibraryClient(CachedJsonClient):
     """Open Library lookups, paced to one request per second.
 
-    `mailto` is the contact Open Library asks for; it is appended to the
-    User-Agent (`citefinder/x.y (...; mailto:you@example.com)`) rather than
-    sent as a query parameter, so cache keys never carry it and the base
-    client's `mailto` stays unset. Every other knob behaves as documented on
-    `CachedJsonClient`.
+    `mailto` is appended to the User-Agent, not sent as a query parameter,
+    so cache keys never carry it.
     """
 
     def __init__(
@@ -142,15 +118,13 @@ class OpenLibraryClient(CachedJsonClient):
     def lookup_isbn(self, isbn: str) -> OpenLibraryEdition | None:
         """The edition record for `isbn`, or `None` when Open Library has none.
 
-        `/isbn/<isbn>.json` redirects to the edition's own `/books/OL…M.json`;
-        the cache is keyed by the ISBN URL, so the same book asked for by
-        ISBN-10 and ISBN-13 is two rows, each a complete record.
+        The cache is keyed by the ISBN URL, so ISBN-10 and ISBN-13 lookups of
+        one book are separate rows.
         """
         return self._get(f"{self.isbn_url(isbn)}.json")
 
     def lookup_author(self, key: str) -> OpenLibraryAuthor | None:
-        """An author record by its `/authors/OL…A` key (as an edition lists
-        them), or `None`."""
+        """An author record by its `/authors/OL…A` key, or `None`."""
         return self._get(f"{OPENLIBRARY_BASE}{key}.json")
 
     def search(
@@ -158,8 +132,8 @@ class OpenLibraryClient(CachedJsonClient):
     ) -> list[OpenLibraryDoc]:
         """Search editions by title (and author), for a book with no ISBN.
 
-        Each hit is a *work* with every ISBN of every edition under `isbn`,
-        so a hit names candidates rather than one answer.
+        Each hit is a work listing every edition's ISBN under `isbn`, so hits
+        are candidates.
         """
         params = {"title": title}
         if author:

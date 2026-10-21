@@ -1,16 +1,9 @@
 """Verification orchestration: bib entry vs metadata source.
 
-`Source` wraps a Crossref or OpenAlex client behind a small,
-shape-independent surface — `lookup_doi`, `search`, `to_work`,
-`candidate_doi`, `candidate_title` — so `verify_entry` doesn't need
-to know which source it's talking to. The two source-specific
-adapters live in `citefinder.adapters`.
-
-Books are the exception: most have no DOI, so a `BookLookup` (Open
-Library, then the Library of Congress; see `citefinder.books`) can be
-passed alongside the source. A book entry with an `isbn` is then checked
-against the catalog record instead of searched for, and one without gets
-Open Library candidates at most.
+`Source` wraps a Crossref or OpenAlex client behind one surface so
+`verify_entry` is source-agnostic. A `BookLookup` can be passed alongside: a
+book entry with an `isbn` is checked against its catalog record, and one
+without gets Open Library candidates at most.
 """
 
 from __future__ import annotations
@@ -52,19 +45,15 @@ from citefinder.signals import (
     title_tokens,
 )
 
-# Entry types whose sources usually aren't indexed in academic metadata
-# services — a miss is expected, not a failure. We still try the search
-# in case a blog post or report ended up indexed.
+# Entry types usually not indexed in academic metadata services; a miss is
+# expected, but the search is still tried.
 SKIP_SOURCE_TYPES = {"online", "misc"}
 
-# Threshold for "this title looks like a real match." The metadata source
-# returns ranked results regardless of relevance, so cheap fuzzy similarity
-# on the top hit is the simplest way to reject obviously-wrong matches.
+# Minimum title similarity for a search hit to count as a match.
 TITLE_MATCH_THRESHOLD = 0.55
 
-# Entry types a `BookLookup` applies to. For the two container types the
-# ISBN names the book the chapter is in, so the check runs against
-# `booktitle` and `editor` rather than the chapter's own title and author.
+# Entry types a `BookLookup` applies to. For the container types the ISBN names
+# the containing book, so the check uses `booktitle` and `editor`.
 BOOK_TYPES = {"book", "inbook", "incollection"}
 CONTAINER_BOOK_TYPES = {"inbook", "incollection"}
 
@@ -89,18 +78,12 @@ class Result:
     candidates: list[dict[str, str]] = field(default_factory=list)
     signals: dict[str, dict[str, Any]] = field(default_factory=dict)
     suggestions: list[dict[str, str]] = field(default_factory=list)
-    """Bib fields a book's catalog record would change or add (`isbn` path
-    only); see `citefinder.books.compare_book` for the shape."""
+    """Bib fields a book's catalog record would change or add (`isbn` path only)."""
 
 
 @dataclass
 class Source:
-    """Shape-independent wrapper around CrossrefClient / OpenAlexClient.
-
-    The two clients differ in (a) search method name, (b) JSON field
-    names, and (c) DOI representation in search hits. `Source` hides
-    those differences so `verify_entry` stays source-agnostic.
-    """
+    """Wraps `CrossrefClient` / `OpenAlexClient`, hiding their differences."""
 
     name: str  # "crossref" | "openalex"
     client: CrossrefClient | OpenAlexClient
@@ -114,9 +97,8 @@ class Source:
             return self.client.search_bibliographic(
                 build_search_query(entry), rows=rows
             )
-        # OpenAlex: title-only search. The default `?search=` runs full-text
-        # over title + abstract, which is too noisy for our author+title+year
-        # query shape, so we use the title-only filter via `search_title`.
+        # OpenAlex: the default `?search=` is full-text over title and abstract,
+        # too noisy here, so use the title-only search.
         assert isinstance(self.client, OpenAlexClient)
         title = build_title_query(entry)
         if not title:
@@ -135,18 +117,12 @@ class Source:
 
     def candidate_title(self, item: SourceRecord) -> str:
         if self.name == "crossref":
-            # Title and subtitle rejoined, as `crossref_to_work` does on the
-            # DOI path: a split record must score like the work it is.
+            # Title and subtitle rejoined, as `crossref_to_work` does.
             return crossref_full_title(cast(CrossrefWork, item)) or ""
         return cast(OpenAlexWork, item).get("display_name") or ""
 
     def _records(self, cache: JsonlCache | LayeredCache) -> int:
-        """Entries in `cache` that are records or cached 404s.
-
-        The client's quota snapshot lives in the same file under
-        `rate_limit_key`; a count that included it would call a cache
-        holding nothing but bookkeeping "1 entries".
-        """
+        """Records and cached 404s in `cache`, excluding the quota snapshot."""
         key = self.client.rate_limit_key
         return len(cache) - (1 if key is not None and key in cache else 0)
 
@@ -174,8 +150,7 @@ class Source:
 
 
 def _catalog_surname(name: str) -> str:
-    """The surname in a contributor name as a catalog or Open Library writes
-    it: `Doctorow, Cory` (inverted) or `Cory Doctorow` (direct order)."""
+    """The surname in `Doctorow, Cory` (inverted) or `Cory Doctorow` (direct) form."""
     if "," in name:
         return name.split(",", 1)[0].strip()
     return name.split()[-1] if name.split() else ""
@@ -197,11 +172,9 @@ def _book_fields(entry: Entry) -> dict[str, str]:
 def verify_book(entry: Entry, books: BookLookup, base: Result) -> Result:
     """Check a book entry against its ISBN's catalog record, into `base`.
 
-    Title, year, and first contributor go through the same signal checks as
-    a DOI lookup — the ISBN resolved to this record, so one disagreement is
-    metadata loss rather than a different book. A record confirmed only by a
-    retailer feed tops out at `probable`. `base.suggestions` lists what the
-    bib should change or add to agree with the record.
+    Title, year, and first contributor go through the same signal checks as a
+    DOI lookup. A record confirmed only by a retailer feed tops out at
+    `probable`. `base.suggestions` lists what the bib should change or add.
     """
     isbn = normalize_isbn(entry.fields.get("isbn", ""))
     base.method = "isbn"
@@ -217,9 +190,7 @@ def verify_book(entry: Entry, books: BookLookup, base: Result) -> Result:
         return base
 
     fields = _book_fields(entry)
-    # For a chapter the surname comes from `editor`, which the guard in
-    # `verify_entry` never parsed; a malformed name is this entry's error,
-    # not the run's.
+    # A chapter's surname comes from `editor`, which `verify_entry` never parsed.
     try:
         surname = (
             first_author_surname(fields["author"]) if fields.get("author") else None
@@ -234,9 +205,8 @@ def verify_book(entry: Entry, books: BookLookup, base: Result) -> Result:
         first_author_surname=surname,
     )
     lead = record.contributors[0].value if record.contributors else None
-    # A bib title that is the catalog title without its subtitle is the same
-    # book; the subtitle rides along as a suggestion rather than failing the
-    # title signal against the longer form.
+    # A bib title lacking the subtitle is the same book; the subtitle becomes a
+    # suggestion instead of failing the title signal.
     work_title = record.full_title
     bib_title = citation.title or ""
     if record.title is not None and normalize_title(bib_title) == normalize_title(
@@ -271,8 +241,7 @@ def verify_book(entry: Entry, books: BookLookup, base: Result) -> Result:
 def _book_candidates(
     entry: Entry, books: BookLookup, title: str
 ) -> list[dict[str, str]]:
-    """Open Library search hits for a book entry with no ISBN, as
-    candidates carrying an `isbn` to confirm."""
+    """Open Library search hits for a book entry with no ISBN, as candidates."""
     fields = _book_fields(entry)
     query = fields.get("title") or title
     if not query:
@@ -315,9 +284,8 @@ def verify_entry(
         status=Status.ERROR,
     )
 
-    # The author field goes through bibtexparser's name parser, which raises
-    # on malformed input (`Smith, Jane,`). Report that on the entry rather
-    # than letting one typo abort a whole `verify` run.
+    # bibtexparser's name parser raises on malformed names (`Smith, Jane,`);
+    # report that on the entry instead of aborting the run.
     try:
         citation = citation_from_entry(entry)
     except Exception as e:
@@ -325,15 +293,14 @@ def verify_entry(
         return base
 
     is_book = books is not None and entry.etype in BOOK_TYPES
-    # A book with an ISBN and no DOI is checked against its catalog record;
-    # the academic indexes rarely carry trade books at all.
+    # A book with an ISBN and no DOI is checked against its catalog record.
     if is_book and not bib_doi and strip_braces(entry.fields.get("isbn", "")):
         assert books is not None
         return verify_book(entry, books, base)
 
     result = _verify_against_source(entry, source, citation, title, bib_doi, base)
-    # A book with no ISBN keeps its source verdict; the Open Library hits
-    # are leads a reader can confirm, appended rather than applied.
+    # A book with no ISBN keeps its source verdict; Open Library hits are
+    # appended as candidates.
     if is_book and not bib_doi and result.status != Status.MATCHED:
         assert books is not None
         try:
@@ -351,12 +318,10 @@ def _verify_against_source(
     bib_doi: str | None,
     base: Result,
 ) -> Result:
-    # If a DOI is in the bib, resolve it AND check four signals (title / year /
-    # first-author / container) against the source record. DOI existence
-    # isn't enough — a typoed or wrong DOI can resolve to a different work.
+    # With a DOI, resolve it and check the four signals: a wrong DOI can
+    # resolve to a different work.
     if bib_doi:
-        # Crossref never indexes DataCite DOIs (arXiv, Zenodo), so a lookup
-        # could only 404. Report them apart from real misses, with no request.
+        # Crossref never indexes DataCite DOIs (arXiv, Zenodo); skip the request.
         registrar = datacite_registrar(bib_doi) if source.name == "crossref" else None
         if registrar is not None:
             base.status = Status.NOT_INDEXED
@@ -377,14 +342,10 @@ def _verify_against_source(
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = base.signals["title"].get("sim")
-        # The bib's own DOI resolved to this record, so one non-title
-        # disagreement is metadata loss, not a different work (see
-        # `status_from_signals`).
         base.status, base.note = status_from_signals(base.signals, doi_resolved=True)
         return base
 
-    # No DOI — bibliographic search. Skip-source types still get tried but
-    # are reported under their own bucket.
+    # No DOI: bibliographic search.
     if not entry.fields.get("title") and not entry.fields.get("author"):
         base.status = Status.ERROR
         base.note = "no author/title/year to query"
@@ -397,8 +358,7 @@ def _verify_against_source(
         base.note = f"search failed: {e}"
         return base
 
-    # Candidate selection uses raw title similarity on each hit's title so
-    # the adapter runs only for the hit that is finally chosen.
+    # Select on raw title similarity so the adapter runs only for the chosen hit.
     candidates: list[dict[str, str]] = []
     best_sim = 0.0
     best_item: SourceRecord | None = None
@@ -423,26 +383,21 @@ def _verify_against_source(
         base.note = f"@{entry.etype}: not expected in source; verify via URL"
         return base
 
-    # A one- or two-word bib title scores a perfect similarity against any
-    # hit that contains those words, so it cannot pick a candidate on its own.
-    # Fall through to unmatched and leave the candidates for a human.
+    # A short bib title cannot pick a candidate on its own; leave the
+    # candidates for a human.
     n_words = len(title_tokens(title))
     short_title = n_words < MIN_TITLE_TOKENS
     hit = best_item if best_sim >= TITLE_MATCH_THRESHOLD else None
     if hit is not None and not short_title:
         work = source.to_work(hit)
         assert work is not None  # hit is a real record
-        # `or None`: a hit without a DOI is "no DOI", as on the DOI path.
         base.matched_doi = source.candidate_doi(hit) or None
         base.matched_title = work.title
         base.signals = compute_signals(citation, work)
         base.similarity = best_sim
         base.status, base.note = status_from_signals(base.signals)
-        # For @online / @misc, the canonical source is the URL — any
-        # search hit other than a clean signal-pass match is almost
-        # certainly a derived artifact (a reprinted policy, a chapter that
-        # cites the report, etc.). Route those to skip-source so the
-        # report doesn't suggest a misleading DOI.
+        # For @online / @misc the canonical source is the URL; anything short
+        # of a clean match is likely a derived work, so don't suggest its DOI.
         if skip_type and base.status != Status.MATCHED:
             signal_note = base.note
             failed = any(s["verdict"] == "fail" for s in base.signals.values())
@@ -454,14 +409,12 @@ def _verify_against_source(
         return base
 
     if hit is None:
-        # Only a non-skip type gets here without a hit; the skip types
-        # returned above the moment their best hit fell short.
+        # Skip types already returned above.
         base.status = Status.UNMATCHED
         base.note = "no plausible source hit"
         return base
 
-    # The short title blocked the hit; say so, and keep the skip-source
-    # framing for @online / @misc, whose canonical source is the URL anyway.
+    # The short title blocked the hit.
     why = (
         f"title too short to match by search ({n_words} word(s), "
         f"need {MIN_TITLE_TOKENS})"

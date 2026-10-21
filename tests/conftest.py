@@ -24,13 +24,12 @@ def mock_response():
     ) -> MagicMock:
         response = MagicMock()
         response.status_code = status
-        # Real `requests` headers are case-insensitive; keep the fake honest.
+        # Real `requests` headers are case-insensitive.
         response.headers = CaseInsensitiveDict(headers or {})
         response.json.return_value = payload
         response.raise_for_status = MagicMock()
         if status >= 400:
-            # Mirror `requests`: 4xx/5xx raise, and the response rides
-            # along so callers can read the status off the exception.
+            # Mirror `requests`: 4xx/5xx raise, carrying the response.
             response.raise_for_status.side_effect = requests.HTTPError(
                 f"{status} error", response=response
             )
@@ -43,9 +42,7 @@ def mock_response():
 def captured(monkeypatch) -> dict[str, Any]:
     """Swap both CLI clients for a stub that records its constructor kwargs.
 
-    The stub subclasses both real clients (without their `__init__`) so it
-    passes `Source.search`'s `isinstance` narrowing and the CLI tests that
-    reach the search path exercise it, rather than landing in `error`.
+    The stub subclasses both real clients to pass `Source.search`'s `isinstance` check.
     """
     seen: dict[str, Any] = {}
 
@@ -54,8 +51,7 @@ def captured(monkeypatch) -> dict[str, Any]:
             seen.update(kwargs)
             self.cache = None
             self.retries = 0
-            # Stands in for the real client's counter; `verify`'s summary
-            # reads it, and nothing here ever reaches the network.
+            # `verify`'s summary reads this counter.
             self.network_calls = 0
 
         def lookup_doi(  # pyrefly: ignore[missing-override-decorator]
@@ -83,8 +79,7 @@ def captured(monkeypatch) -> dict[str, Any]:
 def captured_books(monkeypatch) -> dict[str, Any]:
     """Swap the book clients for stubs serving the fixture records offline.
 
-    Records every constructor's kwargs under the client's source name, so a
-    test can check where each cache was pointed.
+    Records each constructor's kwargs under the client's source name.
     """
     from citefinder.loc import LocClient
     from citefinder.openlibrary import OpenLibraryClient
@@ -161,14 +156,9 @@ CONFIG_ENV = (
 
 @pytest.fixture
 def config_env(tmp_path: Path, monkeypatch) -> None:
-    """An empty config env, an empty user config dir, and a sandboxed
-    working directory, for CLI tests that resolve paths and config.
+    """Give CLI tests an empty config env, user config dir, and a sandboxed cwd.
 
-    The loader writes `os.environ` directly; `delenv` records the prior
-    (absent) state so monkeypatch removes whatever a test loads at teardown.
-    Pinning cwd keeps project-config discovery inside `tmp_path` rather
-    than walking the repo's ancestors, and a fresh `_config_sources` means
-    no source label leaks in from an earlier test.
+    `delenv` records the absent state so monkeypatch removes whatever a test loads.
     """
     for name in CONFIG_ENV:
         monkeypatch.delenv(name, raising=False)
@@ -179,8 +169,7 @@ def config_env(tmp_path: Path, monkeypatch) -> None:
 
 @pytest.fixture
 def write_bib() -> Callable[..., Path]:
-    """Write a one-entry bib with no DOI, so `verify` searches (and finds
-    nothing); returns the path."""
+    """Write a one-entry bib with no DOI, so `verify` searches; returns the path."""
 
     def _write(directory: Path, name: str = "refs.bib") -> Path:
         directory.mkdir(parents=True, exist_ok=True)

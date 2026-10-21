@@ -1,19 +1,7 @@
-"""Crossref API client with optional caching.
+"""Crossref API client: DOI lookup, bibliographic search, and book chapters.
 
-Three lookup styles, each cached separately:
-
-- `lookup_doi(doi)` — single-DOI metadata
-- `search_bibliographic(query, rows)` — title/author/keyword search
-- `lookup_book_chapter(book_doi, chapter)` — `{book_doi}.{NNN}` pattern
-
-Caching is keyed by URL so that the same request returns a stable response
-across sessions. Negative results (404) are cached as `None` to avoid
-re-hammering Crossref for known-missing DOIs.
-
-Pass `mailto="you@example.com"` to opt into Crossref's polite pool — sent
-as a `?mailto=…` query param. The cache key strips it, so rotating the
-email doesn't invalidate prior entries. Doing so also raises the default
-request rate: see `CrossrefClient` below and docs/crossref.md.
+Responses are cached by URL, with 404s cached as `None`. Pass `mailto` to use
+Crossref's polite pool; the cache key strips it, so changing it keeps the cache.
 """
 
 from __future__ import annotations
@@ -37,23 +25,16 @@ from citefinder.models import CrossrefWork
 
 CROSSREF_BASE = "https://api.crossref.org"
 
-# Crossref advertises the rate in effect per response, in `X-Rate-Limit-Limit`
-# and `X-Rate-Limit-Interval`. Measured 2026-09-09: 1 request/second for an
-# anonymous caller, 3/second in the polite pool. These are the intervals that
-# keep a run inside those rates rather than relying on 429 retries; both are a
-# point-in-time reading of a limit Crossref adjusts, not a contract, so a
-# caller that measures something different passes `min_interval` explicitly.
+# Crossref's observed limits (1 request/second anonymous, 3/second polite).
+# It adjusts them, so a caller can pass `min_interval` explicitly.
 CROSSREF_MIN_INTERVAL = 1.0
 CROSSREF_POLITE_MIN_INTERVAL = 0.34
 
 
 def is_polite(mailto: str | None, user_agent: str | None = None) -> bool:
-    """Whether a request carrying these would reach Crossref's polite pool.
+    """Whether a request reaches Crossref's polite pool.
 
-    Crossref accepts contact information two ways — a `mailto` query param
-    or a `mailto:` inside the User-Agent — and measurement confirms both
-    earn the same (higher) rate, so both count here. The default User-Agent
-    carries only a project URL, so a client with no `mailto` is anonymous.
+    Either a `mailto` or a `mailto:` in the User-Agent counts.
     """
     if mailto:
         return True
@@ -61,19 +42,13 @@ def is_polite(mailto: str | None, user_agent: str | None = None) -> bool:
 
 
 class CrossrefClient(CachedJsonClient):
-    """Crossref lookups, paced to the rate the caller is entitled to.
+    """Crossref lookups, paced to the caller's rate.
 
-    `min_interval` defaults to whichever of `CROSSREF_MIN_INTERVAL` /
-    `CROSSREF_POLITE_MIN_INTERVAL` matches `is_polite(mailto, user_agent)`,
-    so supplying contact information speeds the client up rather than
-    leaving it to discover the higher rate by hitting 429s. Passing
-    `min_interval` explicitly (including `0`, unpaced) overrides both.
-
-    Every other knob behaves as documented on `CachedJsonClient`.
+    `min_interval` defaults to the polite or anonymous interval per
+    `is_polite`; passing it explicitly (including `0`) overrides that.
     """
 
-    # Crossref advertises only a rate, so there is no budget to spend down;
-    # `rows=0` asks for the headers and no records.
+    # `rows=0` returns the rate-limit headers and no records.
     rate_limit_key = f"{CROSSREF_BASE}/__ratelimit"
     rate_limit_probe = f"{CROSSREF_BASE}/works?rows=0"
 
@@ -134,10 +109,9 @@ class CrossrefClient(CachedJsonClient):
     def lookup_book_chapter(
         self, book_doi: str, chapter: int | str
     ) -> CrossrefWork | None:
-        """Look up a chapter using the `{book_doi}.{NNN}` convention.
+        """Look up a chapter DOI as `{book_doi}.{NNN}`.
 
-        Pads numeric chapter numbers to 3 digits (the common pattern), but
-        accepts a string for publishers that use a different format.
+        An int is zero-padded to 3 digits; a string is used as given.
         """
         suffix = f"{int(chapter):03d}" if isinstance(chapter, int) else chapter
         return self.lookup_doi(f"{book_doi}.{suffix}")

@@ -62,8 +62,7 @@ def test_crossref_to_work_returns_none_for_missing_record() -> None:
 
 
 def test_crossref_to_work_reads_a_corporate_author_name() -> None:
-    # Crossref gives organisations a `name`, not `family`; the bib side keeps
-    # `{World Health Organization}` whole, so the author signal can confirm.
+    # Organisations carry `name`, not `family`.
     record: CrossrefWork = {
         "title": ["X"],
         "author": [{"name": "World Health Organization"}],
@@ -106,8 +105,7 @@ def test_openalex_to_work_typical() -> None:
 
 
 def test_openalex_to_work_keeps_von_particles_with_surname() -> None:
-    # Mirrors the bib-side `first_author_surname` behavior — must combine
-    # von + last so equality checks match.
+    # Combines von + last, like the bib-side `first_author_surname`.
     record: OpenAlexWork = {
         "display_name": "Paper",
         "authorships": [{"author": {"display_name": "Arnout van de Rijt"}}],
@@ -118,7 +116,7 @@ def test_openalex_to_work_keeps_von_particles_with_surname() -> None:
 
 
 def test_openalex_to_work_falls_back_to_host_venue() -> None:
-    # Older records expose the venue under `host_venue` instead.
+    # Falls back to `host_venue`.
     record: OpenAlexWork = {
         "display_name": "X",
         "host_venue": {"display_name": "Old Venue"},

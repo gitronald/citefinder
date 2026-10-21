@@ -1,31 +1,10 @@
 """Library of Congress catalog client and a small MARC reader.
 
-The catalog's SRU gateway (`http://lx2.loc.gov:210/LCDB`, plain HTTP — it
-speaks no TLS) returns a record as MARCXML for a Library of Congress
-Control Number (`bath.lccn=`) or an ISBN (`bath.isbn=`). For a trade book
-that is the Cataloging in Publication record — what is printed on the
-copyright page, so the place of publication, the imprint and its parent,
-and the edition statement are as the publisher supplied them. (The older
-`https://lccn.loc.gov/<lccn>/marcxml` permalinks now 404; the bare
-permalink still redirects to the catalog's search page, so `lccn_url`
-keeps it as the human-readable link.)
-
-The body is XML, not JSON, so `LocClient` parses it into plain dicts before
-caching (`parse_marcxml`), and the cache stays JSONL with one row per
-query. `marc_book` then reads the handful of fields a citation uses:
-
-- `020` ISBN (`$a`, with a qualifier in `$q` or in parentheses)
-- `100`/`110`, `700`/`710` contributor names
-- `245 $a $b` title and subtitle
-- `250 $a` edition statement
-- `264` (indicator 2 = 1, publication) or the older `260`: `$a` place,
-  `$b` publisher, `$c` date
-- `040 $a` cataloging agency (`DLC` is the Library of Congress itself)
-
-ISBD punctuation — the ` :`, ` /`, and trailing `.` or `,` that separate
-subfields in a printed catalog card — is stripped on the way out. Casing is
-kept as cataloged: catalog titles are sentence case, and title case is the
-caller's job.
+Queries the catalog's SRU gateway (`http://lx2.loc.gov:210/LCDB`, plain HTTP)
+by LCCN or ISBN and parses the MARCXML into plain dicts before caching.
+`marc_book` reads the fields a citation uses (title, contributors, edition,
+publication place, publisher, and date) with ISBD punctuation stripped and
+casing kept as cataloged.
 """
 
 from __future__ import annotations
@@ -55,9 +34,7 @@ from citefinder.openlibrary import normalize_isbn
 LOC_BASE = "https://lccn.loc.gov"
 LOC_SRU = "http://lx2.loc.gov:210/LCDB"
 
-# The Library of Congress publishes per-endpoint burst limits for its
-# newer APIs and none for the LCCN permalink service; one request per
-# second is well inside all of them.
+# One request per second is well inside the Library of Congress burst limits.
 LOC_MIN_INTERVAL = 1.0
 
 __all__ = [
@@ -74,24 +51,17 @@ __all__ = [
 
 _ISBD_TRAILING = re.compile(r"[\s:/;=,.]+$")
 YEAR_RE = re.compile(r"(?<!\d)(\d{4})(?!\d)")
-"""The first four-digit run in a date string (`2025.`, `[2025]`, `Oct 21, 2025`).
-Shared with `citefinder.books` so both sources read dates one way."""
+"""The first four-digit run in a date string (`2025.`, `[2025]`, `Oct 21, 2025`)."""
 _PAREN_QUALIFIER = re.compile(r"\s*\(([^)]*)\)\s*$")
 
 
 def normalize_lccn(lccn: str) -> str:
-    """`lccn` as the permalink service wants it: no spaces or hyphens.
-
-    Catalog records write LCCNs with internal spacing (`  2025007165`,
-    `sn 85-042021`); the permalink form is the compact one.
-    """
+    """`lccn` with spaces and hyphens removed (`sn 85-042021` -> `sn85042021`)."""
     return re.sub(r"[\s-]+", "", lccn.strip())
 
 
 def strip_isbd(value: str) -> str:
-    """`value` without the ISBD separator punctuation a MARC subfield ends
-    with, and without a surrounding `[...]` where the whole value was
-    supplied by the cataloger rather than printed on the item."""
+    """`value` without trailing ISBD punctuation or surrounding `[...]`."""
     value = _ISBD_TRAILING.sub("", value.strip())
     if value.startswith("[") and value.endswith("]"):
         value = value[1:-1].strip()
@@ -107,22 +77,18 @@ _MARC_CHILDREN = {"leader", "controlfield", "datafield"}
 
 
 def _is_marc_record(el: ET.Element) -> bool:
-    """A `<record>` holding MARC fields — not the `<zs:record>` envelope an
-    SRU response wraps it in, whose local name is also `record`."""
+    """A `<record>` holding MARC fields, not the `<zs:record>` SRU envelope."""
     return _local(el.tag) == "record" and any(
         _local(child.tag) in _MARC_CHILDREN for child in el
     )
 
 
 def parse_marcxml(text: str | bytes) -> MarcRecord | None:
-    """The first MARC `<record>` in an XML document as plain JSON, or `None`
-    when the document holds none (an SRU response with zero records, an
-    empty `<collection>`, an HTML error page).
+    """The first MARC `<record>` in an XML document as plain JSON, or `None`.
 
-    Accepts a bare record, a `<collection>`, or an SRU `searchRetrieveResponse`,
-    as text or as the raw bytes of the response — bytes are preferred, so the
-    XML declaration decides the encoding rather than an HTTP header guess.
-    Raises `ValueError` when `text` is not XML at all.
+    Accepts a bare record, a `<collection>`, or an SRU response. Prefer bytes,
+    so the XML declaration decides the encoding. Raises `ValueError` when
+    `text` is not XML.
     """
     try:
         root = ET.fromstring(text)
@@ -174,8 +140,7 @@ def _subs(field: MarcField, code: str) -> list[str]:
 
 
 def _isbns(record: MarcRecord) -> list[dict[str, str]]:
-    """Every `020 $a`, split from its qualifier (`$q`, or the older
-    parenthesized form inside `$a`)."""
+    """Every `020 $a`, split from its qualifier (`$q` or parenthesized in `$a`)."""
     out: list[dict[str, str]] = []
     for field in _fields(record, "020"):
         raw = _sub(field, "a")
@@ -196,8 +161,7 @@ def _isbns(record: MarcRecord) -> list[dict[str, str]]:
 
 
 def _contributors(record: MarcRecord) -> list[str]:
-    """Personal and corporate names from the main and added entries, in
-    record order, as cataloged (`Doctorow, Cory`)."""
+    """Personal and corporate names from main and added entries, in record order."""
     names: list[str] = []
     for field in _fields(record, "100", "110", "700", "710"):
         name = _sub(field, "a")
@@ -207,8 +171,7 @@ def _contributors(record: MarcRecord) -> list[str]:
 
 
 def _publication(record: MarcRecord) -> MarcField | None:
-    """The publication statement: a `264` with indicator 2 = 1, else the
-    first `264` of any kind, else a `260`."""
+    """The publication `264` (indicator 2 = 1), else the first `264`, else a `260`."""
     fields = _fields(record, "264")
     for field in fields:
         if field.get("ind2") == "1":
@@ -224,9 +187,8 @@ def marc_book(record: MarcRecord) -> dict[str, Any]:
 
     Returns a dict with `title`, `subtitle`, `contributors`, `publisher`,
     `place`, `date`, `year`, `edition`, `isbns`, `lccn`, and
-    `cataloging_agency`; a field the record does not carry is `None` (or an
-    empty list). Nothing here is inferred: a record without a `264 $a` has
-    no place, and stays that way.
+    `cataloging_agency`; a field the record lacks is `None` (or an empty list).
+    Nothing is inferred.
     """
     title_field = next(iter(_fields(record, "245")), None)
     publication = _publication(record)
@@ -255,10 +217,7 @@ def marc_book(record: MarcRecord) -> dict[str, Any]:
 class LocClient(CachedJsonClient):
     """Library of Congress LCCN and ISBN lookups, cached as parsed MARC.
 
-    There is no polite pool and no contact parameter; `mailto` is accepted
-    for signature parity with the other clients and goes into the
-    User-Agent only. Every other knob behaves as documented on
-    `CachedJsonClient`.
+    `mailto` goes into the User-Agent only; there is no polite pool.
     """
 
     def __init__(
@@ -316,11 +275,8 @@ class LocClient(CachedJsonClient):
     def _decode(  # pyrefly: ignore[missing-override-decorator]  (3.11 has no `override`)
         self, response: requests.Response
     ) -> Any:
-        # The gateway sends `text/xml` with no charset, which `requests`
-        # would decode as ISO-8859-1 (`response.text`); the raw bytes let the
-        # XML declaration decide, so a `Müller` stays a `Müller`. A 200 whose
-        # body holds no record (an unknown number is a zero-record response,
-        # not a 404) is cached as a miss, the same as a 404.
+        # Parse raw bytes: the gateway sends no charset, so `response.text`
+        # would decode as ISO-8859-1. A 200 with no record is cached as a miss.
         return parse_marcxml(response.content)
 
     def lookup_lccn(self, lccn: str) -> MarcRecord | None:
@@ -330,7 +286,6 @@ class LocClient(CachedJsonClient):
     def lookup_isbn(self, isbn: str) -> MarcRecord | None:
         """The parsed MARC record cataloged under `isbn`, or `None`.
 
-        An ISBN can sit on more than one record (a reissue cataloged
-        separately); the first the catalog ranks is returned.
+        When several records carry the ISBN, the catalog's first is returned.
         """
         return self._get(self.sru_url(f"bath.isbn={normalize_isbn(isbn)}"))

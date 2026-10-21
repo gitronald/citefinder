@@ -36,16 +36,10 @@ from citefinder.signals import (
 from citefinder.verify import Result, Source, verify_entry
 
 if TYPE_CHECKING:
-    # Imported eagerly for type checkers and IDEs only; at runtime the two
-    # names below resolve through `__getattr__`.
+    # For type checkers only; at runtime these resolve through `__getattr__`.
     from citefinder.bib_table import bib_to_table, table_to_bib
 
-# `bib_table` is the one module that pulls in polars, which costs more to
-# import than everything else in the package combined. Deferring it to first
-# attribute access keeps `import citefinder` (and every CLI command that
-# never tabulates a `.bib`) off that bill, while `from citefinder import
-# bib_to_table` still works — Python falls back to a module-level
-# `__getattr__` (PEP 562) for a name the module body did not bind.
+# `bib_table` imports polars, which is slow; load it on first access.
 _LAZY = {"bib_to_table", "table_to_bib"}
 
 
@@ -58,9 +52,7 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    # `__getattr__` names are invisible to the default `dir()`, which lists
-    # only what the module body bound; spell them out so tab-completion and
-    # `dir(citefinder)` still show the full public surface.
+    # List the lazy names too, which the default `dir()` omits.
     return sorted(__all__)
 
 

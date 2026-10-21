@@ -1,8 +1,7 @@
 """The `pkgskills` host declaration for citefinder's bundled skill.
 
-`citefinder skill`, `citefinder doc`, and `citefinder install` are the
-library's commands, mounted on the CLI from this declaration. The skill body
-and its reference documents live under `citefinder/prompts/skills/`.
+Mounts `citefinder skill`, `doc`, and `install`; the prompts live under
+`citefinder/prompts/skills/`.
 """
 
 from __future__ import annotations

@@ -32,7 +32,7 @@ def test_normalize_title_handles_unicode_diacritics() -> None:
 
 
 def test_normalize_title_keeps_non_latin_scripts() -> None:
-    # NFKD cannot fold these to ASCII; deleting them left no tokens at all.
+    # NFKD cannot fold these to ASCII; they must survive.
     assert normalize_title("深度学习综述") == "深度学习综述"
     assert normalize_title("Глубокое, обучение!") == "глубокое обучение"
 
@@ -43,15 +43,14 @@ def test_check_title_identical_non_latin_titles_pass() -> None:
 
 
 def test_title_tokens_bigram_scripts_written_without_spaces() -> None:
-    # CJK text has no word spaces, so a whole title used to be one token: too
-    # short to confirm a match and too coarse to compare against anything.
+    # CJK text has no word spaces, so a whole title would be one token.
     assert title_tokens("深度学习综述") == {"深度", "度学", "学习", "习综", "综述"}
     assert title_tokens("Deep 学習 survey") == {"deep", "学習", "survey"}
     assert title_tokens("王") == {"王"}  # a lone character stays whole
 
 
 def test_check_title_identical_cjk_titles_pass() -> None:
-    # Five bigrams clear MIN_TITLE_TOKENS; one whitespace token did not.
+    # Five bigrams clear MIN_TITLE_TOKENS.
     assert check_title("深度学习综述", "深度学习综述")["verdict"] == "pass"
     assert check_title("深度学习综述", "量子计算导论")["verdict"] == "fail"
 
@@ -98,7 +97,7 @@ def test_title_tokens_counts_normalized_words() -> None:
 
 
 def test_check_title_short_bib_title_cannot_pass() -> None:
-    # cialdini2003influence: a one-word bib title scores 1.0 against any
+    # A one-word bib title scores 1.0 against any
     # record that contains the word, so a perfect match proves nothing.
     r = check_title("Influence", "Influence")
     assert r["verdict"] == "unknown"
@@ -119,8 +118,7 @@ def test_check_title_short_bib_title_is_not_rescued_by_containment() -> None:
 
 
 def test_check_title_source_truncation_is_unknown() -> None:
-    # Fang2022 (10.1145/3510003.3510121): OpenAlex stores only the part
-    # before the colon in both `display_name` and `title`.
+    # OpenAlex stores only the part before the colon.
     bib = (
         '"This Is Damn Slick!": Estimating the Impact of Tweets on Open Source '
         "Project Popularity and New Contributors"
@@ -200,8 +198,7 @@ def test_container_similarity_prefix_matches_abbreviations() -> None:
 
 
 def test_container_similarity_pairs_each_token_once() -> None:
-    # One short token used to prefix-match every longer token on the other
-    # side and score a perfect match against an unrelated venue.
+    # One short token must not prefix-match every longer token on the other side.
     assert container_similarity("Data Database Dataset", "Data") < 0.50
     assert container_similarity("proc", "proceedings procedure procession") < 0.50
     # Genuine abbreviations still clear the pass threshold.
@@ -209,9 +206,7 @@ def test_container_similarity_pairs_each_token_once() -> None:
 
 
 def test_container_similarity_pairs_exact_tokens_before_prefixes() -> None:
-    # Greedy first-match let "comp" take "computer", stranding the exact
-    # "computer" twin: one pair where two exist. The score must not depend
-    # on token order either.
+    # Exact tokens pair before prefixes, independent of token order.
     assert container_similarity("comp computer", "computer compile") == pytest.approx(
         2 / 3
     )
@@ -311,8 +306,7 @@ def test_status_from_signals_all_unknown_is_probable() -> None:
 
 
 def test_status_from_signals_doi_resolved_single_non_title_fail_is_matched() -> None:
-    # Ohm2020 / messing2014: the bib's own DOI resolved, three signals
-    # confirm, one disagrees. Source-side metadata loss, not a different work.
+    # DOI resolved, three signals confirm, one disagrees: source-side metadata loss.
     signals = _signals(
         {"title": "pass", "year": "fail", "author": "pass", "container": "pass"}
     )

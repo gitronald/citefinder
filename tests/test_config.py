@@ -49,9 +49,7 @@ def test_resolve_cache_path_joins_cache_dir_and_expands_home(tmp_path: Path) -> 
 def test_importing_config_never_touches_the_home_directory(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """`Path.home()` raises where no home can be determined (an unnamed UID
-    in a container); the default must be computed lazily, not at import.
-    """
+    """`Path.home()` can raise; the default is computed lazily, not at import."""
     import citefinder.config as config
 
     def no_home() -> Path:
@@ -135,8 +133,7 @@ def test_relative_user_config_cache_dir_anchors_to_the_config_file(
 def test_empty_env_var_does_not_block_a_config_value(
     tmp_path: Path, monkeypatch, captured
 ) -> None:
-    # An exported-but-empty variable is "unset" to typer and to every other
-    # env read in the CLI; the config loader must agree or the value is lost.
+    # An exported-but-empty variable counts as unset, as elsewhere in the CLI.
     monkeypatch.setenv("OPENALEX_MAILTO", "")
     (tmp_path / PROJECT_CONFIG_NAME).write_text(
         '[openalex]\nmailto = "project@example.com"\n', encoding="utf-8"
@@ -179,10 +176,7 @@ def test_load_configs_populates_env(tmp_path: Path) -> None:
 def test_pyproject_with_a_non_table_citefinder_key_warns_and_falls_through(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """A scalar `citefinder` under `[tool]` is a broken config, not an absent
-    one: warn and fall through to the user config, the same as malformed
-    TOML, rather than silently reading an empty table.
-    """
+    """A scalar `[tool].citefinder` warns and falls through to the user config."""
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     pyproject = project_dir / "pyproject.toml"
@@ -203,9 +197,7 @@ def test_pyproject_with_a_non_table_citefinder_key_warns_and_falls_through(
 
 
 def test_load_configs_ignores_a_malformed_toml(tmp_path: Path, capsys) -> None:
-    """A credentials-file typo must not crash the whole CLI at import — with
-    the skill body served by `citefinder skill`, that would zero out the
-    skill's only delivery path on the machine."""
+    """A malformed user config must not crash the CLI at import."""
     write_user_config(tmp_path, "this is not valid toml [[[")
 
     _load_configs()  # must not raise
@@ -287,8 +279,7 @@ LEVELS = ("flag", "env", "project", "user", "default")
 
 @pytest.mark.parametrize("winner", LEVELS)
 def test_precedence_matrix(winner: str, tmp_path: Path, monkeypatch, captured) -> None:
-    """With every source at or below `winner` set, `winner`'s value reaches
-    the client — for `cache_dir` and `mailto` alike."""
+    """With all sources at or below `winner` set, `winner`'s value wins."""
     active = LEVELS[LEVELS.index(winner) :]
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -324,8 +315,7 @@ def test_precedence_matrix(winner: str, tmp_path: Path, monkeypatch, captured) -
 def test_relative_project_cache_dir_anchors_to_the_config_dir(
     tmp_path: Path, monkeypatch, captured, write_bib
 ) -> None:
-    """`cache_dir = "data/citefinder"` means the repo's `data/citefinder`
-    from any working directory inside it, for lookups and `verify` alike."""
+    """A relative project `cache_dir` resolves against the config file's directory."""
     project_dir = tmp_path / "proj"
     write_project_config(project_dir, 'cache_dir = "data/citefinder"\n')
     deep = project_dir / "src" / "pkg"
@@ -384,9 +374,7 @@ def test_malformed_project_config_warns_and_falls_through(
 def test_non_table_section_warns_and_falls_through(
     tmp_path: Path, monkeypatch, capsys, pyproject: bool
 ) -> None:
-    """`openalex = 5` where `[openalex]` was meant is a broken file, not an
-    absent section: warn and fall through rather than crash the CLI at
-    import reading keys off a scalar."""
+    """A scalar where a `[openalex]` table belongs warns and falls through."""
     project_dir = tmp_path / "proj"
     cfg = write_project_config(project_dir, "openalex = 5\n", pyproject)
     write_user_config(tmp_path, f'cache_dir = "{(tmp_path / "user").as_posix()}"\n')
@@ -495,9 +483,7 @@ def test_config_reports_a_cache_dir_flag_anchored_to_cwd(
 def test_config_verify_output_is_where_verify_writes(
     tmp_path: Path, captured, write_bib
 ) -> None:
-    """`config` and `verify` derive the output root from one helper, so the
-    path `config` prints is the one `verify` writes to.
-    """
+    """The output path `config` prints is the one `verify` writes to."""
     write_project_config(tmp_path, 'cache_dir = "caches"\n')
     _load_configs()
     shown = runner.invoke(app, ["config"]).output

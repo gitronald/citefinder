@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-21
+
+### Changed
+
+- Shorter `--help` text for the CLI commands, and comments and docstrings
+  across the package trimmed to what the code does now.
+- Runtime dependency floors raised: `polars` 2.0.0, `bibtexparser` 2.1.0,
+  `python-dotenv` 1.2.4, and `typer` 0.27.3. Dev tools moved to `ruff`
+  0.17.1 (pre-commit hook rev aligned), `hatchling` 1.32.4, and
+  `types-requests` 2.33.0.20261006.
+- Tooling synced with proj-template 0.11.5 (CI, Dependabot, pre-commit, and
+  the Stop hook).
+
+### Security
+
+- The publish workflow's `gh-action-pypi-publish` moved to v1.14.3, which
+  fixes [GHSA-5xjx-3w67-w9x9](https://github.com/pypa/gh-action-pypi-publish/security/advisories/GHSA-5xjx-3w67-w9x9)
+  and hash-checks the action's runtime dependencies.
+- The lockfile moved `urllib3` to 2.8.0 and `virtualenv` to 21.14.8, which
+  clears the open Dependabot alerts against both (unbounded chunk-size
+  buffering and Deflate looping in `urllib3`, and activation-script injection
+  and unchecked seed wheels in `virtualenv`).
+
 ## [0.13.0] - 2026-09-25
 
 ### Added

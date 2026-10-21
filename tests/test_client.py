@@ -13,8 +13,7 @@ from citefinder.client import CrossrefClient
 @pytest.fixture
 def setup(tmp_path: Path) -> tuple[CrossrefClient, MagicMock]:
     cache = JsonlCache(tmp_path / "cache.jsonl")
-    # Unpaced: these tests exercise URLs and caching, not rate limiting, and
-    # the Crossref default would otherwise sleep between uncached requests.
+    # Unpaced: the default interval would sleep between uncached requests.
     client = CrossrefClient(cache=cache, min_interval=0)
     session = MagicMock()
     client.session = session  # type: ignore[assignment]
@@ -37,8 +36,7 @@ def test_lookup_doi_encodes_url_structural_characters(
     setup: tuple[CrossrefClient, MagicMock],
     mock_response,
 ) -> None:
-    # A raw `#` or `?` in the path is a fragment or query to the HTTP layer,
-    # so the request used to go out truncated while the cache kept the full DOI.
+    # A raw `#` or `?` in the path would truncate the request; it must be encoded.
     client, session = setup
     session.get.return_value = mock_response(200, {"message": {"DOI": "10.1/a#b"}})
     client.lookup_doi("10.1/a#b?c%d")
@@ -66,10 +64,7 @@ def test_network_calls_counts_only_requests_that_miss_the_cache(
     setup: tuple[CrossrefClient, MagicMock],
     mock_response,
 ) -> None:
-    """`verify` reports cache effectiveness from this counter. It is
-    incremented where the hit/miss decision is made, so it tracks actual
-    requests rather than cache growth — which a refetch of a key already
-    stored, or an uncached client, would not move."""
+    """The request counter tracks actual requests, not cache growth."""
     client, session = setup
     session.get.return_value = mock_response(200, {"message": {"title": ["A"]}})
     assert client.network_calls == 0

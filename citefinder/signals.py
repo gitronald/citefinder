@@ -1,16 +1,8 @@
 """Source-agnostic bib-vs-metadata signal layer.
 
-Verification compares each bib entry against a record from a metadata
-service (Crossref, OpenAlex, and possibly Semantic Scholar / DataCite
-later). Most of those services expose the same four signals — title,
-year, first-author surname, container/venue — under different JSON
-shapes. This module is the *shape-independent* part: the canonical
-`Work` and `BibCitation` records, the per-signal checks, and the
-status reduction.
-
-To support a new source, write a `<source>_to_work(record) -> Work`
-adapter at the API boundary (see `citefinder.adapters`); this module
-never has to change.
+Defines the canonical `Work` and `BibCitation` records, the four per-signal
+checks (title, year, first-author surname, container), and the status
+reduction. Source-specific JSON is mapped to `Work` in `citefinder.adapters`.
 """
 
 from __future__ import annotations
@@ -27,13 +19,8 @@ from typing import Any
 class Status(StrEnum):
     """Verdict for a single bib entry after metadata verification.
 
-    Each member carries a `header`, a one-line description of the verdict
-    for reports; nothing in the package renders it yet. StrEnum members are
-    also `str`, so string comparisons, JSON serialization, and dict keys
-    keep working unchanged, and iteration order is declaration order.
-
-    Note: the per-member attribute is named `header`, not `title`, to
-    avoid shadowing `str.title()` (the built-in title-case method).
+    Each member carries a `header`, a one-line description for reports. It is
+    not named `title` to avoid shadowing `str.title()`.
     """
 
     header: str
@@ -78,13 +65,10 @@ class BibCitation:
 
 @dataclass
 class Work:
-    """A canonical metadata record. Adapters produce these from source-specific JSON.
+    """A canonical metadata record, produced by the adapters.
 
-    `container_names` is a *list* because real records often expose multiple
-    aliases for the venue — Crossref returns both the full and abbreviated
-    journal name, and for proceedings papers both the series ("Lecture Notes
-    in Computer Science") and the booktitle ("Detection of Intrusions...").
-    The check uses the best match across them.
+    `container_names` lists every venue alias a record exposes (full and
+    abbreviated journal name, series and booktitle); the check uses the best match.
     """
 
     title: str | None = None
@@ -95,11 +79,9 @@ class Work:
 
 # --- pure helpers -----------------------------------------------------------
 
-# A title check can only *confirm* a match when the bib title carries enough
-# words to be distinctive. A one- or two-word title ("Influence") scores a
-# perfect Jaccard against any record that shares those words, so below this
-# many tokens `check_title` tops out at `unknown`, and search-path candidate
-# selection (`verify_entry`) refuses to match on title similarity alone.
+# Fewer title tokens than this cannot confirm a match ("Influence" scores a
+# perfect Jaccard against any record containing it): `check_title` tops out at
+# `unknown` and search-path selection refuses to match on title alone.
 MIN_TITLE_TOKENS = 3
 
 
@@ -111,9 +93,7 @@ def strip_braces(s: str) -> str:
 def normalize_title(s: str) -> str:
     """Lower-case word characters only, diacritics folded, one space apart.
 
-    `\\w` rather than `[a-z0-9]`, so a title in a script NFKD cannot reduce
-    to ASCII (CJK, Cyrillic, Arabic) keeps its words instead of vanishing —
-    two identical such titles used to score 0.0 and fail the title check.
+    Keeps `\\w` characters so non-Latin scripts (CJK, Cyrillic, Arabic) survive.
     """
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
@@ -122,10 +102,8 @@ def normalize_title(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-# Scripts written without spaces between words. A title in them is a single
-# whitespace token however long, so it is compared by character bigrams — the
-# usual CJK tokenisation for overlap scoring — and each bigram counts as one
-# token against `MIN_TITLE_TOKENS`.
+# Scripts written without spaces: compared by character bigrams, each counting
+# as one token against `MIN_TITLE_TOKENS`.
 _CJK_RUN = re.compile(
     r"[\u3040-\u30ff"  # hiragana, katakana
     r"\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"  # CJK ideographs, compatibility
@@ -158,8 +136,7 @@ def _jaccard(sa: set[str], sb: set[str]) -> float:
 
 
 def title_similarity(a: str, b: str) -> float:
-    """Cheap Jaccard over normalized word sets — robust to small punctuation
-    or capitalization differences without pulling in a fuzzy-match dep."""
+    """Jaccard similarity of the normalized word sets."""
     return _jaccard(title_tokens(a), title_tokens(b))
 
 
@@ -167,12 +144,9 @@ def _is_truncation(sa: set[str], sb: set[str]) -> bool:
     """One title is the other with words dropped, and the shorter side is
     still long enough to be distinctive.
 
-    Sources truncate titles (OpenAlex stores only the part before the colon
-    for some records), and bibs omit subtitles. Either way the shorter title
-    is a strict subset of the longer one, and a low Jaccard reflects the
-    missing subtitle, not a different work. A subset of fewer than
-    `MIN_TITLE_TOKENS` words is not evidence of anything — "Influence" is a
-    subset of every title that contains the word — so it does not count.
+    Sources truncate titles and bibs omit subtitles, so a low Jaccard can
+    reflect a missing subtitle. A subset under `MIN_TITLE_TOKENS` words does
+    not count.
     """
     if not (sa < sb or sb < sa):
         return False
@@ -182,9 +156,8 @@ def _is_truncation(sa: set[str], sb: set[str]) -> bool:
 # --- per-signal checks ------------------------------------------------------
 # Each check returns:
 #   {"verdict": "pass"|"fail"|"unknown", "bib": ..., "crossref": ..., ...}
-# The "crossref" key is kept for historical compatibility with the rendered
-# report; it really means "the metadata source".
-# Status decisions read only the verdicts; the other fields are for the report.
+# The "crossref" key holds the metadata source's value, whichever source it is.
+# Status decisions read only the verdicts.
 
 
 def check_title(bib_title: str | None, work_title: str | None) -> dict[str, Any]:
@@ -203,11 +176,10 @@ def check_title(bib_title: str | None, work_title: str | None) -> dict[str, Any]
     elif s < 0.30:
         v = "fail"
     else:
-        v = "unknown"  # sources sometimes truncate titles; don't punish that.
+        v = "unknown"  # sources truncate titles
     note = None
     if v == "pass" and len(sa) < MIN_TITLE_TOKENS:
-        # "Influence" matches any record containing that word. Too short to
-        # confirm; let the other signals decide.
+        # Too short to confirm; let the other signals decide.
         v = "unknown"
         note = f"bib title has {len(sa)} word(s); need {MIN_TITLE_TOKENS} to confirm"
     elif v == "fail" and _is_truncation(sa, sb):
@@ -237,7 +209,7 @@ def check_year(bib_year_raw: str | None, work_year: int | None) -> dict[str, Any
             "crossref": work_year,
         }
     diff = abs(by - work_year)
-    # ±1 tolerates preprint-vs-proceedings drift.
+    # +-1 tolerates preprint-vs-proceedings drift.
     v = "pass" if diff <= 1 else "fail"
     return {"verdict": v, "bib": str(by), "crossref": str(work_year), "diff": diff}
 
@@ -245,12 +217,8 @@ def check_year(bib_year_raw: str | None, work_year: int | None) -> dict[str, Any
 def _surname_tokens(surname: str) -> set[str]:
     """Normalized tokens of a surname, minus its name particles.
 
-    BibTeX's convention, which bibtexparser follows, is that a lower-case
-    word before the last name is a particle: `van`, `de`, `der`. Two
-    different authors can share one, so it must not count as agreement on
-    its own. The whole word must be lower-case: `eBay` in an organisation's
-    name is a name, not a particle. A surname that is nothing but such
-    words keeps them all.
+    A wholly lower-case word (`van`, `de`) is a particle: two authors can
+    share one, so it is not agreement. A surname of only such words keeps them.
     """
     kept = [word for word in surname.split() if not word.islower()]
     return title_tokens(" ".join(kept)) or title_tokens(surname)
@@ -263,10 +231,8 @@ def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str,
             "bib": bib_surname or None,
             "crossref": work_surname or None,
         }
-    # Token-overlap rather than exact-equal: tolerates one source giving
-    # the compound surname ("Larios Vargas") while the other gives only
-    # the last token ("Vargas"). Real author conflicts (Petty vs Marquart,
-    # Cai vs Fang) still fail because no tokens overlap.
+    # Token overlap tolerates a compound surname ("Larios Vargas") against its
+    # last token ("Vargas").
     bib_tokens = _surname_tokens(bib_surname)
     work_tokens = _surname_tokens(work_surname)
     v = "pass" if (bib_tokens & work_tokens) else "fail"
@@ -274,9 +240,9 @@ def check_author(bib_surname: str | None, work_surname: str | None) -> dict[str,
 
 
 def _container_token_match(a: str, b: str, min_prefix: int = 4) -> bool:
-    """Two container tokens match if equal, or one is a `min_prefix`-long
-    prefix of the other. Catches ACM/IEEE-style abbreviations:
-    `proc` ↔ `proceedings`, `interact` ↔ `interaction`, `comput` ↔ `computer`.
+    """Tokens match if equal, or one is a prefix (>= `min_prefix` chars) of the other.
+
+    Catches abbreviations such as `proc` and `proceedings`.
     """
     if a == b:
         return True
@@ -285,19 +251,13 @@ def _container_token_match(a: str, b: str, min_prefix: int = 4) -> bool:
 
 
 def container_similarity(a: str, b: str) -> float:
-    """Like `title_similarity` but token equality is loosened to prefix
-    matching, since bibs frequently abbreviate venue names while
-    metadata sources keep the full form.
-    """
+    """Like `title_similarity`, but tokens may match by prefix (abbreviated venues)."""
     sa = list(dict.fromkeys(_tokens(normalize_title(a))))
     sb = list(dict.fromkeys(_tokens(normalize_title(b))))
     if not sa or not sb:
         return 0.0
-    # Pair each token at most once. Without that a short token prefix-matches
-    # every longer token on the other side ("data" against "data database
-    # dataset") and the score outruns the real overlap. Exact pairs go first
-    # so a prefix ("comp") cannot take the token its own twin ("computer")
-    # needed and leave that twin unpaired.
+    # Pair each token at most once, exact pairs first, so a short prefix
+    # cannot inflate the score or steal another token's exact twin.
     exact = set(sa) & set(sb)
     unmatched_b = [tb for tb in sb if tb not in exact]
     pairs = len(exact)
@@ -358,21 +318,12 @@ def status_from_signals(
 ) -> tuple[Status, str]:
     """Reduce four signals to a status + human-readable note.
 
-    A single signal disagreeing is often a metadata data quality issue
-    (title truncation, journal abbreviation, NBER preprint year vs published
-    year), not a genuinely wrong record — so we only call it `mismatch` when
-    ≥2 signals fail. Single failures land in `probable` for human eyeball.
+    A single failing signal is often source-side metadata loss, so `mismatch`
+    needs >= 2 failures; one failure is `probable`.
 
-    With `doi_resolved`, the record was reached through the bib's own DOI, so
-    identity is settled by construction and the signals exist to catch a
-    typoed DOI that lands on a *different* work. That case fails on ≥2
-    signals, or on the title alone for a related work by the same author in
-    the same venue. A single non-title disagreement next to ≥2 passes is
-    source-side metadata loss — OpenAlex truncates titles at the colon,
-    stores the LNCS series name instead of the booktitle, and reports
-    preprint years — so the entry stays `matched` and the disagreement rides
-    along in the note for review. With fewer than two passes nothing confirms
-    the record, DOI or not, and it stays `probable`.
+    With `doi_resolved` (the record came from the bib's own DOI), a single
+    non-title failure next to >= 2 passes stays `matched` with the disagreement
+    in the note. Fewer than two passes stays `probable`.
     """
     fails = [k for k, v in signals.items() if v["verdict"] == "fail"]
     passes = [k for k, v in signals.items() if v["verdict"] == "pass"]

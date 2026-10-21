@@ -1,27 +1,15 @@
 """Book metadata by ISBN: Open Library, then the Library of Congress.
 
-The chain is `ISBN -> Open Library edition -> LCCN -> Library of Congress
-MARC record`, with a direct ISBN query on the catalog when Open Library has
-no edition or no LCCN, merged field by field with the Library of Congress
-winning wherever it has a value. Every field remembers where it came from:
+The two sources are merged field by field, the Library of Congress winning
+where it has a value, and every field records its source:
 
-- `loc` — the catalog record, usually Cataloging in Publication data
-  supplied by the publisher and printed on the copyright page.
-- `openlibrary` — an Open Library edition fed by at least one library
-  catalog or scan.
-- `openlibrary:retailer` — an Open Library edition fed only by retailer
-  feeds (Amazon, Better World Books). Usually right, never confirmed: a
-  lead to check, not a value to apply.
+- `loc`: the catalog record.
+- `openlibrary`: an Open Library edition fed by a library catalog or scan.
+- `openlibrary:retailer`: an edition fed only by retailers; a lead to check,
+  not a value to apply.
 
-Three rules the merged record keeps:
-
-- **An imprint and its parent are both right.** A catalog `264 $b` often
-  reads `MCD, Farrar, Straus and Giroux`; `publisher_names` splits that so a
-  bib carrying only the imprint is not flagged.
-- **Retailer-fed data is a lead.** A field whose only source is a retailer
-  feed is reported as unconfirmed, with the value as a candidate.
-- **Silence is not agreement.** A source that lacks a field leaves it
-  unconfirmed; a missing value never counts as a match.
+A missing value never counts as agreement, and an imprint and its parent
+publisher both match (see `publisher_names`).
 """
 
 from __future__ import annotations
@@ -93,13 +81,8 @@ class BookRecord:
 
     @property
     def confirmed(self) -> bool:
-        """Whether every field a verdict rests on — the title, the year, and
-        the first contributor, where present — comes from a catalog source.
-
-        A catalog record that lacks a publication date leaves the year to
-        Open Library; if that edition is retailer-fed, a match decided partly
-        by that year is not a catalog confirmation.
-        """
+        """Whether the title, year, and first contributor (where present) all
+        come from a catalog source."""
         if self.title is None or not self.title.confirmed:
             return False
         signal_fields = [self.year, self.contributors[0] if self.contributors else None]
@@ -113,10 +96,8 @@ class BookRecord:
 def publisher_names(publisher: str) -> list[str]:
     """The publisher string and each imprint or parent named in it.
 
-    `MCD, Farrar, Straus and Giroux` -> the whole string, `MCD`, `Farrar`,
-    `Straus and Giroux`, and, since a comma-split can cut through a single
-    house's name, every comma-joined run of neighbours as well (`Farrar,
-    Straus and Giroux`). Matching any one of them counts as agreement.
+    `MCD, Farrar, Straus and Giroux` yields the whole string, each part, and
+    every comma-joined run of neighbours (`Farrar, Straus and Giroux`).
     """
     whole = publisher.strip()
     parts = [p for p in _PUBLISHER_SPLIT.split(whole) if p]
@@ -168,8 +149,7 @@ def _openlibrary_fields(
 
 
 def _merge(record: BookRecord, values: dict[str, Any], source: str) -> None:
-    """Fill every empty scalar field of `record` from `values`, and extend
-    the list fields with what is not already there."""
+    """Fill empty scalar fields of `record` from `values`; append new list items."""
     for name in ("title", "subtitle", "publisher", "place", "year", "edition", "lccn"):
         value = values.get(name)
         if value is not None and getattr(record, name) is None:
@@ -188,12 +168,9 @@ def book_record(
 ) -> BookRecord | None:
     """The merged record for `isbn`, or `None` when neither source has it.
 
-    Open Library is asked first, for the edition and the LCCN it carries.
-    The Library of Congress (when a `loc` client is given) is then asked by
-    that LCCN, or by the ISBN itself when there is no edition or no LCCN.
-    Catalog values are laid down first so they win the merge; Open Library
-    fills whatever the catalog record left empty. Every lookup goes through
-    its client's cache, so a second run is offline.
+    Open Library is asked first. The Library of Congress (when `loc` is given)
+    is then asked by the edition's LCCN, or by ISBN when there is none.
+    Catalog values are merged first, so they win.
     """
     isbn = normalize_isbn(isbn)
     edition = openlibrary.lookup_isbn(isbn)
@@ -233,15 +210,10 @@ def compare_book(record: BookRecord, fields: dict[str, str]) -> list[dict[str, s
     """What the bib `fields` should change or add to agree with `record`.
 
     Each suggestion is `{"field", "value", "source", "reason", "current",
-    "confirmed"}`: `reason` is `missing` (the bib has no such field) or
-    `differs`; `confirmed` is `yes` for a catalog-sourced value and `no`
-    for a retailer-fed one, which is offered as a candidate rather than
-    a correction. Bib values are `strip_braces`d by the caller.
-
-    Comparisons follow the module rules: a bib publisher matching any name
-    in `publisher_names` agrees; a field the record lacks is silent, never
-    a disagreement; a bib title that is the catalog title without its
-    subtitle gets the subtitle as a suggestion rather than a mismatch.
+    "confirmed"}`: `reason` is `missing` or `differs`; `confirmed` is `no`
+    for a retailer-fed value, offered as a candidate. Bib values are
+    `strip_braces`d by the caller. A field the record lacks is never a
+    disagreement.
     """
     out: list[dict[str, str]] = []
 
@@ -264,8 +236,7 @@ def compare_book(record: BookRecord, fields: dict[str, str]) -> list[dict[str, s
             if record.subtitle is not None and _same(bib_title, record.title.value):
                 suggest("title", BookField(full, record.subtitle.source), bib_title)
             elif not _same(bib_title, record.title.value):
-                # Differs, or the bib has no title at all: silence is not
-                # agreement, so a missing title is suggested like any field.
+                # A missing bib title is suggested like any other difference.
                 suggest("title", BookField(full, record.title.source), bib_title)
 
     bib_publisher = fields.get("publisher")
@@ -278,8 +249,7 @@ def compare_book(record: BookRecord, fields: dict[str, str]) -> list[dict[str, s
     bib_place = fields.get("location") or fields.get("address")
     if record.place is not None:
         place = record.place.value
-        # Catalogs qualify a city (`New York, USA`, `Cambridge, Mass.`); the
-        # bib's bare city is the same place.
+        # Catalogs qualify a city (`New York, USA`); a bare city matches.
         city = _PUBLISHER_SPLIT.split(place)[0]
         if not (_same(bib_place, place) or _same(bib_place, city)):
             suggest("location", BookField(city, record.place.source), bib_place)

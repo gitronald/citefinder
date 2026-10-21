@@ -1,18 +1,18 @@
 [project]
 name = "citefinder"
-version = "0.13.0"
+version = "0.14.0"
 description = ""
 authors = [
     {name = "gitronald", email = "gitronald@users.noreply.github.com"}
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "bibtexparser>=2.0.0",
+    "bibtexparser>=2.1.0",
     "pkgskills>=0.5.1",
-    "polars>=1.44.1",
-    "python-dotenv>=1.2.3",
+    "polars>=2.0.0",
+    "python-dotenv>=1.2.4",
     "requests>=2.34.2",
-    "typer>=0.25.1",
+    "typer>=0.27.3",
 ]
 readme = "README.md"
 license = "MIT"
@@ -26,50 +26,46 @@ citefinder = "citefinder.cli:app"
 [project.entry-points."pkgskills.hosts"]
 citefinder = "citefinder.host:HOST"
 
+# proj-template release this repo is synced to; not shipped in the wheel
+[tool.proj-template]
+version = "0.11.5"
+
 [build-system]
-# Floor mirrored by the dev-group pin, so the wheel test exercises the same
-# backend family as an isolated release build.
-requires = ["hatchling>=1.32.0"]
+# Floor matches the dev-group pin so the wheel test uses the release backend
+requires = ["hatchling>=1.32.4"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-# The bundled `use-citefinder` skill and its references are package data that
-# `citefinder skill`, `doc`, and `install` read at runtime, so they have to ship
-# in the wheel and sdist alongside the .py files. hatchling already picks them
-# up (they live inside the package and aren't VCS-ignored); declaring them
-# here — globally, so both targets — states the dependency and forces inclusion
-# even if the path later becomes ignored. tests/test_host.py builds a real
-# wheel to check the outcome, since an editable install resolves the body from
-# the repo either way.
+# Skill prompts are read at runtime, so force them into the wheel and sdist
 artifacts = ["citefinder/prompts/**/*.md"]
 
 [tool.hatch.build.targets.sdist]
-# Ship only what a PyPI consumer needs. Root-anchored (leading "/") so bare
-# filenames don't glob at every depth — this keeps internal plan files
-# (.planners/), the .claude/ holder, tests, and tooling out of the
-# published sdist.
+# Root-anchored so bare names don't match at every depth
 only-include = [
     "/citefinder",
     "/README.md",
     "/CHANGELOG.md",
     "/LICENSE",
-    # README links into docs/, so it ships too or those links dead-end on PyPI.
+    # README links into docs/
     "/docs",
 ]
 
 [dependency-groups]
 dev = [
-    "hatchling>=1.32.0",
+    "hatchling>=1.32.4",
     "pre-commit",
-    "pyrefly>=1.0.0",
+    "pyrefly>=1.3.2",
     "pytest>=9.1.1",
     "pytest-cov",
-    "ruff>=0.15",
-    "types-requests>=2.33.0.20260518",
+    # Keep in step with the ruff-pre-commit rev in .pre-commit-config.yaml
+    "ruff>=0.17.1,<0.18",
+    "types-requests>=2.33.0.20261006",
 ]
 
 [tool.ruff]
 target-version = "py311"
+# Keep ruff from formatting code fences in Markdown
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = [
@@ -84,10 +80,9 @@ select = [
 preset = "strict"
 python-version = "3.11"
 project-includes = ["citefinder", "tests"]
+project-excludes = ["**/__pycache__", "**/.venv"]
 
-# tests/ stays type-checked (imports, undefined names, type mismatches),
-# but the implicit-any check is relaxed there so unannotated pytest fixture
-# params (e.g. `def test_x(tmp_path):`) don't force annotations.
+# Allow unannotated pytest fixture params in tests
 [[tool.pyrefly.sub-config]]
 matches = "tests/**"
 

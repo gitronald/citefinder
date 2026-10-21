@@ -96,9 +96,8 @@ def test_doi_lookup_signals_match() -> None:
 
 
 def test_doi_single_non_title_disagreement_stays_matched() -> None:
-    # The bib's own DOI resolved, three signals confirm, one disagrees: the
-    # DOI is the identity claim, so the entry is matched and the
-    # disagreement rides along in the note for review.
+    # DOI resolved, three signals confirm, one disagrees: matched, with the
+    # disagreement in the note.
     text = """@article{x,
       author = {Smith, Jane},
       title = {A Study of Things},
@@ -117,9 +116,7 @@ def test_doi_single_non_title_disagreement_stays_matched() -> None:
 
 
 def test_doi_title_disagreement_stays_probable() -> None:
-    # Guard: a typoed DOI can land on a *related* work — same author, year,
-    # and venue, different paper — which fails only on title. The override
-    # must not swallow that.
+    # Guard: a typoed DOI landing on a related work fails only on title; not matched.
     text = """@article{x,
       author = {Smith, Jane},
       title = {A Study of Things},
@@ -137,9 +134,7 @@ def test_doi_title_disagreement_stays_probable() -> None:
 
 
 def test_doi_single_disagreement_without_confirmation_stays_probable() -> None:
-    # Guard: the override needs two confirming signals. A bib with only a
-    # title and year whose DOI resolves to an ambiguous title and a year
-    # thirty years off has nothing confirming identity.
+    # Guard: the override needs two confirming signals.
     text = """@article{x,
       title = {Selective Exposure Effects Online},
       year = {2020},
@@ -262,9 +257,8 @@ def test_malformed_author_field_yields_error_not_exception() -> None:
 
 
 # --- OpenAlex quirks: real records through the real adapter -----------------
-# Trimmed to the fields `openalex_to_work` reads, values as returned by the
-# OpenAlex API on 2026-09-02. Each is a bib entry whose own DOI resolved to
-# the right work and that `verify` nevertheless reported as `probable`.
+# Trimmed to the fields `openalex_to_work` reads. Each is a bib entry whose own
+# DOI resolved to the right work.
 
 
 def _openalex_source(record: dict[str, Any]) -> Source:
@@ -315,8 +309,7 @@ MESSING2014_OPENALEX = {
     "doi": "https://doi.org/10.1177/0093650212466406",
     "display_name": "Selective Exposure in the Age of Social Media",
     "title": "Selective Exposure in the Age of Social Media",
-    # Online-first date; `biblio` reports volume 41 issue 8, the 2014 print
-    # volume, but there is no second year field to fall back to.
+    # Online-first date; `biblio` is the 2014 print volume, with no second year.
     "publication_year": 2012,
     "publication_date": "2012-12-31",
     "authorships": [{"author": {"display_name": "Solomon Messing"}}],
@@ -400,8 +393,7 @@ def test_search_finds_matching_hit() -> None:
 
 
 def test_search_matches_a_cjk_title_through_the_short_title_gate() -> None:
-    # A CJK title is one whitespace token; the gate read it as a one-word
-    # title and refused to select the exact hit. Bigram tokens clear it.
+    # A CJK title is one whitespace token; bigram tokens let the exact hit be selected.
     text = """@article{x,
       author = {Wang, Wei},
       title = {深度学习综述},
@@ -423,7 +415,7 @@ def test_search_matches_a_cjk_title_through_the_short_title_gate() -> None:
 
 
 def test_search_match_without_a_doi_reports_none() -> None:
-    # The DOI path uses None for "no DOI"; the search path used to leave "".
+    # A search hit with no DOI yields `None`, not "".
     text = """@article{x,
       author = {Smith, Jane},
       title = {A Study of Things},
@@ -440,10 +432,8 @@ def test_search_match_without_a_doi_reports_none() -> None:
 
 
 def test_search_short_title_cannot_select_a_candidate() -> None:
-    # cialdini2003influence: the one-word title "Influence" scores 1.0
-    # against an unrelated 1985 paper titled "Influence". Title similarity
-    # cannot pick a candidate here; leave the hit in `candidates` and report
-    # why.
+    # A one-word title scores 1.0 against an unrelated paper of the same title;
+    # leave the hit in `candidates` and report why.
     text = """@book{cialdini2003influence,
       author = {Cialdini, Robert B.},
       title = {Influence},
@@ -515,9 +505,7 @@ class _FakeOpenAlex(OpenAlexClient):
 
 
 def test_crossref_search_candidate_title_includes_the_subtitle() -> None:
-    # Crossref splits `title` and `subtitle`. The DOI path already rejoins
-    # them; candidate scoring must see the same full title, or a split record
-    # scores about 0.24 against its own bib entry and goes unmatched.
+    # Crossref splits `title` and `subtitle`; scoring must see the rejoined title.
     text = """@inproceedings{x,
       author = {Ohm, Marc},
       title = {Backstabber's Knife Collection: A Review of Open Source Software Supply Chain Attacks},
@@ -577,9 +565,8 @@ def test_online_with_no_match_is_skip_source() -> None:
 
 
 def test_online_with_disagreeing_match_routes_to_skip_source() -> None:
-    # A high-similarity hit exists but signals disagree (year/author wrong).
-    # For @online, that's almost certainly a derived artifact, so the
-    # verifier should bury it under skip-source and drop the matched DOI.
+    # A high-similarity hit with disagreeing signals is buried under skip-source
+    # and its DOI dropped.
     text = """@online{x,
       author = {Smith, Jane},
       title = {A Study of Things},
@@ -596,8 +583,7 @@ def test_online_with_disagreeing_match_routes_to_skip_source() -> None:
 
 
 def test_online_unconfirmed_match_says_signals_do_not_confirm() -> None:
-    # Nothing disagreed here; too few fields could be checked. The note must
-    # not claim a disagreement it then quotes as "rest unknown".
+    # Nothing disagreed; too few fields were checkable, and the note must say so.
     text = "@online{x, title = {A Study of Things}}"
     src = _fake_source(
         search_items=[{"DOI": "10.1/x", "title": ["A Study of Things"]}],
@@ -612,8 +598,7 @@ def test_online_unconfirmed_match_says_signals_do_not_confirm() -> None:
 
 
 def test_online_short_title_hit_is_skip_source_with_url_note() -> None:
-    # A short title blocks candidate selection for @online / @misc too, and
-    # the note keeps the skip-source framing: the canonical source is the URL.
+    # A short title blocks selection for @online / @misc; the note stays skip-source.
     text = """@misc{x,
       author = {Org},
       title = {Data},
