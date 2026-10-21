@@ -1,10 +1,7 @@
 """citefinder CLI.
 
-Top-level commands default to OpenAlex — it indexes Crossref *plus* arXiv,
-preprints, and repository deposits, so a single `citefinder doi` or
-`citefinder search` works for the broadest range of citations. Crossref
-remains accessible via the `crossref` subcommand for its own workflows
-(book-chapter lookup, the canonical published-deposit metadata).
+Top-level commands default to OpenAlex, which covers Crossref plus arXiv and
+other repository deposits. The `crossref` subcommand queries Crossref directly.
 """
 
 from __future__ import annotations
@@ -63,17 +60,14 @@ from citefinder.openalex import OpenAlexClient, datacite_note, datacite_registra
 from citefinder.openlibrary import OPENLIBRARY_MIN_INTERVAL, OpenLibraryClient
 from citefinder.verify import Result, Source, verify_entry
 
-# Load `.env` from the current working directory (or any parent) so users can
-# keep `OPENALEX_API_KEY` out of their shell rc and out of bash history.
-# Library users are unaffected — this only runs when the CLI is invoked.
+# Load `.env` from the working directory or a parent; CLI only, never the library.
 load_dotenv(find_dotenv(usecwd=True))
 
 
 def _anchor(path: str | Path, base: Path) -> Path:
     """`path` made absolute against `base`; a leading `~` expands first.
 
-    Raises `ValueError` for a `~user` form naming an unknown account, which
-    `Path.expanduser` reports as a bare `RuntimeError`.
+    Raises `ValueError` for a `~user` naming an unknown account.
     """
     try:
         expanded = Path(path).expanduser()
@@ -88,8 +82,7 @@ def _report_errors(
 ) -> Generator[None, None, None]:
     """Turn a library exception into an `Error:` line and exit, no traceback.
 
-    Exit 1 for a failure in the work itself; `code=2` for a usage error (a
-    bad flag or env value), the code click itself uses for those.
+    Exit 1 for a failure in the work itself; `code=2` for a usage error.
     """
     try:
         yield
@@ -104,37 +97,15 @@ def _anchor_or_exit(path: str | Path, base: Path) -> Path:
         return _anchor(path, base)
 
 
-# Env name -> which config file `_load_configs` took its value from
-# ("project" or "user"). Names it did not set came from a flag, the shell
-# env, or `.env`. `citefinder config` reports these.
+# Env name -> "project" or "user", for values `_load_configs` set from a config file.
 _config_sources: dict[str, str] = {}
 
 
 def _load_configs() -> None:
-    """Populate env vars from the project config, then the user config, for
-    any names not already set.
+    """Populate unset env vars from the project config, then the user config.
 
-    The project config is the nearest `citefinder.toml` or `pyproject.toml`
-    with a `[tool.citefinder]` table at or above the working directory; the
-    user config is `~/.config/citefinder/config.toml` (honors
-    `$XDG_CONFIG_HOME`). Each fills only names still unset, so shell env and
-    `.env` win over both and the project file wins over the user file: a
-    setting that is a property of a repo (where its caches go) lives with
-    the repo, while credentials stay per machine.
-
-    Expected format, either file (under `[tool.citefinder]` in pyproject):
-        cache_dir = "data/citefinder"   # relative: to this file's dir
-
-        [openalex]
-        api_key = "oa_pk_..."   # user config or .env only, never a project file
-        mailto = "you@example.com"
-        max_retries = 3
-        min_interval = 0.1
-
-        [crossref]
-        mailto = "you@example.com"
-        max_retries = 3
-        min_interval = 0.34   # default: 1.0 anonymous, 0.34 in the polite pool
+    Each file fills only names still unset, so shell env and `.env` win over
+    both, and the project file wins over the user file.
     """
     _config_sources.clear()
     project = find_project_config()
@@ -149,35 +120,28 @@ def _apply_config(path: Path, kind: Literal["project", "user"]) -> None:
     try:
         config = load_config(path)
     except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
-        # A broken config file must never take the whole CLI down —
-        # `citefinder skill` is the only copy of the skill instructions on
-        # this machine. Warn and fall through to the next source.
+        # A broken config must not take the CLI down.
         typer.echo(f"warning: ignoring {path}: {exc}", err=True)
         return
     for env_name, (section, key) in ENV_KEYS.items():
         table = config if section is None else config.get(section) or {}
         value = table.get(key)
-        # `is not None`, not truthiness: `max_retries = 0` is a real setting.
+        # `max_retries = 0` is a real setting, so don't test truthiness.
         if value is None or value == "":
             continue
         if kind == "project" and key == "api_key":
-            # A project config is meant to be committed, and a key in it
-            # would be too. Skipped even when the env already carries one,
-            # so the warning fires as long as the key is on disk.
+            # A project config is committed, so a key in it would leak.
             typer.echo(
                 f"warning: ignoring {section}.{key} in {path}: keep API keys "
                 f"out of project config; use .env or {user_config_path()}",
                 err=True,
             )
             continue
-        # An empty value is "unset" everywhere else the env is read (typer's
-        # `envvar`, `_env_number`, `_cache_dir`), so treat it the same here or
-        # `OPENALEX_MAILTO=""` would block the config value and win nothing.
+        # An empty env value counts as unset, as it does everywhere else it is read.
         if os.environ.get(env_name):
             continue
         if key == "cache_dir":
-            # Anchored to the file, not the working directory, so a relative
-            # `cache_dir` names the same place whatever the command's cwd.
+            # Relative to the config file, not the working directory.
             try:
                 value = _anchor(str(value), path.parent)
             except ValueError as exc:
@@ -198,7 +162,7 @@ crossref_app = typer.Typer(
 app.add_typer(crossref_app, name="crossref")
 cache_app = typer.Typer(help="Inspect and consolidate the JSONL caches.")
 app.add_typer(cache_app, name="cache")
-# `skill`, `doc`, and `install`: the Claude Code skill, served by pkgskills.
+# Mounts `skill`, `doc`, and `install`.
 register(app, HOST)
 
 _CACHE_HELP = (
@@ -263,11 +227,8 @@ _MIN_INTERVAL_HELP = (
 def _pacing_options(source: str, min_interval_default: str) -> tuple[Any, Any]:
     """The `--max-retries` / `--min-interval` pair bound to one source's env.
 
-    Both flags differ between sources only by the `<SOURCE>_` env prefix and
-    the pacing default named in the help, so a new source declares its pair
-    here rather than growing another two near-identical option blocks.
-    `verify` builds its own inline: it picks the source at runtime, so it
-    cannot bind a single `envvar` and reads them via `_source_client_kwargs`.
+    `verify` builds its own: it picks the source at runtime, so it reads the
+    env via `_source_client_kwargs`.
     """
     prefix = source.upper()
     return (
@@ -290,8 +251,7 @@ def _pacing_options(source: str, min_interval_default: str) -> tuple[Any, Any]:
     )
 
 
-# Crossref's default depends on whether the caller is polite, so its help
-# names both rates rather than a single number.
+# Crossref's default depends on whether the caller is polite, so the help names both.
 _MIN_INTERVAL_DEFAULT = str(DEFAULT_MIN_INTERVAL)
 _CROSSREF_MIN_INTERVAL_DEFAULT = (
     f"{CROSSREF_MIN_INTERVAL} anonymous, {CROSSREF_POLITE_MIN_INTERVAL} with a mailto"
@@ -308,8 +268,7 @@ OpenAlexMaxRetriesOption, OpenAlexMinIntervalOption = _pacing_options(
 CrossrefMaxRetriesOption, CrossrefMinIntervalOption = _pacing_options(
     "crossref", _CROSSREF_MIN_INTERVAL_DEFAULT
 )
-# `isbn` drives two clients; its pair binds to the Open Library env and the
-# Library of Congress client takes the same values.
+# `isbn` drives two clients; the Library of Congress one takes the same values.
 OpenLibraryMaxRetriesOption, OpenLibraryMinIntervalOption = _pacing_options(
     "openlibrary", str(OPENLIBRARY_MIN_INTERVAL)
 )
@@ -330,11 +289,7 @@ NoLocOption = typer.Option(
 def _client_kwargs(
     max_retries: int | None, min_interval: float | None
 ) -> dict[str, Any]:
-    """Constructor kwargs for the knobs a user actually set.
-
-    An unset flag is omitted rather than passed as `None`, so the client's
-    own default (per-source pacing, 3 retries) stays in force.
-    """
+    """Constructor kwargs for the knobs a user set; unset ones keep client defaults."""
     kwargs: dict[str, Any] = {}
     if max_retries is not None:
         kwargs["max_retries"] = _checked_knob("max_retries", max_retries)
@@ -344,11 +299,10 @@ def _client_kwargs(
 
 
 def _checked_knob(name: str, value: float) -> float:
-    """Reject a knob value the client would refuse, with a clean exit 2.
+    """Reject a knob value the client would refuse, with exit 2.
 
-    Every CLI path funnels through here: click's `min=0` on the flags lets
-    `inf`/`nan` through, and `verify`'s env fallback skips click's range
-    check entirely, so the client's own bound is applied up front.
+    Click's `min=0` lets `inf`/`nan` through and `verify`'s env fallback skips
+    it, so the client's own bound is applied here.
     """
     with _report_errors(ValueError, code=2):
         return validate_knob(name, value)
@@ -360,13 +314,7 @@ def _source_client_kwargs(
     min_interval: float | None,
     mailto: str | None,
 ) -> dict[str, Any]:
-    """Like `_client_kwargs`, falling back to the chosen source's env vars.
-
-    `verify` picks its source at runtime, so its flags can't bind a single
-    `envvar`; an unset flag reads `<SOURCE>_MAX_RETRIES` /
-    `<SOURCE>_MIN_INTERVAL` / `<SOURCE>_MAILTO` (which config.toml also
-    feeds) so `verify --source crossref` honors the `[crossref]` section.
-    """
+    """Like `_client_kwargs`, with unset flags falling back to `<SOURCE>_*` env vars."""
     prefix = source.upper()
     if max_retries is None:
         max_retries = _env_number(f"{prefix}_MAX_RETRIES", int)
@@ -393,13 +341,10 @@ def _env_number(name: str, cast: type[int] | type[float]) -> Any:
 
 
 def _cache_dir(flag: Path | None) -> Path | None:
-    """The directory a command derives its cache paths from, or `None`
-    when nothing is set and the command's own default applies.
+    """The directory cache paths derive from, or `None` for the command's default.
 
-    `--cache-dir` first, then `CITEFINDER_CACHE_DIR` (which config.toml
-    also feeds). A relative flag or env value is anchored to the working
-    directory, as `--cache` and `--out` are; a config-file value was
-    anchored to the file's directory when it was loaded.
+    `--cache-dir` first, then `CITEFINDER_CACHE_DIR`; relative values anchor
+    to the working directory.
     """
     if flag is not None:
         return _anchor_or_exit(flag, Path.cwd())
@@ -458,13 +403,10 @@ def _book_lookup(
     out_dir: Path | None = None,
     fallback: bool = False,
 ) -> BookLookup:
-    """The Open Library + Library of Congress pair behind `isbn` and
-    `verify --books`.
+    """The Open Library + Library of Congress pair behind `isbn` and `verify --books`.
 
-    Caches live at `<cache-dir>/openlibrary.jsonl` and `<cache-dir>/loc.jsonl`
-    — or under `out_dir` when `verify` passes one, with the shared files as
-    read-only fallbacks when `fallback` is set. The knobs apply to both
-    clients; each falls back to its own `<SOURCE>_*` env.
+    Caches live under `out_dir` when given, else the cache dir; `fallback`
+    adds the shared files as read-only fallbacks.
     """
     root = out_dir if out_dir is not None else _cache_dir(cache_dir)
     shared = _verify_root(cache_dir) if fallback else None
@@ -490,9 +432,7 @@ def _book_lookup(
 
 
 def _verify_root(cache_dir: Path | None) -> Path:
-    """The directory `verify` files its output under: `cache_dir` when one
-    is set, else `data/citefinder` under the working directory. Shared with
-    `citefinder config` so the path it prints is the one `verify` writes."""
+    """The directory `verify` files its output under (also what `config` prints)."""
     return _cache_dir(cache_dir) or Path.cwd() / "data" / "citefinder"
 
 
@@ -500,18 +440,10 @@ _PRIMARY_BIB_STEM = "refs"
 
 
 def _verify_out_dir(bib_file: Path, source: str, cache_dir: Path | None) -> Path:
-    """The default directory `verify` writes to:
-    `<root>/<bib-dir>[-<bib-stem>]/<source>/`, where `<bib-dir>` is the name
-    of the directory holding the `.bib` and the `-<bib-stem>` suffix is added
-    unless the file is the primary `refs.bib`.
+    """The default `verify` output dir: `<root>/<bib-dir>[-<bib-stem>]/<source>/`.
 
-    Keying on the directory rather than the stem keeps runs from different
-    directories apart even when they name their bibliographies alike
-    (`refs.bib` everywhere, or an `extra.bib` in each); keying on the stem
-    alone funnelled them into one directory, the later run overwriting the
-    earlier. The path is made absolute first, since a bare `verify refs.bib`
-    has no parent component to name the directory by; symlinks are left
-    alone so a linked directory keeps its own name and its existing cache.
+    The stem suffix is omitted for `refs.bib`. The path is made absolute
+    first, without resolving symlinks, so a linked directory keeps its name.
     """
     bib = Path(os.path.normpath(bib_file.absolute()))
     name = bib.parent.name
@@ -521,13 +453,7 @@ def _verify_out_dir(bib_file: Path, source: str, cache_dir: Path | None) -> Path
 
 
 def _require_file(path: Path, label: str = "", code: int = 1) -> None:
-    """Exit rather than let a command run on a path that is not a file.
-
-    Every command that takes a path opens with this check, so the wording is
-    one string: a missing `.bib`, a mistyped cache, and a directory passed
-    where a file belongs all report the same way. `label` names the flag when
-    the path came from one, and `code=2` marks it a usage error.
-    """
+    """Exit unless `path` is a file; `label` names the flag it came from."""
     if not path.is_file():
         typer.echo(f"Error: {label}{path} is not a file", err=True)
         raise typer.Exit(code=code)
@@ -581,10 +507,9 @@ def isbn(
 ) -> None:
     """Look up a book by ISBN: Open Library, then the Library of Congress.
 
-    Prints the merged record with each field's source — `loc` (the catalog
-    record, usually what the copyright page says), `openlibrary`, or
-    `openlibrary:retailer` (fed only by a retailer, a lead rather than a
-    confirmation) — plus the URL of each source's record.
+    Prints the merged record with each field's source (`loc`, `openlibrary`,
+    or `openlibrary:retailer`, a lead rather than a confirmation) and each
+    source's record URL.
     """
     books = _book_lookup(
         cache_dir, mailto, max_retries, min_interval, with_loc=not no_loc
@@ -604,7 +529,7 @@ def search(
     max_retries: int | None = OpenAlexMaxRetriesOption,
     min_interval: float | None = OpenAlexMinIntervalOption,
 ) -> None:
-    """Search OpenAlex by title (title-only filter; tuned for citation lookup)."""
+    """Search OpenAlex by title."""
     client = _openalex_client(
         cache, cache_dir, mailto, api_key, max_retries, min_interval
     )
@@ -613,7 +538,7 @@ def search(
 
 
 def _age(seconds: float) -> str:
-    """A rough age for a snapshot: precision past the unit is noise here."""
+    """A rough age for a snapshot."""
     if seconds < 0:
         return "in the future"
     if seconds < 60:
@@ -646,10 +571,8 @@ def ratelimit(
 ) -> None:
     """Report what the source last said about your remaining quota.
 
-    Every response carries the quota headers, so the client records them as
-    it works and stores the newest in the cache. Reporting them therefore
-    costs nothing; `--refresh` issues one request to get a current reading,
-    as does a first run with nothing stored yet.
+    Reads the newest quota headers stored in the cache, at no cost. `--refresh`
+    issues one request for a current reading, as does a first run.
     """
     if source not in ("openalex", "crossref"):
         typer.echo(f"Error: unknown source {source!r} (openalex or crossref)", err=True)
@@ -662,8 +585,7 @@ def ratelimit(
 
     snapshot = client.rate_limit
     headers = snapshot.get("headers") if isinstance(snapshot, dict) else None
-    # Nothing stored yet is the one case a stale-but-free reading can't
-    # answer, so take one; a later run then reads it from the cache.
+    # With nothing stored, a cached reading can't answer; fetch one.
     if refresh or not isinstance(headers, dict) or not headers:
         snapshot = client.refresh_rate_limit()
         headers = snapshot.get("headers") if isinstance(snapshot, dict) else None
@@ -696,9 +618,8 @@ def bib_to_table_cmd(
 ) -> None:
     """Tabulate a `.bib` file into a wide table (one row per entry).
 
-    Default output is a polars table sized for terminal viewing. `--csv`
-    writes to stdout for piping into a spreadsheet or another tool.
-    `--fields` filters to a subset (`key` and `entry_type` are always shown).
+    `--csv` writes CSV to stdout; `--fields` filters columns (`key` and
+    `entry_type` are always shown).
     """
     import polars as pl
 
@@ -710,8 +631,7 @@ def bib_to_table_cmd(
         df = bib_to_table(bib_file.read_text())
 
     if fields:
-        # `dict.fromkeys` keeps order and drops repeats, so naming `key` or
-        # `entry_type` again does not become a duplicate projection.
+        # `dict.fromkeys` keeps order and drops repeats.
         requested = (f.strip() for f in fields.split(","))
         wanted = dict.fromkeys(["key", "entry_type", *requested])
         present = [c for c in wanted if c in df.columns]
@@ -735,11 +655,8 @@ def table_to_bib_cmd(
 ) -> None:
     """Convert a CSV (from `bib-to-table --csv`) back into a `.bib` file.
 
-    Inverse of `bib-to-table`. Input CSV must have `key` and `entry_type`
-    columns; remaining columns become bib fields. Empty cells are
-    treated as absent fields. Field order within each entry follows
-    the CSV's column order, so the source bib's original field order
-    is not recoverable.
+    The CSV needs `key` and `entry_type` columns; the rest become bib fields,
+    with empty cells treated as absent. Fields follow the CSV's column order.
     """
     import polars as pl
 
@@ -747,9 +664,7 @@ def table_to_bib_cmd(
 
     _require_file(csv_file)
 
-    # `infer_schema_length=0` keeps every column as a string — year,
-    # volume, etc. are bib values, not numbers, and downstream consumers
-    # expect them to round-trip verbatim.
+    # `infer_schema_length=0` keeps every column a string so values round-trip verbatim.
     df = pl.read_csv(csv_file, infer_schema_length=0)
     with _report_errors(ValueError):
         bib = table_to_bib(df)
@@ -810,26 +725,18 @@ def verify(
 ) -> None:
     """Verify a `.bib` against Crossref or OpenAlex.
 
-    For each entry: if `doi` is present, look up that DOI directly;
-    otherwise search by author + title + year. Writes a JSONL response
-    cache and a structured `results.json` to the output directory.
+    Looks up each entry's `doi` directly, else searches by author + title +
+    year. Writes a JSONL response cache and `results.json` to the output dir.
 
-    With `--books`, a book entry that has an `isbn` and no `doi` is checked
-    against its catalog record instead (`method=isbn`), and `results.json`
-    carries per-entry `suggestions` — fields the bib should add or change,
-    each with its source. The Open Library and Library of Congress caches
-    land beside the source cache.
+    With `--books`, a book entry with an `isbn` and no `doi` is checked against
+    its catalog record (`method=isbn`), and `results.json` gains per-entry
+    `suggestions`.
 
-    A miss in that per-run cache falls back to the shared cache `cache
-    merge` maintains, read-only, so a record an earlier run fetched is not
-    refetched. Only the per-run cache is ever written.
+    A miss in the per-run cache falls back, read-only, to the shared cache
+    that `cache merge` maintains.
     """
     _require_file(bib_file)
 
-    # Default output comes from `_verify_out_dir`; its per-source subdir lets
-    # crossref and openalex outputs coexist for side-by-side comparison
-    # without collision. `--out` is anchored to cwd like `--cache-dir`, so a
-    # quoted `~` expands and the cache below lands beside `results.json`.
     if out is not None:
         out_dir = _anchor_or_exit(out, Path.cwd())
     else:
@@ -837,9 +744,7 @@ def verify(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cache_path = resolve_cache_path(source, out_dir)
-    # The shared file `cache merge` writes. When `--out` points the run at
-    # the cache root itself the two coincide, and layering a file over
-    # itself would only double-count it.
+    # The shared file `cache merge` writes; no fallback if it is the run's own cache.
     shared = resolve_cache_path(source, _verify_root(cache_dir))
     coincide = shared.resolve() == cache_path.resolve()
     fallback = None if no_fallback or coincide else shared
@@ -887,11 +792,7 @@ def verify(
         typer.echo(f"  [{i:>{width}}/{len(entries)}] {entry.key:<30}", nl=False)
         r = verify_entry(entry, src, lookup)
         results.append(r)
-        # Without `--books`, `verify_entry` makes at most one lookup per entry
-        # — the DOI path and the search path each return — so this reads as
-        # "this entry went to the network". A book check can make several
-        # (edition, authors, catalog record), so the run total below is a
-        # straight call count rather than one per entry.
+        # A book check can make several calls per entry, so the run total counts calls.
         was_network = network_calls() > calls_before
         status_counts[r.status] += 1
         sim = f"{r.similarity:.2f}" if r.similarity is not None else "  - "
@@ -939,10 +840,7 @@ _SETTING_DEFAULTS = {
 def _setting_default(env_name: str) -> str:
     """The value a setting takes when nothing sets it.
 
-    Crossref's pacing default is resolved rather than looked up: it follows
-    whichever rate a request would actually get, so `citefinder config` run
-    with a `mailto` configured reports the polite interval the client will
-    really use, not the anonymous one.
+    Crossref's pacing default follows whether a `mailto` is configured.
     """
     if env_name == "CROSSREF_MIN_INTERVAL":
         polite = is_polite(os.environ.get("CROSSREF_MAILTO"))
@@ -954,13 +852,10 @@ def _setting_default(env_name: str) -> str:
 def drift(cache: Path) -> None:
     """Report keys the records in a JSONL cache carry that the models lack.
 
-    Read-only. Rows are routed by the request host in their key (never by the
-    file name) and grouped by kind: `crossref-work`, `crossref-search`,
-    `openalex-work`, `openalex-search`. Each undeclared dotted path is printed
-    with the share of records that carried it, most common first. A path that
-    shows up on most records is a candidate for the model; a rare one is the
-    tail the model leaves out on purpose. Unreadable lines are skipped the way
-    the cache loader skips them.
+    Rows are grouped by the request host in their key into `crossref-work`,
+    `crossref-search`, `openalex-work`, and `openalex-search`. Each undeclared
+    dotted path is printed with the share of records carrying it, most common
+    first.
     """
     _require_file(cache)
     drift_by_kind = cache_drift(read_records(cache))
@@ -977,10 +872,8 @@ def drift(cache: Path) -> None:
 def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
     """Show each setting, where it came from, and the paths lookups would use.
 
-    Read-only. Each value is tagged with its source: `flag`, `env` (shell or
-    `.env`), `project` or `user` (the config files named at the top), or
-    `default`. Run it from the directory a lookup ran in to see why it wrote
-    where it did; pass `--cache-dir` to preview a flag's effect.
+    Each value is tagged with its source: `flag`, `env` (shell or `.env`),
+    `project`, `user`, or `default`. Pass `--cache-dir` to preview a flag.
     """
     project = find_project_config()
     user = user_config_path()
@@ -1001,8 +894,7 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
             continue
         raw = os.environ.get(env_name)
         if raw:
-            # Never print a credential; that it is set, and from where, is
-            # what the reader needs.
+            # Never print a credential.
             value = "(set)" if key == "api_key" else raw
             source = _config_sources.get(env_name, "env")
         else:
@@ -1024,10 +916,7 @@ def config_cmd(cache_dir: Path | None = CacheDirOption) -> None:
 
 # --- cache maintenance ------------------------------------------------------
 #
-# Consolidation is always an explicit step. No lookup, and no `verify` run,
-# merges anything as a side effect: a per-run cache stays beside its own
-# `results.json`, and a misrouted row only ever moves because someone ran
-# `cache merge`.
+# Consolidation is always explicit: only `cache merge` merges anything.
 
 _SOURCES: tuple[str, ...] = tuple(sorted(set(SOURCE_HOSTS.values())))
 
@@ -1050,9 +939,7 @@ WriteOption = typer.Option(
 def _cache_root(cache_dir: Path | None) -> Path:
     """The directory the cache commands read, or exit 1 when it is not one.
 
-    A missing directory is an error, never an empty cache: a dropped mount
-    or a mistyped `--cache-dir` must not report zero rows as if the cache
-    were simply new.
+    A missing directory is an error, not an empty cache (a dropped mount or a typo).
     """
     root = _cache_dir(cache_dir) or default_cache_dir()
     if not root.is_dir():
@@ -1083,11 +970,9 @@ def _when(ts: float | None) -> str:
 
 
 def _report_merge(stats: MergeStats) -> None:
-    """The outcome of one merge: what it read, and every decision it made.
+    """Print what a merge read and decided.
 
-    The null-versus-record counts print even at zero — a merge that silently
-    replaced a good record with a stale 404 is exactly what a reader needs to
-    see the run it happened in. The rest print only when they fire.
+    The 404-versus-record counts print even at zero; the rest only when nonzero.
     """
     pairs: list[tuple[str, object]] = [
         ("rows read", stats.rows_read),
@@ -1120,13 +1005,9 @@ def _apply(rows: list[Any], target: Path, write: bool) -> None:
 def cache_stats_cmd(cache_dir: Path | None = CacheDirOption) -> None:
     """Inventory every JSONL cache under the cache directory.
 
-    Read-only, and recursive: the shared `<source>.jsonl` caches and every
-    per-run `verify` cache under them are counted together, so this is the
-    answer to "what has this project actually fetched". Rows are grouped by
-    the host that answered them, never by file name, so a misdirected record
-    is counted under the source it really came from. Distinct-key counts use
-    the newest row for each key, so `cached 404s` is what a lookup would hit
-    today.
+    Recursive: the shared `<source>.jsonl` caches and every per-run `verify`
+    cache are counted together. Rows are grouped by the host that answered
+    them, not by file name. Distinct-key counts use the newest row per key.
     """
     root = _cache_root(cache_dir)
     paths = _find(root, "*.jsonl")
@@ -1164,30 +1045,21 @@ def cache_merge_cmd(
 ) -> None:
     """Consolidate every cache under the cache directory into the shared ones.
 
-    Reads every `<cache-dir>/**/*.jsonl` — the shared caches plus every
-    per-run `verify` cache — and any `--extra` file, then rewrites
-    `<cache-dir>/<source>.jsonl` with one line per key. Every file is offered
-    to every source and each row goes where its host says, so a record that
-    landed in the wrong file is filed under the source that answered it
-    rather than lost. Across independent files the newest `ts` wins (line
-    order says nothing between logs); within one file the later line does, as
-    the cache itself replays it. Winners keep their own `ts`.
+    Reads every `<cache-dir>/**/*.jsonl` and any `--extra` file, then rewrites
+    `<cache-dir>/<source>.jsonl` with one line per key. Each row goes to the
+    source its host names, wherever it was found. Across files the newest `ts`
+    wins; within one file the later line does. Winners keep their own `ts`.
 
-    Dry run by default. The inputs are never modified: a `verify` run's cache
-    stays beside its `results.json`, so consolidating is reversible by
-    re-running the merge.
+    Dry run by default. Inputs are never modified.
     """
     root = _cache_root(cache_dir)
     extras = [_anchor_or_exit(p, Path.cwd()) for p in extra or []]
     for path in extras:
         _require_file(path, label="--extra ", code=2)
-    # `merge_caches` reads a file named twice only once, so an `--extra` that
-    # the glob already found does not inflate the counts below.
+    # `merge_caches` reads a file named twice only once.
     inputs = _find(root, "*.jsonl") + extras
     typer.echo(f"cache dir: {root}")
-    # Every source is merged before anything is written: the targets are
-    # inputs too, so rewriting one mid-run would take a misrouted row out
-    # from under the pass that was about to rehome it.
+    # Merge every source before writing: the targets are inputs too.
     merged = [
         (source, merge_caches(inputs, source=source, keep_records=keep_records))
         for source in _SOURCES
@@ -1209,14 +1081,10 @@ def cache_compact_cmd(
 ) -> None:
     """Dedupe one JSONL cache to a single line per key, in place.
 
-    The same merge as `cache merge` over a single file, so a shared cache
-    that has grown a long tail of repeat lookups shrinks to one line per key
-    with each winner's own `ts` preserved. Idempotent, and lossless: rows
-    from neither API are reported but kept, unlike a merge into a source's
-    cache, which drops them.
+    The same merge as `cache merge` over one file. Rows from neither API are
+    reported but kept, unlike a merge into a source's cache.
 
-    Dry run by default. `--write` replaces the file atomically (a temporary
-    file moved over it), never by rewriting it in place.
+    Dry run by default. `--write` replaces the file atomically.
     """
     _require_file(path)
     rows, stats = merge_caches([path], keep_records=keep_records)
@@ -1238,8 +1106,7 @@ def crossref_doi(
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
     """Look up a single DOI via Crossref."""
-    # Crossref never indexes DataCite DOIs, so point at OpenAlex instead of
-    # spending a request on a guaranteed 404.
+    # Crossref never indexes DataCite DOIs; skip the guaranteed 404.
     registrar = datacite_registrar(normalize_doi(doi))
     if registrar is not None:
         typer.echo(
@@ -1262,7 +1129,7 @@ def crossref_search(
     max_retries: int | None = CrossrefMaxRetriesOption,
     min_interval: float | None = CrossrefMinIntervalOption,
 ) -> None:
-    """Search Crossref by free-form bibliographic query (author + title + year)."""
+    """Search Crossref by bibliographic query (author + title + year)."""
     client = _crossref_client(cache, cache_dir, mailto, max_retries, min_interval)
     items = client.search_bibliographic(query, rows=rows)
     _emit(items)

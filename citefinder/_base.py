@@ -1,14 +1,8 @@
-"""Shared HTTP-with-cache plumbing for Crossref and OpenAlex clients.
+"""Shared HTTP-with-cache plumbing for the JSON API clients.
 
-Both clients fetch JSON over HTTPS, treat 404 as a cached `None`, and key the
-cache by URL with any polite-pool `mailto` stripped (so changing the email
-on a request doesn't invalidate prior cache entries).
-
-Transient failures — 429 (rate limited) and 502/503/504 (upstream hiccups)
-— are retried with a bounded wait before the request is given up on, and
-requests can be paced by a minimum interval so a long `verify` run stays
-under a source's published rate limit. Nothing is written to the cache until
-a 2xx or 404 arrives, so an error response is never replayed from disk.
+JSON GETs are cached by URL (`mailto` stripped from the key) with 404 stored
+as `None`. Transient statuses are retried with a bounded wait, and requests can
+be paced by a minimum interval. Only 2xx and 404 responses are cached.
 """
 
 from __future__ import annotations
@@ -37,40 +31,24 @@ DEFAULT_BACKOFF_BASE = 1.0
 DEFAULT_MAX_WAIT = 60.0
 
 # Minimum spacing between consecutive uncached requests from one client.
-# 0.1 s (10/s) is the generic floor and what OpenAlex uses: it sits well
-# inside OpenAlex's documented 100 req/s ceiling, where the binding limit is
-# a daily credit budget rather than a rate (see docs/openalex.md). Crossref
-# advertises a much lower per-second rate and resolves its own default from
-# whether the request is polite — see `CrossrefClient` in client.py.
+# OpenAlex's binding limit is a daily credit budget, not this rate; Crossref
+# sets its own default.
 DEFAULT_MIN_INTERVAL = 0.1
 
-# Statuses worth a second try: the rate limiter (429) and the gateway-side
-# errors a busy API returns while it is overloaded or restarting. Every other
-# 4xx/5xx is either the caller's fault (400, 401, 403) or not going to change
-# on retry, so those raise on the first attempt.
+# Statuses worth retrying: the rate limiter and gateway errors. Every other
+# 4xx/5xx raises on the first attempt.
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 
-# Both APIs advertise what is left of a quota on every response — OpenAlex as
-# `x-ratelimit-*` (a daily credit budget), Crossref as `x-rate-limit-*` (a
-# per-second rate). Captured from whatever the client was already fetching, so
-# knowing the budget costs no extra request.
+# Quota headers: OpenAlex sends `x-ratelimit-*`, Crossref `x-rate-limit-*`.
 RATE_LIMIT_HEADER_PREFIXES = ("x-ratelimit-", "x-rate-limit-")
 
-# The snapshot is held in memory on every response but written to the cache at
-# most this often. The cache is an append-only log, so persisting each capture
-# would add a line per request — a 150-entry verify would double its file for
-# a counter only the newest copy of which is ever read.
+# Seconds between cache writes of the quota snapshot (the cache is append-only,
+# so writing every capture would add a line per request).
 RATE_LIMIT_PERSIST_INTERVAL = 60.0
 
 
 def package_version() -> str:
-    """The installed `citefinder` version, or `0.0.0` when there is no
-    distribution record to read (a source tree run without an install).
-
-    Degrading rather than raising keeps a missing record from taking down the
-    paths that only want a version string to label something, such as the
-    User-Agent below.
-    """
+    """The installed `citefinder` version, or `0.0.0` without a distribution record."""
     try:
         return version("citefinder")
     except PackageNotFoundError:
@@ -80,9 +58,7 @@ def package_version() -> str:
 def _default_user_agent(contact: str | None = None) -> str:
     """`citefinder/<version> (<project url>[; mailto:<contact>])`.
 
-    Sources without a polite-pool parameter (Open Library, the Library of
-    Congress) ask for contact details in the User-Agent instead; `contact`
-    puts them there, in one place, so no client splices the string itself.
+    Sources without a polite-pool parameter take `contact` in the User-Agent.
     """
     agent = f"citefinder/{package_version()} (https://github.com/gitronald/citefinder"
     if contact:
@@ -93,11 +69,8 @@ def _default_user_agent(contact: str | None = None) -> str:
 def _doi_path(doi: str) -> str:
     """`doi` made safe to interpolate into a URL path.
 
-    Only the three characters that change URL structure are encoded: a raw
-    `#` starts a fragment (nothing after it is ever sent), a raw `?` starts a
-    query, and a raw `%` would be read as an existing escape. Everything else
-    `requests` already transmits correctly, and leaving it alone keeps the
-    cache keys built from these URLs identical for every ordinary DOI.
+    Only `%`, `#`, and `?` are encoded; leaving the rest alone keeps cache keys
+    stable for ordinary DOIs.
     """
     return doi.replace("%", "%25").replace("#", "%23").replace("?", "%3F")
 
@@ -105,9 +78,7 @@ def _doi_path(doi: str) -> str:
 def validate_knob(name: str, value: float) -> float:
     """`value` if it is a finite number >= 0, else `ValueError` naming `name`.
 
-    `inf`/`nan` and negatives would otherwise only surface later as an
-    OverflowError/ValueError out of `time.sleep`, mid-run. The CLI calls
-    this too, so the flag and the constructor enforce one bound.
+    Catches `inf`/`nan` and negatives before they fail inside `time.sleep`.
     """
     if not math.isfinite(value) or value < 0:
         raise ValueError(f"{name} must be a finite number >= 0, got {value!r}")
@@ -128,11 +99,9 @@ def retry_after_seconds(
 ) -> float | None:
     """Parse a `Retry-After` header into a number of seconds to wait.
 
-    RFC 9110 allows two forms: delta-seconds (`"2"`) and an HTTP-date
-    (`"Wed, 21 Oct 2015 07:28:00 GMT"`). For the date form the wait is
-    measured from `now`, a POSIX timestamp defaulting to `time.time()`; a
-    date already in the past yields `0.0`. Returns `None` when the header is
-    absent or unparseable, so the caller falls back to its own backoff.
+    Accepts delta-seconds or an HTTP-date (measured from `now`, default
+    `time.time()`; a past date yields `0.0`). Returns `None` when the header is
+    absent or unparseable.
     """
     if header_value is None:
         return None
@@ -158,43 +127,28 @@ def retry_after_seconds(
 class CachedJsonClient:
     """HTTP client that caches JSON GETs by URL, with 404 cached as `None`.
 
-    `mailto`, if set, is appended as a `?mailto=...` query param on outgoing
-    requests (Crossref and OpenAlex both honor this for their polite pools)
-    and stripped from the cache key so the same record cached under one
-    email is reused after a rotation.
+    `mailto`, if set, is sent as a `?mailto=...` query param but stripped from
+    the cache key.
 
-    Retry and pacing knobs:
+    Retry and pacing knobs (all finite and >= 0, else `ValueError`):
 
-    - `max_retries` — extra attempts after the first for a 429/502/503/504
-      response. `0` disables retrying. After the last attempt the original
-      `HTTPError` propagates.
-    - `backoff_base` — first backoff step in seconds when the response
-      carries no `Retry-After`; each step doubles, plus up to half a step of
-      jitter.
-    - `max_wait` — ceiling on any single wait, whether from `Retry-After` or
-      backoff.
-    - `min_interval` — minimum seconds between the start of consecutive
-      requests from this instance. Cache hits are not requests and are never
-      paced.
+    - `max_retries` — extra attempts for a retryable status; `0` disables
+      retrying. The last `HTTPError` propagates.
+    - `backoff_base` — first backoff step in seconds without a `Retry-After`;
+      doubles each step, plus up to half a step of jitter.
+    - `max_wait` — ceiling on any single wait.
+    - `min_interval` — minimum seconds between request starts. Cache hits are
+      never paced.
 
-    All four must be finite and non-negative; anything else raises
-    `ValueError` here rather than from `sleep` on a later request.
-
-    `fallback_cache`, given alongside `cache_path`, is a file consulted
-    read-only on a miss (see `LayeredCache`): a hit there, including a cached
-    404, makes no request, and nothing is ever written to it. A `cache`
-    object passed directly is used as-is.
-
-    `sleep`, `monotonic`, and `clock` are test seams (`time.sleep`,
-    `time.monotonic`, and `time.time` by default) so a fake clock can drive
-    the retry loop without waiting.
+    `fallback_cache`, with `cache_path`, is a read-only layer consulted on a
+    miss (see `LayeredCache`). `sleep`, `monotonic`, and `clock` are test seams.
 
     A subclass sets `rate_limit_key` and `rate_limit_probe` to opt into quota
-    tracking; leaving them `None` disables it entirely.
+    tracking.
     """
 
-    # Where this source's quota snapshot is cached, and the cheapest request
-    # that still returns the headers. Subclasses override both.
+    # Cache key of the quota snapshot, and the cheapest request that returns the
+    # headers.
     rate_limit_key: str | None = None
     rate_limit_probe: str | None = None
 
@@ -233,24 +187,15 @@ class CachedJsonClient:
         self.backoff_base = backoff_base
         self.max_wait = max_wait
         self.min_interval = min_interval
-        # Number of retried requests so far — a run-level tally callers can
-        # report (the `verify` CLI prints it in its summary line).
-        self.retries = 0
-        # Requests that reached the network, counted where the hit/miss
-        # decision is actually made (`_get`). A caller that wants to report
-        # cache effectiveness reads this rather than watching the cache grow:
-        # the size only moves when a *new* key is stored, so a refetch or an
-        # uncached client is invisible to it.
-        self.network_calls = 0
+        self.retries = 0  # retried requests so far
+        self.network_calls = 0  # requests that reached the network
         self._sleep = sleep
         self._monotonic = monotonic
         self._clock = clock
         self._last_request_at: float | None = None
         self.session = requests.Session()
         self.session.headers["User-Agent"] = user_agent or _default_user_agent()
-        # Last quota state this client saw, `{"headers": {...}, "ts": float}`.
-        # Seeded from the cache so a fresh process reports what the previous
-        # run left behind rather than nothing.
+        # Last quota state seen (`{"headers": ..., "ts": ...}`), seeded from the cache.
         self.rate_limit: dict[str, Any] | None = self._load_rate_limit()
         self._rate_limit_persisted: dict[str, Any] | None = None
         self._rate_limit_persisted_at: float | None = None
@@ -280,8 +225,7 @@ class CachedJsonClient:
         """Seconds to wait before retrying `response`, `attempt` retries in."""
         wait = retry_after_seconds(response.headers.get("Retry-After"), self._clock())
         if wait is None:
-            # Cap the exponent: 2**60 s already dwarfs any real `max_wait`,
-            # and `2**1024` would overflow the float multiplication.
+            # Cap the exponent so the float multiplication cannot overflow.
             step = self.backoff_base * 2 ** min(attempt, 60)
             wait = step + random.uniform(0, step / 2)
         return min(wait, self.max_wait)
@@ -289,10 +233,7 @@ class CachedJsonClient:
     def _fetch(self, url: str) -> requests.Response:
         """GET `url`, pacing by `min_interval` and retrying transient statuses.
 
-        Returns the final response — a 2xx/404 to be cached, or the last
-        error response for the caller to raise on. Nothing here raises for
-        an HTTP status, so a 429 that never clears surfaces as the same
-        `HTTPError` it would have without retries.
+        Returns the final response; the caller raises on an error status.
         """
         attempt = 0
         while True:
@@ -318,10 +259,8 @@ class CachedJsonClient:
     def _load_rate_limit(self) -> dict[str, Any] | None:
         """The snapshot a previous run stored, if this source keeps one.
 
-        Stored under a URL-shaped key on the API's own host so `cache merge`
-        routes it like any other row (newest `ts` wins, which is what a
-        counter wants) and `citefinder drift` skips it — the drift models
-        only cover `/works` keys.
+        Stored under a URL-shaped key so `cache merge` routes it like any other
+        row (newest `ts` wins) and `citefinder drift` skips it.
         """
         if self.cache is None or self.rate_limit_key is None:
             return None
@@ -350,9 +289,7 @@ class CachedJsonClient:
             return
         if self.rate_limit is None:
             return
-        # Already on disk. Checked before `force` so a refresh — which
-        # captures on the response and then forces a write — stores one row
-        # rather than two copies of the same reading.
+        # Checked before `force` so a refresh stores one row, not two.
         if self.rate_limit is self._rate_limit_persisted:
             return
         now = self._clock()
@@ -369,10 +306,7 @@ class CachedJsonClient:
     def refresh_rate_limit(self) -> dict[str, Any] | None:
         """Fetch the quota headers on demand, and persist what comes back.
 
-        Uses the source's `rate_limit_probe` — chosen to be the cheapest
-        request that still carries the headers (for OpenAlex, an entity
-        lookup, which costs zero credits). The response body is discarded and
-        never cached: this is a status check, not a lookup.
+        Uses `rate_limit_probe`; the response body is discarded, not cached.
         """
         if self.rate_limit_probe is None:
             return self.rate_limit
@@ -399,9 +333,7 @@ class CachedJsonClient:
     def _decode(self, response: requests.Response) -> Any:
         """The JSON-serializable value a 2xx `response` caches as.
 
-        JSON by default. A source that answers in another format (the
-        Library of Congress returns MARCXML) overrides this to parse the
-        body into plain dicts and lists, so its cache stays JSONL like every
-        other source's.
+        JSON by default; a source with another format (MARCXML) overrides this
+        to return plain dicts and lists.
         """
         return response.json()

@@ -1,9 +1,6 @@
 """Adapters from source-specific JSON to the canonical `Work` shape.
 
 Everything that knows the Crossref or OpenAlex JSON shape lives here.
-To wire a new metadata source (Semantic Scholar, DataCite, ...), write
-an analogous `<source>_to_work` function and teach `verify.Source` the
-new name — the signal checks and status reduction don't need to change.
 """
 
 from __future__ import annotations
@@ -32,10 +29,7 @@ def _crossref_extract_year(work: CrossrefWork) -> int | None:
 
 
 def crossref_full_title(work: CrossrefWork) -> str | None:
-    """Crossref splits long titles across `title` and `subtitle` (e.g.
-    Fang2022's main title is in `title` and the colon-after part is in
-    `subtitle`). Concatenate so downstream comparison sees the full title.
-    """
+    """Title joined with its `subtitle` as `title: subtitle`."""
     titles = work.get("title") or []
     if not titles:
         return None
@@ -49,8 +43,7 @@ def crossref_full_title(work: CrossrefWork) -> str | None:
 def crossref_to_work(message: CrossrefWork | None) -> Work | None:
     """Adapt a Crossref `work` record into the canonical `Work` shape.
 
-    Returns None for a missing record (Crossref 404) so the caller can
-    surface `doi-not-found` distinctly.
+    Returns None for a missing record (Crossref 404).
     """
     if message is None:
         return None
@@ -60,10 +53,7 @@ def crossref_to_work(message: CrossrefWork | None) -> Work | None:
         # A person carries `family`/`given`; an organisation carries `name`.
         first = cr_authors[0]
         first_author = (first.get("family") or first.get("name") or "").strip()
-    # Crossref returns multiple container names — the full and abbreviated
-    # journal names, plus for proceedings papers both the series ("Lecture
-    # Notes in Computer Science") and the booktitle ("Detection of
-    # Intrusions..."). Pass them all along; the container check picks best.
+    # Keep every container name (full, abbreviated, series, booktitle).
     ct_full = list(message.get("container-title") or [])
     ct_short = list(message.get("short-container-title") or [])
     return Work(
@@ -80,10 +70,7 @@ def crossref_to_work(message: CrossrefWork | None) -> Work | None:
 def _openalex_surname(display_name: str) -> str:
     """Extract a surname from OpenAlex's `display_name` ("Arnout van de Rijt").
 
-    OpenAlex stores authors first-name-first as a single string. Reuse
-    bibtexparser's name parser — it knows von particles ("van de") group
-    with the surname, matching what `first_author_surname` does on the bib
-    side so equality checks work.
+    Uses the same von+last parsing as `first_author_surname`.
     """
     name = (display_name or "").strip()
     if not name:
@@ -93,7 +80,7 @@ def _openalex_surname(display_name: str) -> str:
 
 
 def openalex_doi(doi_url: str | None) -> str:
-    """OpenAlex returns DOIs as `https://doi.org/10.xxx`. Strip to bare DOI."""
+    """Bare DOI from OpenAlex's `https://doi.org/...` form."""
     return normalize_doi(doi_url) if doi_url else ""
 
 
@@ -111,7 +98,7 @@ def openalex_to_work(message: OpenAlexWork | None) -> Work | None:
     src = primary.get("source") or {}
     if src.get("display_name"):
         container_names.append(src["display_name"])
-    # Some older records expose the venue under `host_venue` instead.
+    # Older records use `host_venue`.
     host = message.get("host_venue") or {}
     if host.get("display_name") and host["display_name"] not in container_names:
         container_names.append(host["display_name"])
