@@ -40,10 +40,7 @@ def snapshot_rows(path: Path) -> list[CacheRow]:
 
 
 def stub_refresh(monkeypatch: pytest.MonkeyPatch, remaining: str) -> list[str]:
-    """Patch the probe to report `remaining`; returns the list of calls.
-
-    The CLI builds its own client, so the probe is patched at the method.
-    """
+    """Patch the probe to report `remaining`; returns the list of calls."""
     calls: list[str] = []
 
     def fake_refresh(self) -> dict[str, Any]:
@@ -88,11 +85,7 @@ def test_the_snapshot_is_stored_in_the_cache_and_reloaded(
 
 
 def test_the_snapshot_key_survives_merge_and_is_skipped_by_drift() -> None:
-    """A URL-shaped key on the API's own host routes like any other row.
-
-    A non-URL key would be counted `unroutable` and dropped by `cache merge`;
-    a `/works` key would show up as permanent drift. This is neither.
-    """
+    """The snapshot key routes to openalex and is not counted as drift."""
     key = OpenAlexClient.rate_limit_key
     assert key is not None
     assert source_for_key(key) == "openalex"

@@ -20,8 +20,7 @@ BIB = """@article{smith2020,
 
 
 def test_bib_to_table_fields_may_repeat_the_id_columns(tmp_path: Path) -> None:
-    # Naming `key` in --fields used to produce a duplicate projection and a
-    # polars traceback; the id columns are always shown, so repeats collapse.
+    # The id columns are always shown, so repeats in --fields collapse.
     bib = tmp_path / "refs.bib"
     bib.write_text(BIB, encoding="utf-8")
     args = ["bib-to-table", str(bib), "--csv", "--fields", "key,title"]
@@ -70,7 +69,7 @@ def test_crossref_doi_points_a_datacite_doi_at_openalex(
     assert "registered with DataCite" in result.output
     assert f"citefinder doi {doi}" in result.output
     assert captured == {}  # no client was built, so no request was possible
-    # The URL and `doi:` forms exported bibs carry are recognized too.
+    # URL and `doi:` forms are recognized too.
     for form in (f"https://doi.org/{doi}", f"doi:{doi}"):
         result = runner.invoke(app, ["crossref", "doi", form, "--cache", cache])
         assert "registered with DataCite" in result.output
@@ -129,8 +128,7 @@ def test_drift_reports_undeclared_paths_per_kind(tmp_path: Path) -> None:
 
 
 def test_drift_skips_a_line_torn_inside_a_multibyte_character(tmp_path: Path) -> None:
-    # The cache loader survives this; the report must too, rather than dying
-    # on a UnicodeDecodeError before it reads a single row.
+    # The report must survive a cache with undecodable bytes.
     cache = tmp_path / "openalex.jsonl"
     good = {
         "key": "https://api.openalex.org/works/doi:10.1/a",

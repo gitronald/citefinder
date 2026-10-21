@@ -65,9 +65,7 @@ def test_replay_skips_a_corrupt_line_and_keeps_the_rest(
 def test_replay_skips_a_line_torn_inside_a_multibyte_character(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Values are written with ensure_ascii=False, so a crash can leave the
-    # file ending on the first byte of a two-byte character. Decoding the
-    # whole file at once raised UnicodeDecodeError and lost every record.
+    # A crash can leave the file ending mid-character; loading must survive.
     path = tmp_path / "c.jsonl"
     JsonlCache(path).put("a", 1)
     record = json.dumps({"key": "b", "value": "café"}, ensure_ascii=False).encode()

@@ -144,10 +144,7 @@ def test_table_to_bib_handles_entry_with_no_fields() -> None:
 
 
 def test_table_to_bib_round_trip_preserves_data() -> None:
-    # Source -> bib_to_table -> table_to_bib -> parse should yield the
-    # same entry set: same keys, same entry_types, same field values.
-    # Field order within an entry is not preserved (bib_to_table sorts
-    # alphabetically), but that's a documented limitation, not data loss.
+    # Round trip keeps keys, entry types, and field values; field order is not kept.
     src_text = """
     @article{a,
       author = {A, X},
@@ -175,9 +172,7 @@ def test_table_to_bib_round_trip_preserves_data() -> None:
 
 @pytest.mark.parametrize("value", ["Weird } stray", "Weird { stray"])
 def test_table_to_bib_refuses_unbalanced_braces(value: str) -> None:
-    # A stray `}` would close the field early and drop every field after it
-    # on re-parse; an unclosed `{` swallows them the same way. BibTeX cannot
-    # represent either, so refuse instead.
+    # Unbalanced braces cannot round trip through BibTeX, so they are refused.
     df = pl.DataFrame({"key": ["x"], "entry_type": ["article"], "title": [value]})
     with pytest.raises(ValueError, match="unbalanced braces"):
         table_to_bib(df)
@@ -218,14 +213,7 @@ def test_table_to_bib_preserves_unicode_and_nested_braces() -> None:
 
 
 def test_importing_the_package_does_not_pull_in_polars() -> None:
-    """`bib_table` is the only module that needs polars, and importing it
-    costs more than the rest of the package combined. The package re-exports
-    its two functions lazily so a lookup command never pays for it; a plain
-    `from citefinder.bib_table import ...` in `__init__` or `cli` would
-    silently undo that, which nothing else would catch.
-
-    Runs in a subprocess: this session already has polars imported.
-    """
+    """Importing the package and CLI must not import polars (subprocess)."""
     probe = "import sys, citefinder, citefinder.cli;print('polars' in sys.modules)"
     result = subprocess.run(
         [sys.executable, "-c", probe], capture_output=True, text=True, check=True
@@ -234,9 +222,7 @@ def test_importing_the_package_does_not_pull_in_polars() -> None:
 
 
 def test_lazy_reexports_still_resolve_from_the_package_root() -> None:
-    """`from citefinder import bib_to_table` is documented public API; the
-    lazy indirection must be invisible to it, including `dir()` and the
-    AttributeError for a name that really is absent."""
+    """The lazy re-exports resolve, appear in `dir()`, and absent names still raise."""
     import citefinder
 
     assert citefinder.bib_to_table is bib_to_table

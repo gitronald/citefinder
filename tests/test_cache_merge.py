@@ -28,8 +28,7 @@ def write(path: Path, *rows: CacheRow) -> Path:
 
 
 def row(key: str, value: Any, ts: float | None = 0.0) -> CacheRow:
-    """A cache row; `ts=None` writes one with no timestamp at all, as a
-    hand-edited or externally produced cache can carry."""
+    """A cache row; `ts=None` writes one with no timestamp."""
     record: dict[str, Any] = {"key": key, "value": value}
     if ts is not None:
         record["ts"] = ts
@@ -49,8 +48,7 @@ def test_source_for_key_routes_by_host() -> None:
 
 
 def test_source_for_key_ignores_host_case() -> None:
-    # A host is case-insensitive, so a key spelled in caps must route the
-    # same; without the fold it lands as unroutable and is dropped by a merge.
+    # Hosts are case-insensitive, so a key in caps must route the same.
     assert source_for_key("https://API.Crossref.ORG/works/10.1000/a") == "crossref"
 
 
@@ -72,8 +70,7 @@ def test_a_row_is_routed_by_host_not_by_file_name(tmp_path: Path) -> None:
     # The stray row is another source's business, not this merge's.
     assert stats.misrouted == 0
 
-    # The same file, merged for the other source, yields the stray row —
-    # counted as misrouted, because this merge is the one that rehomes it.
+    # Merged for the other source, the stray row is yielded and counted as misrouted.
     rows, stats = merge_caches([misdirected], source="crossref")
     assert [r["key"] for r in rows] == [CROSSREF]
     assert (stats.misrouted, stats.rows_read) == (1, 1)
@@ -92,8 +89,7 @@ def test_unroutable_rows_are_dropped_only_when_merging_into_a_source(
     assert [r["key"] for r in rows] == [OPENALEX]
     assert stats.unroutable == 1
 
-    # Compacting a file in place reports them but keeps them: rewriting
-    # someone's cache must not silently lose readable rows.
+    # Compacting in place reports unroutable rows but keeps them.
     rows, stats = merge_caches([path])
     assert sorted(str(r["key"]) for r in rows) == sorted([OPENALEX, stray])
     assert stats.unroutable == 1
@@ -161,8 +157,7 @@ def test_a_row_without_ts_loses_but_is_not_dropped(tmp_path: Path) -> None:
 
 
 def test_a_ts_that_is_not_a_number_counts_as_missing(tmp_path: Path) -> None:
-    # `True` is an `int` in Python, so without the explicit bool guard a row
-    # stamped `true` would silently be read as ts=1.0 and beat a real one.
+    # `True` is an `int`; a row stamped `true` must not be read as ts=1.0.
     path = write(
         tmp_path / "a" / "openalex.jsonl",
         cast(CacheRow, {"key": OPENALEX, "value": {"v": "bool"}, "ts": True}),
@@ -180,9 +175,7 @@ def test_a_ts_that_is_not_a_number_counts_as_missing(tmp_path: Path) -> None:
 def test_a_tie_on_ts_is_broken_the_same_way_whichever_file_is_read_first(
     tmp_path: Path,
 ) -> None:
-    # Two independent logs can stamp the same second. `ts` alone leaves the
-    # winner to the glob, which would consolidate the same two caches into
-    # different files depending on the walk.
+    # Equal `ts` across files must resolve deterministically, not by glob order.
     a = write(tmp_path / "a" / "openalex.jsonl", row(OPENALEX, {"v": "a"}, 100.0))
     b = write(tmp_path / "b" / "openalex.jsonl", row(OPENALEX, {"v": "b"}, 100.0))
     first, _ = merge_caches([a, b])
@@ -245,8 +238,7 @@ def test_the_null_report_does_not_depend_on_the_order_files_are_read(
 
 
 def test_keep_records_holds_within_one_file_too(tmp_path: Path) -> None:
-    # A verify run that 404'd after an earlier run had the record appends the
-    # null to the same log; line order alone would let it win.
+    # A later 404 appended to the same log must not beat an earlier record.
     path = write(
         tmp_path / "crossref.jsonl",
         row(CROSSREF, {"DOI": "x"}, 100.0),
@@ -262,9 +254,7 @@ def test_keep_records_holds_within_one_file_too(tmp_path: Path) -> None:
 
 
 def test_a_ts_of_zero_is_a_timestamp_not_an_absent_one(tmp_path: Path) -> None:
-    # The epoch is falsy, so tracking "newest seen" with `or` discards a
-    # legitimately accumulated 0.0 and recomputes it from the row in hand —
-    # which flips this key's report from `records kept` to `404 superseded`.
+    # The epoch is falsy; a legitimate 0.0 must not be discarded as absent.
     record = write(tmp_path / "a" / "crossref.jsonl", row(CROSSREF, {"DOI": "x"}, None))
     stamped_null = write(tmp_path / "b" / "crossref.jsonl", row(CROSSREF, None, 0.0))
     bare_null = write(tmp_path / "c" / "crossref.jsonl", row(CROSSREF, None, None))

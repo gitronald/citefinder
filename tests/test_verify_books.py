@@ -16,8 +16,7 @@ from tests.test_books import FakeLoc, FakeOpenLibrary
 
 
 class _NoSource(OpenAlexClient):
-    """An OpenAlex client that finds nothing by search and must not be
-    asked for a DOI on the ISBN path."""
+    """An OpenAlex client that finds nothing and must not be asked for a DOI."""
 
     def __init__(self) -> None:  # no session, no cache
         self.cache = None

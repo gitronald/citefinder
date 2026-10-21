@@ -26,8 +26,7 @@ def write(path: Path, *rows: dict[str, Any]) -> Path:
 
 @pytest.fixture
 def cache_dir(tmp_path: Path) -> Path:
-    """A cache root shaped like a real one: a shared cache plus a per-run
-    `verify` cache, with a 404 in one that the other has a record for."""
+    """A cache root with a shared cache and a per-run `verify` cache."""
     root = tmp_path / "cache"
     write(
         root / "openalex.jsonl",
@@ -68,8 +67,7 @@ def run(*args: str) -> Any:
 def test_stats_inventories_every_cache_under_the_directory(cache_dir: Path) -> None:
     out = run("cache", "stats", "--cache-dir", str(cache_dir)).output
     assert "files:     3" in out
-    # Two openalex files, three rows, two distinct keys, and the 404 was
-    # refetched into a record, so nothing is a miss today.
+    # Two openalex files, three rows, two distinct keys; the 404 was refetched.
     openalex = section(out, "openalex")
     assert reported(openalex, "files") == "2"
     assert reported(openalex, "rows") == "3"
@@ -131,8 +129,7 @@ def test_merge_is_idempotent(cache_dir: Path) -> None:
 
 
 def test_merge_rehomes_a_row_the_wrong_file_holds(cache_dir: Path) -> None:
-    # A misdirected record in the crossref cache belongs to openalex, and the
-    # file it sits in must not decide where it ends up.
+    # A misdirected record is routed by its key, not by the file it sits in.
     write(
         cache_dir / "crossref.jsonl",
         {"key": CROSSREF, "value": {"DOI": "x"}, "ts": 50.0},
@@ -189,9 +186,7 @@ def test_merge_takes_an_extra_file_from_outside_the_cache_dir(
 
 
 def test_an_extra_the_glob_already_found_is_read_once(cache_dir: Path) -> None:
-    # An `--extra` may well name a file inside the cache dir. Reading it twice
-    # changes no winner, but it doubles every count in the report — and the
-    # counts are what a reader consults before passing --write.
+    # An `--extra` naming a file inside the cache dir must not double the counts.
     plain = section(
         run("cache", "merge", "--cache-dir", str(cache_dir)).output, "openalex"
     )
@@ -256,9 +251,7 @@ def test_compact_keeps_a_row_it_cannot_route(tmp_path: Path) -> None:
 def test_compact_leaves_a_misfiled_row_where_it_is_and_says_nothing(
     tmp_path: Path,
 ) -> None:
-    # `misrouted` counts rows a merge *rehomes*. Compacting rewrites the one
-    # file it read, so a crossref row in openalex.jsonl stays there — and a
-    # count claiming it moved would read as a repair that never happened.
+    # `misrouted` must not count rows that compacting leaves in place.
     path = write(
         tmp_path / "openalex.jsonl",
         {"key": OPENALEX, "value": {"v": 1}, "ts": 100.0},

@@ -33,8 +33,7 @@ def test_parse_entries_basic() -> None:
 
 
 def test_parse_entries_field_keys_lowercased() -> None:
-    # Real bib files use both `Author = ...` and `author = ...`. Field keys
-    # are lowercased so downstream lookups don't have to care.
+    # Field keys are lowercased.
     text = "@article{x, Author = {Smith, J.}, Title = {T}, Year = {2020}}"
     [e] = parse_entries(text)
     assert "author" in e.fields and "title" in e.fields and "year" in e.fields
@@ -83,9 +82,7 @@ def test_parse_entries_warns_on_dropped_blocks(
     reason: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # bibtexparser files what it cannot parse under `failed_blocks` and moves
-    # on. Those entries must not vanish without a trace, and the line is the
-    # 1-based one an editor shows, not bibtexparser's 0-based start_line.
+    # Skipped blocks are logged with the 1-based line an editor shows.
     with caplog.at_level(logging.WARNING, logger="citefinder"):
         entries = parse_entries(text)
     assert [e.key for e in entries] == kept
@@ -124,16 +121,13 @@ def test_first_author_surname_first_then_multiple() -> None:
 
 
 def test_first_author_surname_corporate() -> None:
-    # Braces around the whole name keep it together — bibtexparser shouldn't
-    # split a corporate author on whitespace or " and ".
+    # Braces keep a corporate author whole.
     name = "{Association for Computing Machinery}"
     assert first_author_surname(name) == "Association for Computing Machinery"
 
 
 def test_first_author_surname_von_particles() -> None:
-    # `van de Rijt` has von=['van','de'], last=['Rijt']. Crossref stores the
-    # combined form as `family`, so we join both — otherwise the author
-    # check would compare "Rijt" against Crossref's "van de Rijt".
+    # The von part is joined, matching Crossref's combined `family`.
     assert first_author_surname("van de Rijt, Arnout") == "van de Rijt"
 
 
@@ -158,8 +152,7 @@ def test_build_search_query_omits_missing_fields() -> None:
 
 def test_build_title_query_strips_filter_chars_and_remaps_apostrophe() -> None:
     [e] = parse_entries("@article{x, title = {Backstabber's, Knife: Collection!}}")
-    # `,` `:` `!` get stripped (OpenAlex filter syntax reserves them); the
-    # straight apostrophe gets remapped to U+2019.
+    # `,` `:` `!` are stripped (reserved in OpenAlex filters); `'` becomes U+2019.
     assert build_title_query(e) == "Backstabber’s Knife Collection"
 
 
