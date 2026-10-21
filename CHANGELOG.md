@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Shorter `--help` text for the CLI commands, and comments and docstrings
   across the package trimmed to what the code does now.
+- Runtime dependency floors raised: `polars` 2.0.0, `bibtexparser` 2.1.0,
+  `python-dotenv` 1.2.4, and `typer` 0.27.3. Dev tools moved to `ruff`
+  0.17.1 (pre-commit hook rev aligned), `hatchling` 1.32.4, and
+  `types-requests` 2.33.0.20261006.
+- Tooling synced with proj-template 0.11.5 (CI, Dependabot, pre-commit, and
+  the Stop hook), and `gh-action-pypi-publish` moved to v1.14.3.
 
 ## [0.13.0] - 2026-09-25
 
