@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The publish workflow's `gh-action-pypi-publish` moved to v1.14.3, which
   fixes [GHSA-5xjx-3w67-w9x9](https://github.com/pypa/gh-action-pypi-publish/security/advisories/GHSA-5xjx-3w67-w9x9)
   and hash-checks the action's runtime dependencies.
+- The lockfile moved `urllib3` to 2.8.0 and `virtualenv` to 21.14.8, which
+  clears the open Dependabot alerts against both (unbounded chunk-size
+  buffering and Deflate looping in `urllib3`, and activation-script injection
+  and unchecked seed wheels in `virtualenv`).
 
 ## [0.13.0] - 2026-09-25
 
