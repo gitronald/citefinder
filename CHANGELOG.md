@@ -16,7 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   0.17.1 (pre-commit hook rev aligned), `hatchling` 1.32.4, and
   `types-requests` 2.33.0.20261006.
 - Tooling synced with proj-template 0.11.5 (CI, Dependabot, pre-commit, and
-  the Stop hook), and `gh-action-pypi-publish` moved to v1.14.3.
+  the Stop hook).
+
+### Security
+
+- The publish workflow's `gh-action-pypi-publish` moved to v1.14.3, which
+  fixes [GHSA-5xjx-3w67-w9x9](https://github.com/pypa/gh-action-pypi-publish/security/advisories/GHSA-5xjx-3w67-w9x9)
+  and hash-checks the action's runtime dependencies.
 
 ## [0.13.0] - 2026-09-25
 
