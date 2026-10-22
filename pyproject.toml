@@ -55,7 +55,7 @@ only-include = [
 dev = [
     "hatchling>=1.32.4",
     "pre-commit",
-    "pyrefly>=1.3.2",
+    "pyrefly>=1.4.0",
     "pytest>=9.1.1",
     "pytest-cov",
     # Same minor as the ruff-pre-commit rev in .pre-commit-config.yaml; bump the two together.
