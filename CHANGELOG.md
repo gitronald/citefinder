@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The `pkgskills` requirement is now `>=0.6.3`. The stub's stamp moved from an
+  HTML comment into its frontmatter, so a stub an earlier release wrote reads
+  `drifted` on `install --check`, and a plain `install` refreshes it, without
+  `--force`. Going back to an earlier `pkgskills` needs `--force` once.
+- `install` writes only the Claude Code stub, in both modes. `pkgskills` now
+  defaults to a second stub under `.agents/skills/` for Codex, and this package
+  opts out, so a repo that vendors the stub gains no second tracked file. A
+  Codex user reaches the skill through `citefinder skill`.
+
 ## [0.14.0] - 2026-10-21
 
 ### Changed
