@@ -41,6 +41,18 @@ def _front() -> str:
     return front.raw
 
 
+def _assert_keeps_source_frontmatter(text: str) -> None:
+    """The stub declares what the source declares; the stamp is added beside it."""
+    source, _ = split_frontmatter(HOST.read(SOURCE))
+    stub, _ = split_frontmatter(text)
+    assert source is not None
+    assert stub is not None
+    assert source.fields
+    for key, value in source.fields.items():
+        assert stub.get(key) == value
+    assert stub.metadata_field("version") == source.metadata_field("version")
+
+
 # --- declaration and package data -------------------------------------------
 
 
@@ -99,11 +111,11 @@ def test_doc_renders_the_cli_for_the_installed_mode(box: Sandbox, doc) -> None:
 # --- install -----------------------------------------------------------------
 
 
-def test_install_local_carries_the_frontmatter_verbatim(box: Sandbox) -> None:
+def test_install_local_keeps_the_source_frontmatter(box: Sandbox) -> None:
     result = runner.invoke(app, ["install", "--local"])
     assert result.exit_code == 0, result.output
     text = (box.repo / STUB_REL).read_text(encoding="utf-8")
-    assert text.startswith(_front())
+    _assert_keeps_source_frontmatter(text)
     assert "uv run citefinder skill use-citefinder" in text
     assert not (box.home / STUB_REL).exists()
 
@@ -162,7 +174,7 @@ def test_hand_authored_skill_is_refused_without_force(box: Sandbox) -> None:
     assert runner.invoke(app, ["install", "--local"]).exit_code != 0
     assert path.read_text(encoding="utf-8") == "# my own use-citefinder skill\n"
     assert runner.invoke(app, ["install", "--local", "--force"]).exit_code == 0
-    assert path.read_text(encoding="utf-8").startswith(_front())
+    _assert_keeps_source_frontmatter(path.read_text(encoding="utf-8"))
 
 
 def test_install_never_writes_through_a_symlink(box: Sandbox) -> None:
