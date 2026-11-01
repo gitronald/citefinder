@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-01
+
 ### Changed
 
 - The `pkgskills` requirement is now `>=0.6.3`. The stub's stamp moved from an
