@@ -6,7 +6,7 @@ Mounts `citefinder skill`, `doc`, and `install`; the prompts live under
 
 from __future__ import annotations
 
-from pkgskills import Doc, Host, Skill
+from pkgskills import CLAUDE_CODE, Doc, Host, Skill
 
 SKILL = "use-citefinder"
 _REFERENCES = ("openalex", "given-names", "year-mismatches", "inspect-table")
@@ -21,4 +21,8 @@ HOST = Host(
         for ref in _REFERENCES
     ),
     render_cli=True,
+    # The stub lands in repositories as a tracked file, so a Codex copy would add
+    # a second tracked file to each. Reaches global installs too: `Host.harnesses`
+    # applies to both modes.
+    harnesses=(CLAUDE_CODE,),
 )
