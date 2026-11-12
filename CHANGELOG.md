@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-11-11
+
 ### Changed
 
 - Tooling synced with repotemplates 0.14.1 (the renamed proj-template): the
