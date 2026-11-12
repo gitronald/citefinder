@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Tooling synced with repotemplates 0.14.1 (the renamed proj-template): the
+  release stamp in `pyproject.toml` is now `[tool.repotemplates]`, CI and the
+  publish workflow use `astral-sh/setup-uv` v10.3.3, and the `ruff`
+  pre-commit hook and lockfile both move to 0.17.3.
+
+### Security
+
+- The lockfile moved `filelock` to 4.2.9 and `virtualenv` to 21.15.5, both
+  dev-only through `pre-commit`, which clears the open Dependabot alerts
+  against them.
+
 ## [0.14.1] - 2026-11-01
 
 ### Changed
