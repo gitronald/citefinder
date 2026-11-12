@@ -9,10 +9,10 @@ requires-python = ">=3.11"
 dependencies = [
     "bibtexparser>=2.1.0",
     "pkgskills>=0.6.3",
-    "polars>=2.0.0",
+    "polars>=2.1.0",
     "python-dotenv>=1.2.4",
     "requests>=2.34.2",
-    "typer>=0.27.3",
+    "typer>=0.28.0",
 ]
 readme = "README.md"
 license = "MIT"
@@ -32,7 +32,7 @@ version = "0.14.1"
 
 [build-system]
 # Floor matches the dev-group pin so the wheel test uses the release backend
-requires = ["hatchling>=1.32.4"]
+requires = ["hatchling>=1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
@@ -53,14 +53,14 @@ only-include = [
 
 [dependency-groups]
 dev = [
-    "hatchling>=1.32.4",
+    "hatchling>=1.33.0",
     "pre-commit",
-    "pyrefly>=1.4.0",
-    "pytest>=9.1.1",
+    "pyrefly>=1.4.1",
+    "pytest>=9.2.0",
     "pytest-cov",
     # Same minor as the ruff-pre-commit rev in .pre-commit-config.yaml; bump the two together.
-    "ruff>=0.17.1,<0.18",
-    "types-requests>=2.33.0.20261006",
+    "ruff>=0.17.4,<0.18",
+    "types-requests>=2.33.0.20261030",
 ]
 
 [tool.ruff]
