@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Tooling synced with repotemplates 0.15.0: the release stamp in
+  `pyproject.toml` moves to 0.15.0. No other tracked files changed.
+
 ## [0.14.2] - 2026-11-11
 
 ### Changed
