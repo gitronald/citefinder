@@ -336,13 +336,13 @@ class OpenAlexAffiliation(TypedDict, total=False):
 class OpenAlexAuthorProfile(TypedDict, total=False):
     """An author profile, as `/authors/{id}` returns it.
 
-    Surveyed on 151 profiles of authors on cached works; a key with no
+    Surveyed on 531 profiles of authors on cached works; a key with no
     percentage was on every one.
     """
 
     # --- identity
     id: str  # `https://openalex.org/A...`
-    orcid: str | None  # `https://orcid.org/...`; 82% non-null
+    orcid: str | None  # `https://orcid.org/...`; 78% non-null
     ids: OpenAlexAuthorIds
     observed_orcids: list[str]  # every ORCID seen on the profile's works
     # --- names
@@ -350,11 +350,11 @@ class OpenAlexAuthorProfile(TypedDict, total=False):
     # Every spelling merged into the profile, `display_name` included.
     display_name_alternatives: list[str]
     raw_author_names: list[str]  # bylines as printed, across the profile's works
-    # Can be inverted (`Family, Given`); differs from `display_name` on 73%.
+    # Can be inverted (`Family, Given`); differs from `display_name` on 67%.
     full_name: str
     block_key: str  # OpenAlex's name-matching key, e.g. `j smith`
     # --- affiliation
-    last_known_institutions: list[OpenAlexInstitution] | None  # null on 1%
+    last_known_institutions: list[OpenAlexInstitution] | None  # null on 2%
     affiliations: list[OpenAlexAffiliation]
     # --- output and citations
     works_count: int
@@ -367,7 +367,7 @@ class OpenAlexAuthorProfile(TypedDict, total=False):
     x_concepts: list[dict[str, Any]]
     # --- bookkeeping
     works_api_url: str
-    awards_api_url: str
+    awards_api_url: str  # 99%
     created_date: str
     updated_date: str
 
