@@ -71,6 +71,10 @@ ANCHOR_FIELD_SHARE = 0.1
 
 NameMatch = Literal["strong", "weak"]
 
+# The reason on a candidate the ORCID check ruled out, which `counts` reports
+# apart from the candidates its works ruled out.
+_DIFFERENT_ORCID = "different ORCID"
+
 
 class Verdict(StrEnum):
     """What the evidence says about a candidate profile."""
@@ -482,7 +486,7 @@ def assess(
     if same_orcid:
         return Assessment(Verdict.LIKELY_FRAGMENT, "same ORCID", match)
     if same_orcid is False:
-        return Assessment(Verdict.DIFFERENT, "different ORCID", match)
+        return Assessment(Verdict.DIFFERENT, _DIFFERENT_ORCID, match)
     if works is None:
         return Assessment(Verdict.UNCHECKED, "works not compared", match)
 
@@ -599,7 +603,7 @@ class FragmentReport:
         """Profiles returned, split by how each was settled."""
         verdicts = Counter(
             "different_orcid"
-            if c.assessment.reason == "different ORCID"
+            if c.assessment.reason == _DIFFERENT_ORCID
             else c.assessment.verdict.value
             for c in self.candidates
         )
@@ -736,10 +740,11 @@ def find_fragments(
         return None
     report = FragmentReport(anchor=profile)
     queries = search_queries(profile)
-    report.queries_skipped = max(0, len(queries) - max_searches)
+    searched = queries[: max(0, max_searches)]
+    report.queries_skipped = len(queries) - len(searched)
 
     found: dict[str, AuthorProfile] = {}
-    for query in queries[:max_searches]:
+    for query in searched:
         page = client.author_search_page(query, rows=MAX_PER_PAGE, refresh=refresh)
         meter.observe()
         results = page.get("results") or []

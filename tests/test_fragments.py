@@ -11,9 +11,10 @@ import pytest
 from typer.testing import CliRunner
 
 from citefinder.adapters import AuthorProfile, AuthorWork, WorkAuthor
-from citefinder.cli import app
+from citefinder.cli import _fragment_summary, app
 from citefinder.fragments import (
     Anchor,
+    FragmentReport,
     Verdict,
     assess,
     best_match,
@@ -691,6 +692,10 @@ def test_find_fragments_search_cap_reports_what_it_skipped(
     assert calls == ["/authors/A1", "search:tim doe", "search:timothy doe"]
     assert report.queries_skipped == 1
     assert report.candidates == []
+    # A negative cap is no searches, not all but the last.
+    none = find_fragments(client, "A1", max_searches=-1)
+    assert none is not None
+    assert (none.searches, none.queries_skipped) == ([], 3)
 
 
 def test_find_fragments_rerun_is_free_and_refresh_refetches(
@@ -848,6 +853,17 @@ def test_cli_says_what_the_caps_left_out(
         "1 unchecked, 0 with a different ORCID, 0 with another name.",
         "Raise --max-candidates to compare the unchecked profiles' works.",
         "Done: 1 search(es), 2 works list(s), 4 network call(s); credits 1000 -> 988.",
+    ]
+
+
+def test_summary_says_when_the_anchors_works_were_cut_short() -> None:
+    report = FragmentReport(ANCHOR_PROFILE, anchor_works=2000, anchor_works_total=3120)
+    assert _fragment_summary(report) == [
+        "Compared the first 2000 of the anchor's 3120 works: "
+        "a duplicate title among the rest is not found.",
+        "0 profile(s) searched: 0 likely-fragment, 0 possible, 0 different, "
+        "0 unchecked, 0 with a different ORCID, 0 with another name.",
+        "Done: 0 search(es), 0 works list(s), 0 network call(s).",
     ]
 
 

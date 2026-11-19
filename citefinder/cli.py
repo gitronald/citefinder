@@ -739,6 +739,12 @@ def _fragment_summary(report: FragmentReport) -> list[str]:
                 f"Search {search['query']!r} returned {returned} of {count} "
                 "profiles: the candidates are incomplete."
             )
+    read, total = report.anchor_works, report.anchor_works_total
+    if read is not None and total is not None and total > read:
+        lines.append(
+            f"Compared the first {read} of the anchor's {total} works: "
+            "a duplicate title among the rest is not found."
+        )
     if report.queries_skipped:
         lines.append(
             f"{report.queries_skipped} more name search(es) not made; "
