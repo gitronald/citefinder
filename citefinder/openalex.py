@@ -1,7 +1,8 @@
 """OpenAlex API client with optional caching.
 
-Looks up works by DOI, free-text search, or title-only search. Cache keys
-drop the polite-pool `mailto`; 404s are cached as `None`.
+Looks up works by DOI, free-text search, or title-only search, and author
+profiles by OpenAlex author ID or ORCID. Cache keys drop the polite-pool
+`mailto`; 404s are cached as `None`.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -23,7 +24,7 @@ from citefinder._base import (
     _doi_path,
 )
 from citefinder.cache import JsonlCache, LayeredCache
-from citefinder.models import OpenAlexWork
+from citefinder.models import CacheRow, OpenAlexAuthorProfile, OpenAlexWork
 
 OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
@@ -32,11 +33,22 @@ API_KEY_ENV_VAR = "OPENALEX_API_KEY"
 # returns HTTP 400); `?` is stripped defensively.
 _FILTER_RESERVED_RE = re.compile(r"[,:|!?]")
 
+# `A5012345678`, bare or as the `https://openalex.org/A...` URL work records
+# carry (the API's own `/authors/A...` URL is accepted too).
+_AUTHOR_ID_RE = re.compile(
+    r"(?:https?://(?:api\.)?openalex\.org/(?:authors/)?)?(A\d+)", re.IGNORECASE
+)
+_ORCID_RE = re.compile(
+    r"(?:https?://orcid\.org/|orcid:)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])", re.IGNORECASE
+)
+
 __all__ = [
     "API_KEY_ENV_VAR",
     "DEFAULT_MIN_INTERVAL",
     "OPENALEX_BASE",
     "OpenAlexClient",
+    "author_path",
+    "cached_author_ids",
     "datacite_note",
     "datacite_registrar",
     "is_arxiv_doi",
@@ -98,6 +110,44 @@ def normalize_title_query(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip()
 
 
+def author_path(identifier: str) -> str:
+    """The `/authors/<...>` path segment for an OpenAlex author ID or an ORCID.
+
+    `A5012345678` and `https://openalex.org/A5012345678` both give
+    `A5012345678`; an ORCID, bare or as its `https://orcid.org/` URL, gives
+    `orcid:0000-...`. Raises `ValueError` for anything else, so a name or a
+    work ID never becomes a request.
+    """
+    text = identifier.strip()
+    if match := _AUTHOR_ID_RE.fullmatch(text):
+        return match[1].upper()
+    if match := _ORCID_RE.fullmatch(text):
+        return f"orcid:{match[1].upper()}"
+    raise ValueError(f"not an OpenAlex author ID or ORCID: {identifier!r}")
+
+
+def cached_author_ids(rows: Iterable[CacheRow]) -> list[str]:
+    """Distinct `author.id`s on the works in `rows`, in first-seen order.
+
+    Reads DOI lookups (`/works/` keys) only: a search page holds candidates,
+    most of them not the cited work. Authorships OpenAlex could not link to a
+    profile carry no ID and are skipped.
+    """
+    seen: dict[str, None] = {}
+    for row in rows:
+        key, work = row.get("key"), row.get("value")
+        if not isinstance(key, str) or not isinstance(work, dict):
+            continue
+        if not key.startswith(f"{OPENALEX_BASE}/works/"):
+            continue
+        for authorship in work.get("authorships") or []:
+            author = authorship.get("author") if isinstance(authorship, dict) else None
+            author_id = author.get("id") if isinstance(author, dict) else None
+            if isinstance(author_id, str) and author_id:
+                seen.setdefault(author_id)
+    return list(seen)
+
+
 class OpenAlexClient(CachedJsonClient):
     # A single-entity lookup costs no credits, so probing the budget is free.
     rate_limit_key = f"{OPENALEX_BASE}/__ratelimit"
@@ -145,6 +195,32 @@ class OpenAlexClient(CachedJsonClient):
     def lookup_doi(self, doi: str) -> OpenAlexWork | None:
         """OpenAlex metadata for a DOI, or `None` if not found."""
         return self._get(f"{OPENALEX_BASE}/works/doi:{_doi_path(doi)}")
+
+    def lookup_author(self, author_id: str) -> OpenAlexAuthorProfile | None:
+        """An author's OpenAlex profile, or `None` if not found.
+
+        `author_id` is an OpenAlex author ID (`A...`, bare or as the
+        `https://openalex.org/A...` URL in a work's authorships) or an ORCID
+        (bare or as a URL); anything else raises `ValueError`. Every form of an
+        ID shares one cache entry. An ORCID has its own, and the profile it
+        returns is also stored under its ID so a later lookup by ID is a hit.
+        """
+        path = author_path(author_id)
+        profile = self._get(f"{OPENALEX_BASE}/authors/{path}")
+        if profile is not None and path.startswith("orcid:"):
+            self._alias_author(profile)
+        return profile
+
+    def _alias_author(self, profile: OpenAlexAuthorProfile) -> None:
+        """Store `profile` under its own ID's key, unless the cache has it."""
+        if self.cache is None:
+            return
+        try:
+            key = f"{OPENALEX_BASE}/authors/{author_path(profile.get('id') or '')}"
+        except ValueError:  # a record without a usable `id`
+            return
+        if key not in self.cache:
+            self.cache.put(key, profile)
 
     def search(self, query: str, rows: int = 3) -> list[OpenAlexWork]:
         """Search OpenAlex by free-text query (title + abstract)."""
