@@ -146,12 +146,28 @@ def test_drift_skips_a_line_torn_inside_a_multibyte_character(tmp_path: Path) ->
     )
 
 
-def test_drift_with_no_work_records_says_so(tmp_path: Path) -> None:
+def test_drift_covers_author_profiles(tmp_path: Path) -> None:
+    cache = tmp_path / "openalex.jsonl"
+    row = {
+        "key": "https://api.openalex.org/authors/A1",
+        "value": {"id": "https://openalex.org/A1", "h_index": 7},
+        "ts": 0,
+    }
+    cache.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    result = runner.invoke(app, ["drift", str(cache)])
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "openalex-author (1 records): 1 undeclared paths",
+        "  100%  h_index",
+    ]
+
+
+def test_drift_with_no_modelled_records_says_so(tmp_path: Path) -> None:
     cache = tmp_path / "empty.jsonl"
     cache.write_text("", encoding="utf-8")
     result = runner.invoke(app, ["drift", str(cache)])
     assert result.exit_code == 0, result.output
-    assert result.output.strip() == "no crossref or openalex work records found"
+    assert result.output.strip() == "no crossref or openalex records found"
 
 
 def test_drift_rejects_a_missing_file(tmp_path: Path) -> None:

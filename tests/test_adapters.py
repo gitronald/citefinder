@@ -1,13 +1,15 @@
-"""Tests for citefinder.adapters — Crossref/OpenAlex JSON to Work."""
+"""Tests for citefinder.adapters — Crossref/OpenAlex JSON to Work and AuthorProfile."""
 
 import pytest
 
 from citefinder.adapters import (
+    AuthorProfile,
     crossref_to_work,
     openalex_doi,
+    openalex_to_author,
     openalex_to_work,
 )
-from citefinder.models import CrossrefWork, OpenAlexWork
+from citefinder.models import CrossrefWork, OpenAlexAuthorProfile, OpenAlexWork
 
 # --- Crossref --------------------------------------------------------------
 
@@ -139,3 +141,47 @@ def test_openalex_to_work_dedupes_when_primary_and_host_match() -> None:
 
 def test_openalex_to_work_returns_none_for_missing_record() -> None:
     assert openalex_to_work(None) is None
+
+
+# --- OpenAlex author profiles ----------------------------------------------
+
+
+def test_openalex_to_author_projects_the_name_check_fields() -> None:
+    record: OpenAlexAuthorProfile = {
+        "id": "https://openalex.org/A1",
+        "orcid": "https://orcid.org/0000-0002-1825-0097",
+        "display_name": "Jané Smith",
+        "display_name_alternatives": ["J. Smith", "Jane Smith", "Jané Smith"],
+        "works_count": 12,
+        "cited_by_count": 340,
+        "last_known_institutions": [
+            {"id": "https://openalex.org/I1", "display_name": "Example University"},
+            {"id": "https://openalex.org/I2"},
+            {"id": "https://openalex.org/I3", "display_name": "Example Institute"},
+        ],
+    }
+    assert openalex_to_author(record) == AuthorProfile(
+        id="https://openalex.org/A1",
+        display_name="Jané Smith",
+        display_name_alternatives=["J. Smith", "Jane Smith", "Jané Smith"],
+        orcid="https://orcid.org/0000-0002-1825-0097",
+        works_count=12,
+        last_known_institutions=["Example University", "Example Institute"],
+    )
+
+
+def test_openalex_to_author_tolerates_a_sparse_record() -> None:
+    # `orcid` and `last_known_institutions` are null on some profiles.
+    record: OpenAlexAuthorProfile = {
+        "id": "https://openalex.org/A1",
+        "display_name": "J. Smith",
+        "orcid": None,
+        "last_known_institutions": None,
+    }
+    assert openalex_to_author(record) == AuthorProfile(
+        id="https://openalex.org/A1", display_name="J. Smith"
+    )
+
+
+def test_openalex_to_author_returns_none_for_missing_record() -> None:
+    assert openalex_to_author(None) is None

@@ -22,6 +22,7 @@ from collections import Counter
 from collections.abc import Iterable
 from functools import cache
 from typing import Any, Literal, TypedDict, get_args, get_type_hints, is_typeddict
+from urllib.parse import urlsplit
 
 __all__ = [
     "CacheRow",
@@ -36,7 +37,10 @@ __all__ = [
     "CrossrefSearchMessage",
     "CrossrefWork",
     "CrossrefWorkType",
+    "OpenAlexAffiliation",
     "OpenAlexAuthor",
+    "OpenAlexAuthorIds",
+    "OpenAlexAuthorProfile",
     "OpenAlexAuthorship",
     "OpenAlexBiblio",
     "OpenAlexIds",
@@ -319,6 +323,56 @@ class OpenAlexInstitution(TypedDict, total=False):
     lineage: list[str]
 
 
+class OpenAlexAuthorIds(TypedDict, total=False):
+    openalex: str
+    orcid: str | None
+    observed_orcids: list[str]
+
+
+class OpenAlexAffiliation(TypedDict, total=False):
+    institution: OpenAlexInstitution
+    years: list[int]
+
+
+class OpenAlexAuthorProfile(TypedDict, total=False):
+    """An author profile, as `/authors/{id}` returns it.
+
+    Surveyed on 531 profiles of authors on cached works; a key with no
+    percentage was on every one.
+    """
+
+    # --- identity
+    id: str  # `https://openalex.org/A...`
+    orcid: str | None  # `https://orcid.org/...`; 78% non-null
+    ids: OpenAlexAuthorIds
+    observed_orcids: list[str]  # every ORCID seen on the profile's works
+    # --- names
+    display_name: str  # the profile's preferred spelling
+    # Every spelling merged into the profile, `display_name` included.
+    display_name_alternatives: list[str]
+    raw_author_names: list[str]  # bylines as printed, across the profile's works
+    # Can be inverted (`Family, Given`); differs from `display_name` on 67%.
+    full_name: str
+    block_key: str  # OpenAlex's name-matching key, e.g. `j smith`
+    # --- affiliation
+    last_known_institutions: list[OpenAlexInstitution] | None  # null on 2%
+    affiliations: list[OpenAlexAffiliation]
+    # --- output and citations
+    works_count: int
+    cited_by_count: int
+    summary_stats: dict[str, float]  # `h_index`, `i10_index`, `2yr_mean_citedness`
+    counts_by_year: list[dict[str, int]]
+    awards_count: int
+    topics: list[dict[str, Any]]
+    topic_share: list[dict[str, Any]]
+    x_concepts: list[dict[str, Any]]
+    # --- bookkeeping
+    works_api_url: str
+    awards_api_url: str  # 99%
+    created_date: str
+    updated_date: str
+
+
 class OpenAlexAuthorship(TypedDict, total=False):
     author_position: Literal["first", "middle", "last"]
     # Missing on authorships OpenAlex could not link to a profile.
@@ -599,9 +653,9 @@ def undeclared_keys(record: Any, model: type, prefix: str = "") -> list[str]:
 def _model_for(row: CacheRow) -> tuple[str, type, Any] | None:
     """Which model a cache row's value is measured against.
 
-    Routes by the host in the key and by `/works/` versus `/works?`. Returns
-    `(kind, model, record)` with the Crossref envelope unwrapped, or None for a
-    cached 404 or an uncovered key.
+    Routes by the host in the key, by `/works/` versus `/works?`, and by an
+    `/authors/` path. Returns `(kind, model, record)` with the Crossref envelope
+    unwrapped, or None for a cached 404 or an uncovered key.
     """
     key, value = row.get("key", ""), row.get("value")
     if not isinstance(value, dict):
@@ -612,6 +666,9 @@ def _model_for(row: CacheRow) -> tuple[str, type, Any] | None:
         if page:
             return "crossref-search", CrossrefSearchMessage, record
         return "crossref-work", CrossrefWork, record
+    # The path, not the whole key: a DOI or a searched title can hold `/authors/`.
+    if "api.openalex.org" in key and urlsplit(key).path.startswith("/authors/"):
+        return "openalex-author", OpenAlexAuthorProfile, value
     if "api.openalex.org" in key and "/works" in key:
         if page:
             return "openalex-search", OpenAlexSearchPage, value
@@ -624,7 +681,8 @@ def cache_drift(rows: Iterable[CacheRow]) -> dict[str, tuple[int, Counter[str]]]
 
     Returns `{kind: (records_checked, Counter(path -> records carrying it))}`
     for the kinds seen (`crossref-work`, `crossref-search`, `openalex-work`,
-    `openalex-search`). Cached 404s and unmodelled endpoints are skipped.
+    `openalex-search`, `openalex-author`). Cached 404s and unmodelled endpoints
+    are skipped.
     """
     seen: dict[str, tuple[int, Counter[str]]] = {}
     for row in rows:

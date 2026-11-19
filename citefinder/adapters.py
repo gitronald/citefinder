@@ -1,14 +1,17 @@
 """Adapters from source-specific JSON to the canonical `Work` shape.
 
-Everything that knows the Crossref or OpenAlex JSON shape lives here.
+Everything that knows the Crossref or OpenAlex JSON shape lives here,
+including the `AuthorProfile` projection of an OpenAlex author record.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from bibtexparser.middlewares.names import parse_single_name_into_parts
 
 from citefinder.bib import normalize_doi
-from citefinder.models import CrossrefWork, OpenAlexWork
+from citefinder.models import CrossrefWork, OpenAlexAuthorProfile, OpenAlexWork
 from citefinder.signals import Work, strip_braces
 
 # --- Crossref ---------------------------------------------------------------
@@ -108,4 +111,42 @@ def openalex_to_work(message: OpenAlexWork | None) -> Work | None:
         year=int(year) if isinstance(year, int) else None,
         first_author_surname=first_author or None,
         container_names=container_names,
+    )
+
+
+@dataclass
+class AuthorProfile:
+    """The fields of an OpenAlex author profile a name check reads.
+
+    `display_name` is the spelling the profile prefers today, which can differ
+    from the byline on any one work. `display_name_alternatives` lists every
+    spelling OpenAlex merged into the profile, the preferred one included.
+    """
+
+    id: str | None = None  # `https://openalex.org/A...`
+    display_name: str | None = None
+    display_name_alternatives: list[str] = field(default_factory=list)
+    orcid: str | None = None  # `https://orcid.org/...`
+    works_count: int | None = None
+    last_known_institutions: list[str] = field(default_factory=list)  # names only
+
+
+def openalex_to_author(message: OpenAlexAuthorProfile | None) -> AuthorProfile | None:
+    """Project an OpenAlex author record onto `AuthorProfile`.
+
+    Returns None for a missing record (a cached 404).
+    """
+    if message is None:
+        return None
+    institutions = message.get("last_known_institutions") or []
+    works_count = message.get("works_count")
+    return AuthorProfile(
+        id=message.get("id"),
+        display_name=message.get("display_name"),
+        display_name_alternatives=list(message.get("display_name_alternatives") or []),
+        orcid=message.get("orcid"),
+        works_count=works_count if isinstance(works_count, int) else None,
+        last_known_institutions=[
+            name for inst in institutions if (name := inst.get("display_name"))
+        ],
     )

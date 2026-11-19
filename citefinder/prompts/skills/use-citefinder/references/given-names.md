@@ -11,7 +11,7 @@ The record shapes are declared in `citefinder.models` (`CrossrefWork`, `OpenAlex
 
 Two traps when reading the cache by hand:
 
-- **Cache rows are wrapped.** Each JSONL line is `{"key": <request URL>, "value": <payload>, "ts": ...}`. A DOI lookup's key contains `/works/`; a search page's key contains `/works?`. A cached 404 is `"value": null`. The Crossref value is the full envelope, so the work is `value["message"]`; the OpenAlex value is the work itself.
+- **Cache rows are wrapped.** Each JSONL line is `{"key": <request URL>, "value": <payload>, "ts": ...}`. A DOI lookup's key contains `/works/`; a search page's key contains `/works?`; an author profile's (see *Author profiles* below) contains `/authors/`. A cached 404 is `"value": null`. The Crossref value is the full envelope, so the work is `value["message"]`; the OpenAlex value is the work itself.
 - **Bib values are TeX-escaped, API values are Unicode.** `Kimberl{\'e}` in the bib is `Kimberlé` in the record. De-escape the bib side (`pylatexenc`, already installed as a bibtexparser dependency) and normalize both sides to NFC before comparing, or every accented name reads as a difference.
 
 Offline recipe — read the paper's `crossref.jsonl` and `openalex.jsonl`, join to the bib by DOI, and print every author position whose first given-name token differs from either source. It compares the first token only, because middle names and initials differ between sources far too often to be a useful signal:
@@ -101,3 +101,40 @@ print(f"checked {checked} of {len(df)} entries (those with a DOI and an author f
 A row means the bib and at least one source disagree; an empty `crossref` or `openalex` column means that source has no record for the DOI, fewer authors than the bib, or no given name at that position (a corporate author, say). Positions where the bib itself has no given name are skipped, and the last line says how many entries were actually compared — a bib whose entries mostly lack DOIs produces a clean-looking empty result for the wrong reason. Read the output as a **byline check, never an auto-fix**: a record that lacks a diacritic the author uses today is common for older articles, and the editor decides which form the citation carries. Do not rewrite the bib to match the record, and do not rewrite it to match the profile name either without checking the printed byline.
 
 **Validate a zero.** Before trusting an empty result, copy the bib, alter one given name (`Virginia` → `Virgina`), and re-run: the altered entry must appear, and only that entry. A recipe that stays silent on the altered copy is reading the wrong cache path or joining on DOIs that never match (a `https://doi.org/` prefix left on one side, say), not reporting a clean bib.
+
+## Author profiles
+
+The recipe reads one name per author: the `display_name` embedded in the work record. Fetch the author's full OpenAlex profile only when that leaves a question open:
+
+- **Are two differently spelled bylines one person?** `display_name_alternatives` lists every spelling OpenAlex merged into the profile, so two bylines that resolve to one author ID, each listed there, are one author as far as OpenAlex can tell.
+- **Is this the spelling the author uses now?** The profile's `display_name` is the current preferred form (a diacritic added later, a name change, an initial dropped); the copy embedded in an old cached work can lag it.
+- **Which of several people with this surname is it?** `orcid` and `last_known_institutions`.
+
+```bash
+{cli} author A5012345678              # by the `author.id` on a cached work, bare or as its URL
+{cli} author 0000-0002-1825-0097      # ...or by ORCID, bare or as its URL
+{cli} author A5012345678 --raw        # the whole record instead of the summary
+{cli} authors-from-cache data/citefinder/paper/openalex/openalex.jsonl
+```
+
+`author` prints six fields: `id`, `display_name`, `display_name_alternatives`, `orcid`, `works_count`, and `last_known_institutions` (names only). It takes an author ID or an ORCID, never a name: get the ID from `authorships[i].author.id` in the cached work. A profile OpenAlex no longer has prints `not found` and exits 1.
+
+`authors-from-cache` does the same for a whole bibliography. It walks the DOI lookups in a `verify` run's `openalex.jsonl`, fetches the profile of every distinct linked author, and prints one tab-separated row each (`id`, `display_name`, `alternatives`, `orcid`), in the order the authors first appear, with progress and a summary on stderr. `id` is the ID the cached work carries, so a row joins back to its works. `alternatives` is `display_name_alternatives` without the preferred name, joined with `; `. Pipe it through `sort -t $'\t' -k2` to bring near-identical names together, or `column -t -s $'\t'` to read it.
+
+- **One request per distinct author not yet cached** — close to three per entry in one surveyed cache (531 authors on 185 works), so a 60-entry bib is roughly 170 requests on a cold cache, paced by `min_interval`. Single-record lookups do not draw on OpenAlex's daily credit budget.
+- **Cache-first and idempotent.** Profiles are appended to the same `openalex.jsonl`, cached 404s included, so a re-run answers from disk and a run stopped by a rate limit resumes where it stopped. A miss falls back, read-only, to the shared `<cache_dir>/openalex.jsonl` as `verify` does (`--no-fallback` turns that off), and `{cli} cache merge` consolidates profiles like any other row.
+- **Only DOI lookups are walked.** An entry `verify` matched by search has its work inside a search page of candidates, which is skipped. Add the `matched_doi` to the bib, re-run `verify`, then re-run this.
+- **Unlinked authors have no row.** An authorship OpenAlex could not attach to a profile carries no `author.id`; only `raw_author_name` exists for it.
+
+A profile is OpenAlex's automated disambiguation, not a statement by the author: it can merge two people who share a name or split one person across two IDs, and its alternatives include deposit artifacts (inverted `Family, Given` forms, bare initials). So the rule above holds here too: **a profile informs a byline check and never rewrites a name by itself.** Report the disagreement with the profile's evidence, and leave the choice of form to the editor and the printed byline.
+
+In a script, `OpenAlexClient.lookup_author(id_or_orcid)` returns the raw record (`OpenAlexAuthorProfile` in `citefinder.models`) and `openalex_to_author` projects it onto the six-field `AuthorProfile`:
+
+```python
+from citefinder import OpenAlexClient, openalex_to_author
+
+client = OpenAlexClient(cache_path="data/citefinder/paper/openalex/openalex.jsonl")
+profile = openalex_to_author(client.lookup_author("https://openalex.org/A5012345678"))
+if profile is not None:
+    print(profile.display_name, profile.display_name_alternatives)
+```

@@ -2,7 +2,7 @@
 name: use-citefinder
 description: Look up DOIs, search Crossref or OpenAlex, resolve book chapters, look up books by ISBN, and verify whole `.bib` files with `citefinder` — a small Crossref + OpenAlex client (plus Open Library and the Library of Congress for books) with a JSONL cache that survives sessions and remembers 404s. Use this whenever the user wants to verify a DOI, find a paper by author + title, check whether a citation is real, resolve a chapter DOI, look up an arXiv/preprint DOI Crossref doesn't index, find a book's publisher, place of publication, or full title from its ISBN, generate canonical metadata for a reference list, or audit a `.bib` file end-to-end — even when they don't say "Crossref" or "DOI" explicitly. Phrases like "is this paper real?", "find the published version", "look up this citation", "the subagent gave me these papers — verify them", "audit refs.bib", "what's the DOI for X?", or "where was this book published?" should trigger it.
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Use citefinder
@@ -22,6 +22,7 @@ metadata:
 - Auditing a whole `.bib` file: which entries match, which have wrong DOIs, which can't be found.
 - Sanity-checking a list of references produced by a research subagent or extracted from a PDF.
 - Building or enriching a bibliography (`.bib`, CSV) from an outline.
+- Settling an author-name question a work record cannot: the spelling an author's OpenAlex profile prefers today, or whether two differently spelled bylines are one person.
 
 ## Install / availability check
 
@@ -121,7 +122,7 @@ CLI:
 
 ### 4. Verify a whole .bib file
 
-When the user has a `.bib` and asks "audit these references" / "check what's wrong" / "which entries don't resolve" — use the bib-verification pipeline rather than calling `lookup_doi` per entry by hand. It parses, resolves DOIs, falls back to bibliographic search, checks four signals (title, year, first-author surname, container), and buckets each entry by status. Given names are never compared — load `{cli} doc use-citefinder/given-names` for the offline check.
+When the user has a `.bib` and asks "audit these references" / "check what's wrong" / "which entries don't resolve" — use the bib-verification pipeline rather than calling `lookup_doi` per entry by hand. It parses, resolves DOIs, falls back to bibliographic search, checks four signals (title, year, first-author surname, container), and buckets each entry by status. Given names are never compared — load `{cli} doc use-citefinder/given-names` for the offline check, and for the author-profile lookups (`{cli} author`, `{cli} authors-from-cache`) that follow it when a name question is still open.
 
 CLI:
 
@@ -235,7 +236,9 @@ at the step that calls for it:
   fields carry the family/given name split, abstracts, the OpenAlex API key
   and config files, and picking `mailto`.
 - `{cli} doc use-citefinder/given-names` — the offline given-name and
-  diacritics check over a `verify` run's cache, with a runnable recipe.
+  diacritics check over a `verify` run's cache, with a runnable recipe, and
+  the OpenAlex author-profile lookups (`{cli} author`,
+  `{cli} authors-from-cache`) for the name questions that check leaves open.
 - `{cli} doc use-citefinder/year-mismatches` — when Crossref and OpenAlex
   disagree on a work's year, and which year to cite.
 - `{cli} doc use-citefinder/inspect-table` — a side-by-side plain-text view of
@@ -247,7 +250,7 @@ For **generating formatted BibTeX strings** from a DOI or query, use [`fetchbib`
 
 Drop down to raw HTTP (`requests.get("https://api.crossref.org/...")`) only if you need:
 
-- Crossref or OpenAlex endpoints citefinder doesn't wrap (Crossref `/funders`, `/journals`, `/types`; OpenAlex `/authors`, `/institutions`, `/sources`).
+- Crossref or OpenAlex endpoints citefinder doesn't wrap (Crossref `/funders`, `/journals`, `/types`; OpenAlex `/institutions`, `/sources`, and author *search* by name — `{cli} author` takes an author ID or ORCID only).
 - A one-off query you specifically don't want cached.
 - Streaming through large result sets via `cursor` pagination.
 

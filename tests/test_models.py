@@ -10,6 +10,7 @@ from citefinder.models import (
     CrossrefEnvelope,
     CrossrefSearchMessage,
     CrossrefWork,
+    OpenAlexAuthorProfile,
     OpenAlexSearchPage,
     OpenAlexWork,
     cache_drift,
@@ -187,10 +188,52 @@ OPENALEX_WORK: OpenAlexWork = {
     "updated_date": "2024-01-01T00:00:00",
 }
 
+_INSTITUTION = {
+    "id": "https://openalex.org/I1",
+    "ror": "https://ror.org/00example",
+    "display_name": "Example University",
+    "country_code": "US",
+    "type": "education",
+    "lineage": ["https://openalex.org/I1"],
+}
+
+OPENALEX_AUTHOR: OpenAlexAuthorProfile = {
+    "id": "https://openalex.org/A1",
+    "orcid": "https://orcid.org/0000-0002-1825-0097",
+    "ids": {
+        "openalex": "https://openalex.org/A1",
+        "orcid": "https://orcid.org/0000-0002-1825-0097",
+        "observed_orcids": ["https://orcid.org/0000-0002-1825-0097"],
+    },
+    "observed_orcids": ["https://orcid.org/0000-0002-1825-0097"],
+    "display_name": "Jané Smith",
+    "display_name_alternatives": ["J. Smith", "Jane Smith", "Jané Smith"],
+    "raw_author_names": ["J. Smith", "Jane Smith"],
+    "full_name": "Smith, Jané",
+    "block_key": "j smith",
+    "last_known_institutions": [_INSTITUTION],
+    "affiliations": [{"institution": _INSTITUTION, "years": [2021, 2020]}],
+    "works_count": 12,
+    "cited_by_count": 340,
+    "summary_stats": {"2yr_mean_citedness": 1.5, "h_index": 7, "i10_index": 5},
+    "counts_by_year": [
+        {"year": 2021, "works_count": 2, "oa_works_count": 1, "cited_by_count": 40}
+    ],
+    "awards_count": 0,
+    "topics": [],
+    "topic_share": [],
+    "x_concepts": [],
+    "works_api_url": "https://api.openalex.org/works?filter=author.id:A1",
+    "awards_api_url": "https://api.openalex.org/awards?filter=author.id:A1",
+    "created_date": "2020-05-02",
+    "updated_date": "2024-01-01T00:00:00",
+}
+
 
 def test_fixtures_have_no_drift() -> None:
     assert undeclared_keys(CROSSREF_WORK, CrossrefWork) == []
     assert undeclared_keys(OPENALEX_WORK, OpenAlexWork) == []
+    assert undeclared_keys(OPENALEX_AUTHOR, OpenAlexAuthorProfile) == []
 
 
 def test_undeclared_keys_reports_dotted_paths() -> None:
@@ -303,10 +346,21 @@ def test_cache_drift_routes_by_key_host_and_kind() -> None:
             "ts": 0.0,
         },
         {
-            "key": "https://api.openalex.org/authors/A1",
-            "value": {"id": "A1"},
+            "key": "https://api.openalex.org/__ratelimit",
+            "value": {"headers": {}, "ts": 0.0},
             "ts": 0.0,
         },
+        # An author profile, nested shapes walked like a work's.
+        {
+            "key": "https://api.openalex.org/authors/A1",
+            "value": {
+                **OPENALEX_AUTHOR,
+                "h_index": 7,
+                "ids": {"openalex": "https://openalex.org/A1", "scopus": "x"},
+            },
+            "ts": 0.0,
+        },
+        {"key": "https://api.openalex.org/authors/A2", "value": None, "ts": 0.0},
     ]
     drift = cache_drift(rows)
     assert set(drift) == {
@@ -314,8 +368,28 @@ def test_cache_drift_routes_by_key_host_and_kind() -> None:
         "crossref-search",
         "openalex-work",
         "openalex-search",
+        "openalex-author",
     }
+    assert drift["openalex-author"] == (1, {"h_index": 1, "ids.scopus": 1})
     assert drift["crossref-work"] == (1, {"novel": 1})
     assert drift["crossref-search"] == (1, {"items[].novel": 1})
     assert drift["openalex-work"] == (1, {"fresh": 1})
     assert drift["openalex-search"] == (1, {})
+
+
+def test_cache_drift_routes_authors_by_path_not_by_text_in_the_key() -> None:
+    # A DOI or a searched title can hold `/authors/`; neither row is a profile.
+    rows: list[CacheRow] = [
+        {
+            "key": "https://api.openalex.org/works/doi:10.1234/authors/5",
+            "value": OPENALEX_WORK,
+            "ts": 0.0,
+        },
+        {
+            "key": "https://api.openalex.org/works"
+            "?filter=title.search:Readers/authors/editors&per-page=3",
+            "value": {"meta": {"count": 1}, "results": [OPENALEX_WORK]},
+            "ts": 0.0,
+        },
+    ]
+    assert cache_drift(rows) == {"openalex-work": (1, {}), "openalex-search": (1, {})}

@@ -60,6 +60,22 @@ def captured(monkeypatch) -> dict[str, Any]:
             # A DOI ending in `/missing` plays the 404 so not-found paths run.
             return None if doi.endswith("/missing") else {"id": doi}
 
+        def lookup_author(  # pyrefly: ignore[missing-override-decorator]
+            self, author_id: str
+        ) -> Any:
+            # An ID ending in `404` plays the profile OpenAlex no longer has.
+            if author_id.endswith("404"):
+                return None
+            return {
+                "id": "https://openalex.org/A1",
+                "orcid": None,
+                "display_name": "Jané Smith",
+                "display_name_alternatives": ["J. Smith", "Jané Smith"],
+                "works_count": 12,
+                "cited_by_count": 340,
+                "last_known_institutions": [{"display_name": "Example University"}],
+            }
+
         def search_title(  # pyrefly: ignore[missing-override-decorator]
             self, title: str, rows: int = 3
         ) -> list[Any]:

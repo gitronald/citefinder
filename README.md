@@ -129,6 +129,7 @@ from citefinder import (
     OpenAlexClient,
     datacite_registrar,
     is_arxiv_doi,
+    openalex_to_author,
     reconstruct_abstract,
 )
 
@@ -155,7 +156,26 @@ abstract = reconstruct_abstract(work) if work else None
 # Helpers for routing logic: DataCite DOIs are never in Crossref
 assert is_arxiv_doi("10.48550/arXiv.2410.21554")
 assert datacite_registrar("10.5281/zenodo.123") == "Zenodo"
+
+# An author's profile, by OpenAlex author ID (bare, or the URL a work's
+# `authorships[i].author.id` carries) or by ORCID. Returns the raw record;
+# `openalex_to_author` keeps the fields a name check reads.
+record = openalex.lookup_author("https://openalex.org/A5012345678")
+profile = openalex_to_author(record)
+if profile is not None:
+    print(profile.display_name, profile.display_name_alternatives, profile.orcid)
 ```
+
+A work record embeds only an author's ID, profile name, and ORCID. The profile
+adds what settles a name question the work cannot: the spelling the author's
+profile prefers today, every spelling OpenAlex has merged into it
+(`display_name_alternatives`), and the last known institutions. `AuthorProfile`
+holds `id`, `display_name`, `display_name_alternatives`, `orcid`,
+`works_count`, and `last_known_institutions` (names only). Every form of an
+author ID shares one cache entry under `/authors/A…`; an ORCID lookup has its
+own entry and also files the profile under its ID. A profile is OpenAlex's
+automated disambiguation, so read it as evidence for a byline check, not as
+the name to write.
 
 The `mailto` argument is optional but recommended: it puts requests into
 OpenAlex's [polite pool](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool)
@@ -188,8 +208,9 @@ key strips it on either side, so rotating the email doesn't invalidate prior
 entries.
 
 OpenAlex's schema differs from Crossref. The record shapes are declared as
-`TypedDict`s in `citefinder.models` (`CrossrefWork`, `OpenAlexWork`, and their
-nested parts; the model is rough and grows as fields get used), and
+`TypedDict`s in `citefinder.models` (`CrossrefWork`, `OpenAlexWork`,
+`OpenAlexAuthorProfile`, and their nested parts; the model is rough and grows
+as fields get used), and
 `citefinder drift <cache.jsonl>` lists what the records in a cache carry that
 the model does not. Quick map of the fields verify uses:
 
@@ -335,6 +356,12 @@ new_bib = table_to_bib(df)  # back to .bib, null cells skipped
 citefinder doi 10.48550/arXiv.2410.21554 --mailto you@example.com
 citefinder search "Backstabber's Knife Collection" --rows 3
 
+# OpenAlex author profiles
+citefinder author A5012345678                            # summary fields, by author ID (bare or URL)
+citefinder author 0000-0002-1825-0097                    # ...or by ORCID
+citefinder author A5012345678 --raw                      # the whole OpenAlex record
+citefinder authors-from-cache data/citefinder/paper/openalex/openalex.jsonl  # every author on a run's works, as TSV
+
 # Crossref
 citefinder crossref doi 10.1126/science.aap9559 --mailto you@example.com
 citefinder crossref search "Wolfowicz hate speech meta-analysis" --rows 3
@@ -395,6 +422,8 @@ Read `results.json` by `method` × `status`:
 - `unmatched`, `skip-source`, and `doi-not-found` — noise unless they cluster around one publisher or entry type.
 
 With `--books`, a book entry that has an `isbn` and no `doi` is checked against its catalog record instead of searched for (`method=isbn`), and each such result carries `suggestions` — fields the bib should add or change, each with the `source` it came from and whether it is `confirmed` by a catalog or only offered by a retailer-fed record. The Open Library and Library of Congress caches land beside the source cache in the output directory. `isbn` prints the same merged record for one ISBN, with the URL of each source's record. See [Book metadata by ISBN](#book-metadata-by-isbn).
+
+`author` prints one OpenAlex author profile as JSON: `id`, `display_name`, `display_name_alternatives`, `orcid`, `works_count`, and `last_known_institutions`, or the whole record with `--raw`. It takes an author ID or an ORCID, not a name; anything else exits 2 without a request. `authors-from-cache` takes an OpenAlex cache (typically a `verify` run's `openalex.jsonl`), collects every distinct author ID on its DOI lookups — search pages are skipped, since most of their hits are not the cited work — and prints one tab-separated row per author (`id` as the work carries it, `display_name`, `alternatives`, `orcid`), with progress on stderr. It makes one request per author not yet cached and stores the profiles, cached 404s included, in the same file, so a re-run answers from disk and a run stopped by a rate limit resumes where it stopped. Like `verify`, it reads the shared `<cache_dir>/openalex.jsonl` as a read-only fallback unless `--no-fallback` is given.
 
 `bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved. Input that cannot round-trip — a bib field named `key` or `entry_type`, a cell with unbalanced braces — is refused with an error and exit 1 rather than written out with data silently lost.
 
@@ -480,7 +509,7 @@ rendered for:
 
 ```yaml
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   pkgskills-host: "citefinder"
   pkgskills-host-version: "0.14.1"
   pkgskills-version: "0.6.3"

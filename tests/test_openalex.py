@@ -7,8 +7,11 @@ import pytest
 
 from citefinder._base import _strip_mailto
 from citefinder.cache import JsonlCache
+from citefinder.models import CacheRow
 from citefinder.openalex import (
     OpenAlexClient,
+    author_path,
+    cached_author_ids,
     datacite_note,
     datacite_registrar,
     is_arxiv_doi,
@@ -278,3 +281,177 @@ def test_api_key_not_in_url(tmp_path: Path, mock_response) -> None:
     called_url = client.session.get.call_args[0][0]
     assert "secret-key" not in called_url
     assert "api_key" not in called_url
+
+
+# --- author profiles ---------------------------------------------------------
+
+AUTHOR_ID = "A5000000001"
+AUTHOR_URL = f"https://openalex.org/{AUTHOR_ID}"
+ORCID = "0000-0002-1825-0097"
+PROFILE = {"id": AUTHOR_URL, "display_name": "Jané Doe"}
+
+
+@pytest.mark.parametrize(
+    ("identifier", "path"),
+    [
+        (AUTHOR_ID, AUTHOR_ID),
+        ("a5000000001", AUTHOR_ID),
+        (f" {AUTHOR_URL} ", AUTHOR_ID),
+        (f"https://api.openalex.org/authors/{AUTHOR_ID}", AUTHOR_ID),
+        (ORCID, f"orcid:{ORCID}"),
+        (f"https://orcid.org/{ORCID}", f"orcid:{ORCID}"),
+        (f"orcid:{ORCID}", f"orcid:{ORCID}"),
+        ("0000-0002-1694-233x", "orcid:0000-0002-1694-233X"),
+    ],
+)
+def test_author_path_normalizes_every_accepted_form(identifier: str, path: str) -> None:
+    assert author_path(identifier) == path
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "",
+        "Jane Doe",
+        "W2741809807",
+        "0000-0002-1825",
+        f"{AUTHOR_ID}/x",
+        # Digits of another script (Arabic-Indic) are not an ID's digits.
+        "A١٢",
+        "0000-٠٠٠٠-0000-0000",
+    ],
+)
+def test_author_path_rejects_anything_else(identifier: str) -> None:
+    with pytest.raises(ValueError, match="not an OpenAlex author ID or ORCID"):
+        author_path(identifier)
+
+
+def test_lookup_author_shares_one_entry_across_id_forms(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, PROFILE)
+    assert client.lookup_author(AUTHOR_ID) == PROFILE
+    assert client.lookup_author(AUTHOR_URL) == PROFILE
+    assert client.lookup_author(AUTHOR_ID.lower()) == PROFILE
+    assert session.get.call_count == 1
+    called_url = session.get.call_args[0][0]
+    assert called_url.startswith(f"https://api.openalex.org/authors/{AUTHOR_ID}?")
+    assert client.cache is not None
+    assert f"https://api.openalex.org/authors/{AUTHOR_ID}" in client.cache
+
+
+def test_lookup_author_by_orcid_also_caches_the_profile_under_its_id(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, PROFILE)
+    assert client.lookup_author(f"https://orcid.org/{ORCID}") == PROFILE
+    called_url = session.get.call_args[0][0]
+    assert called_url.startswith(f"https://api.openalex.org/authors/orcid:{ORCID}?")
+    # The bare ORCID and the profile's own ID are both cache hits now.
+    assert client.lookup_author(ORCID) == PROFILE
+    assert client.lookup_author(AUTHOR_ID) == PROFILE
+    assert session.get.call_count == 1
+
+
+def test_lookup_author_by_orcid_replaces_a_404_cached_for_the_id(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(404)
+    assert client.lookup_author(AUTHOR_ID) is None
+    session.get.return_value = mock_response(200, PROFILE)
+    assert client.lookup_author(ORCID) == PROFILE
+    assert client.lookup_author(AUTHOR_ID) == PROFILE
+    assert session.get.call_count == 2
+
+
+def test_lookup_author_by_orcid_tolerates_a_record_without_an_id(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, {"display_name": "Jané Doe"})
+    assert client.lookup_author(ORCID) == {"display_name": "Jané Doe"}
+    assert client.cache is not None
+    assert len(client.cache) == 1
+
+
+def test_lookup_author_by_orcid_works_without_a_cache(mock_response) -> None:
+    client = OpenAlexClient()
+    client.session = MagicMock()  # type: ignore[assignment]
+    client.session.get.return_value = mock_response(200, PROFILE)
+    assert client.lookup_author(ORCID) == PROFILE
+
+
+def test_lookup_author_caches_a_404(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(404)
+    assert client.lookup_author(AUTHOR_ID) is None
+    assert client.lookup_author(ORCID) is None
+    assert client.lookup_author(AUTHOR_URL) is None
+    assert client.lookup_author(ORCID) is None
+    assert session.get.call_count == 2
+
+
+def test_lookup_author_rejects_a_bad_identifier_without_a_request(
+    setup: tuple[OpenAlexClient, MagicMock],
+) -> None:
+    client, session = setup
+    with pytest.raises(ValueError):
+        client.lookup_author("Jane Doe")
+    session.get.assert_not_called()
+
+
+def test_cached_author_ids_reads_doi_lookups_in_first_seen_order() -> None:
+    def authorship(author: object) -> dict:
+        return {"author": author, "raw_author_name": "X"}
+
+    one, two = "https://openalex.org/A1", "https://openalex.org/A2"
+    rows: list[CacheRow] = [
+        {
+            "key": "https://api.openalex.org/works/doi:10.1/a",
+            "value": {
+                "authorships": [authorship({"id": two}), authorship({"id": one})]
+            },
+            "ts": 0.0,
+        },
+        {
+            "key": "https://api.openalex.org/works/doi:10.1/b",
+            # A repeat, an unlinked authorship, and stubs with no author ID.
+            "value": {
+                "authorships": [
+                    authorship({"id": one}),
+                    {"raw_author_name": "Unlinked Author"},
+                    authorship({"display_name": "No Id"}),
+                    authorship({"id": "https://openalex.org/W1"}),
+                ]
+            },
+            "ts": 0.0,
+        },
+        # Skipped: a search page, a cached 404, a profile, another source.
+        {
+            "key": "https://api.openalex.org/works?filter=title.search:x",
+            "value": {"results": [{"authorships": [authorship({"id": "A9"})]}]},
+            "ts": 0.0,
+        },
+        {"key": "https://api.openalex.org/works/doi:10.1/c", "value": None, "ts": 0.0},
+        {
+            "key": "https://api.openalex.org/authors/A7",
+            "value": {"id": "A7"},
+            "ts": 0.0,
+        },
+        {
+            "key": "https://api.crossref.org/works/10.1/a",
+            "value": {"message": {"authorships": [authorship({"id": "A8"})]}},
+            "ts": 0.0,
+        },
+    ]
+    assert cached_author_ids(rows) == [two, one]

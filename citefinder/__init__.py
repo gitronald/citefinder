@@ -2,7 +2,12 @@
 
 from typing import TYPE_CHECKING, Any
 
-from citefinder.adapters import crossref_to_work, openalex_to_work
+from citefinder.adapters import (
+    AuthorProfile,
+    crossref_to_work,
+    openalex_to_author,
+    openalex_to_work,
+)
 from citefinder.bib import Entry, parse_entries
 from citefinder.books import BookField, BookLookup, BookRecord, book_record
 from citefinder.cache import (
@@ -57,6 +62,7 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
+    "AuthorProfile",
     "BibCitation",
     "BookField",
     "BookLookup",
@@ -84,6 +90,7 @@ __all__ = [
     "marc_book",
     "merge_caches",
     "normalize_isbn",
+    "openalex_to_author",
     "openalex_to_work",
     "parse_marcxml",
     "parse_entries",

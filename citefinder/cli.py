@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import requests
 import typer
 from dotenv import find_dotenv, load_dotenv
 from pkgskills import register
@@ -28,6 +29,7 @@ from citefinder._base import (
     DEFAULT_MIN_INTERVAL,
     validate_knob,
 )
+from citefinder.adapters import openalex_to_author
 from citefinder.bib import normalize_doi, parse_entries
 from citefinder.books import BookLookup
 from citefinder.cache import (
@@ -56,7 +58,13 @@ from citefinder.config import (
 from citefinder.host import HOST
 from citefinder.loc import LOC_MIN_INTERVAL, LocClient
 from citefinder.models import cache_drift
-from citefinder.openalex import OpenAlexClient, datacite_note, datacite_registrar
+from citefinder.openalex import (
+    OpenAlexClient,
+    author_path,
+    cached_author_ids,
+    datacite_note,
+    datacite_registrar,
+)
 from citefinder.openlibrary import OPENLIBRARY_MIN_INTERVAL, OpenLibraryClient
 from citefinder.verify import Result, Source, verify_entry
 
@@ -193,6 +201,20 @@ VerifyCacheDirOption = typer.Option(
         layout="<bib-dir>[-<bib-stem>]/<source>/",
         default="data/citefinder under the working directory",
     ),
+)
+AuthorsCacheDirOption = typer.Option(
+    None,
+    "--cache-dir",
+    help=_CACHE_DIR_HELP.format(
+        what="shared fallback cache",
+        layout="openalex.jsonl",
+        default="data/citefinder under the working directory",
+    ),
+)
+NoFallbackOption = typer.Option(
+    False,
+    "--no-fallback",
+    help="Read only this run's cache, not the shared <cache-dir>/<source>.jsonl.",
 )
 RowsOption = typer.Option(3, help="Number of results to return.")
 OpenAlexMailtoOption = typer.Option(
@@ -436,6 +458,19 @@ def _verify_root(cache_dir: Path | None) -> Path:
     return _cache_dir(cache_dir) or Path.cwd() / "data" / "citefinder"
 
 
+def _shared_fallback(
+    source: str, cache_path: Path, cache_dir: Path | None, no_fallback: bool
+) -> Path | None:
+    """The shared file `cache merge` writes, to read behind a run's `cache_path`.
+
+    `None` when turned off, or when the shared file is `cache_path` itself.
+    """
+    if no_fallback:
+        return None
+    shared = resolve_cache_path(source, _verify_root(cache_dir))
+    return None if shared.resolve() == cache_path.resolve() else shared
+
+
 _PRIMARY_BIB_STEM = "refs"
 
 
@@ -535,6 +570,120 @@ def search(
     )
     items = client.search_title(title, rows=rows)
     _emit(items)
+
+
+@app.command()
+def author(
+    author_id: str = typer.Argument(
+        ...,
+        metavar="ID",
+        help="OpenAlex author ID (A5012345678) or ORCID, bare or as a URL.",
+    ),
+    raw: bool = typer.Option(
+        False, "--raw", help="Print the whole OpenAlex record, not the summary."
+    ),
+    cache: Path | None = OpenAlexCacheOption,
+    cache_dir: Path | None = CacheDirOption,
+    mailto: str | None = OpenAlexMailtoOption,
+    api_key: str | None = ApiKeyOption,
+    max_retries: int | None = OpenAlexMaxRetriesOption,
+    min_interval: float | None = OpenAlexMinIntervalOption,
+) -> None:
+    """Look up one author's OpenAlex profile by author ID or ORCID.
+
+    Prints the fields a name check reads: the profile's preferred
+    `display_name`, every spelling merged into it
+    (`display_name_alternatives`), `orcid`, `works_count`, and the names of the
+    last known institutions. The whole record is cached either way.
+    """
+    with _report_errors(ValueError, code=2):
+        author_path(author_id)
+    client = _openalex_client(
+        cache, cache_dir, mailto, api_key, max_retries, min_interval
+    )
+    record = client.lookup_author(author_id)
+    profile = openalex_to_author(record)
+    summary = asdict(profile) if profile is not None else None
+    _emit_or_exit(record if raw else summary, author_id)
+
+
+def _one_line(text: str) -> str:
+    """`text` with every run of whitespace, tabs and newlines included, as one space."""
+    return " ".join(text.split())
+
+
+@app.command("authors-from-cache")
+def authors_from_cache(
+    cache: Path = typer.Argument(
+        ...,
+        help="OpenAlex JSONL cache holding the works, "
+        "such as a verify run's openalex.jsonl.",
+    ),
+    cache_dir: Path | None = AuthorsCacheDirOption,
+    no_fallback: bool = NoFallbackOption,
+    mailto: str | None = OpenAlexMailtoOption,
+    api_key: str | None = ApiKeyOption,
+    max_retries: int | None = OpenAlexMaxRetriesOption,
+    min_interval: float | None = OpenAlexMinIntervalOption,
+) -> None:
+    """Fetch the OpenAlex profile of every author on the works in a cache.
+
+    Collects each distinct author ID on the DOI lookups in CACHE (search pages
+    are skipped) and prints one tab-separated row per author: `id`,
+    `display_name`, `alternatives` (the other spellings merged into the
+    profile), and `orcid`. `id` is the one the work carries, so a row joins back
+    to its works. An author whose profile is gone has only its `id`.
+
+    Profiles are stored in CACHE beside the works, one request per author not
+    yet cached, so a re-run answers from disk and an interrupted run resumes
+    where it stopped. A miss falls back, read-only, to the shared cache, as in
+    `verify`.
+    """
+    _require_file(cache)
+    ids = cached_author_ids(read_records(cache))
+    if not ids:
+        typer.echo(f"no OpenAlex DOI lookups with linked authors in {cache}", err=True)
+        return
+    client = OpenAlexClient(
+        cache_path=cache,
+        fallback_cache=_shared_fallback("openalex", cache, cache_dir, no_fallback),
+        mailto=mailto,
+        api_key=api_key,
+        **_client_kwargs(max_retries, min_interval),
+    )
+    typer.echo(f"{len(ids)} distinct author(s) on the works in {cache}", err=True)
+    typer.echo("id\tdisplay_name\talternatives\torcid")
+    missing = 0
+    for done, author_id in enumerate(ids):
+        try:
+            profile = openalex_to_author(client.lookup_author(author_id))
+        except requests.RequestException as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            typer.echo(
+                f"Stopped after {done} of {len(ids)}; re-run to resume from the cache.",
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+        if profile is None:
+            missing += 1
+            typer.echo(f"{author_id}\t\t\t")
+            continue
+        # Some recorded spellings hold a line break; a row stays one line.
+        name = _one_line(profile.display_name or "")
+        others = [_one_line(alt) for alt in profile.display_name_alternatives]
+        cells = (
+            author_id,  # as the work carries it, not `profile.id`
+            name,
+            "; ".join(alt for alt in others if alt != name),
+            profile.orcid or "",
+        )
+        typer.echo("\t".join(cells))
+    calls = client.network_calls
+    typer.echo(
+        f"Done: {calls} network call(s), {len(ids) - calls} cache hit(s), "
+        f"{missing} not found.",
+        err=True,
+    )
 
 
 def _age(seconds: float) -> str:
@@ -710,11 +859,7 @@ def verify(
             default=_VERIFY_MIN_INTERVAL_DEFAULT, env="<SOURCE>_MIN_INTERVAL"
         ),
     ),
-    no_fallback: bool = typer.Option(
-        False,
-        "--no-fallback",
-        help="Read only this run's cache, not the shared <cache-dir>/<source>.jsonl.",
-    ),
+    no_fallback: bool = NoFallbackOption,
     books: bool = typer.Option(
         False,
         "--books",
@@ -744,10 +889,7 @@ def verify(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cache_path = resolve_cache_path(source, out_dir)
-    # The shared file `cache merge` writes; no fallback if it is the run's own cache.
-    shared = resolve_cache_path(source, _verify_root(cache_dir))
-    coincide = shared.resolve() == cache_path.resolve()
-    fallback = None if no_fallback or coincide else shared
+    fallback = _shared_fallback(source, cache_path, cache_dir, no_fallback)
     knobs = _source_client_kwargs(source, max_retries, min_interval, mailto)
     if source == "crossref":
         client = CrossrefClient(cache_path=cache_path, fallback_cache=fallback, **knobs)
@@ -853,14 +995,14 @@ def drift(cache: Path) -> None:
     """Report keys the records in a JSONL cache carry that the models lack.
 
     Rows are grouped by the request host in their key into `crossref-work`,
-    `crossref-search`, `openalex-work`, and `openalex-search`. Each undeclared
-    dotted path is printed with the share of records carrying it, most common
-    first.
+    `crossref-search`, `openalex-work`, `openalex-search`, and
+    `openalex-author`. Each undeclared dotted path is printed with the share of
+    records carrying it, most common first.
     """
     _require_file(cache)
     drift_by_kind = cache_drift(read_records(cache))
     if not drift_by_kind:
-        typer.echo("no crossref or openalex work records found")
+        typer.echo("no crossref or openalex records found")
         return
     for kind, (count, paths) in sorted(drift_by_kind.items()):
         typer.echo(f"{kind} ({count} records): {len(paths)} undeclared paths")
