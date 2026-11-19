@@ -375,3 +375,21 @@ def test_cache_drift_routes_by_key_host_and_kind() -> None:
     assert drift["crossref-search"] == (1, {"items[].novel": 1})
     assert drift["openalex-work"] == (1, {"fresh": 1})
     assert drift["openalex-search"] == (1, {})
+
+
+def test_cache_drift_routes_authors_by_path_not_by_text_in_the_key() -> None:
+    # A DOI or a searched title can hold `/authors/`; neither row is a profile.
+    rows: list[CacheRow] = [
+        {
+            "key": "https://api.openalex.org/works/doi:10.1234/authors/5",
+            "value": OPENALEX_WORK,
+            "ts": 0.0,
+        },
+        {
+            "key": "https://api.openalex.org/works"
+            "?filter=title.search:Readers/authors/editors&per-page=3",
+            "value": {"meta": {"count": 1}, "results": [OPENALEX_WORK]},
+            "ts": 0.0,
+        },
+    ]
+    assert cache_drift(rows) == {"openalex-work": (1, {}), "openalex-search": (1, {})}

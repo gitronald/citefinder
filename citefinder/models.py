@@ -22,6 +22,7 @@ from collections import Counter
 from collections.abc import Iterable
 from functools import cache
 from typing import Any, Literal, TypedDict, get_args, get_type_hints, is_typeddict
+from urllib.parse import urlsplit
 
 __all__ = [
     "CacheRow",
@@ -652,8 +653,8 @@ def undeclared_keys(record: Any, model: type, prefix: str = "") -> list[str]:
 def _model_for(row: CacheRow) -> tuple[str, type, Any] | None:
     """Which model a cache row's value is measured against.
 
-    Routes by the host in the key, by `/works/` versus `/works?`, and by
-    `/authors/`. Returns `(kind, model, record)` with the Crossref envelope
+    Routes by the host in the key, by `/works/` versus `/works?`, and by an
+    `/authors/` path. Returns `(kind, model, record)` with the Crossref envelope
     unwrapped, or None for a cached 404 or an uncovered key.
     """
     key, value = row.get("key", ""), row.get("value")
@@ -665,7 +666,8 @@ def _model_for(row: CacheRow) -> tuple[str, type, Any] | None:
         if page:
             return "crossref-search", CrossrefSearchMessage, record
         return "crossref-work", CrossrefWork, record
-    if "api.openalex.org" in key and "/authors/" in key:
+    # The path, not the whole key: a DOI or a searched title can hold `/authors/`.
+    if "api.openalex.org" in key and urlsplit(key).path.startswith("/authors/"):
         return "openalex-author", OpenAlexAuthorProfile, value
     if "api.openalex.org" in key and "/works" in key:
         if page:
