@@ -113,3 +113,12 @@ pacing applies; document that the batch command is cache-first and idempotent.
 - Whether to store profiles in `openalex.jsonl` or a sibling
   `openalex-authors.jsonl`. One file is simpler; two keep the works cache's
   size and replay time unchanged. Decide when implementing step 1.
+
+## Log
+
+- **2026-11-19T14:05:39-08:00** — Review: still open. Nothing since the plan was written wraps `/authors`: `OpenAlexClient` has no `lookup_author`, and the skill body still lists `/authors` as unwrapped. The files the plan names (`citefinder/models.py`, `cache_drift`, `adapters.py`) are present. What the implementation takes from the repo as it stands now, where that differs from the spec:
+  - **Cache key.** The spec keys a profile on `https://openalex.org/A...`. `cache merge` and `cache stats` (plan 016) route rows by the request host `api.openalex.org`, and the drift routing this plan asks for matches `/authors/` in the key, so that key would be unroutable in all three. The key is the request URL, `https://api.openalex.org/authors/A...`, which is what `CachedJsonClient._get` writes without special handling.
+  - **ORCID.** An ORCID cannot share the ID's cache entry before a fetch, since only the response maps one to the other. The bare ID and its URL forms normalize to one key; an ORCID keys on `/authors/orcid:<orcid>`, and a profile fetched that way is also stored under its `/authors/A...` key.
+  - **Skill.** The skill is packaged with pkgskills since plan 019: commands are written `{cli} ...`, reference material is a declared `Doc`, and the body carries a `metadata.version` to bump.
+  - **Open question 1:** a separate command, as the plan leans. **Open question 2:** the same `openalex.jsonl`. The read-through fallback (plan 018), `cache merge`, and `cache stats` find caches by the `<source>.jsonl` name, so a sibling file would be outside all of them.
+  - **Which works the batch walks:** DOI-lookup rows (`/works/`), the same set the given-names recipe from plan 012 reads. Search pages hold up to three candidates per entry, most of them not the cited work.
