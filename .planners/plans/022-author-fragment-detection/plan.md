@@ -1,8 +1,8 @@
 ---
 id: 22
 slug: author-fragment-detection
-status: draft
-branch:
+status: active
+branch: feature/022-author-fragment-detection
 created: 2026-11-19T14:28:07-08:00
 concluded:
 pr:
@@ -188,3 +188,11 @@ profile is committed.
 6. **Shared co-authors without a duplicate title.** Whether one shared name is
    enough for `likely-fragment` or it takes two. Step 1 should show how often
    namesakes share a co-author name.
+
+## Log
+
+- **2026-11-19T14:48:50-08:00** — Activated.
+  - Branch: `feature/022-author-fragment-detection`
+  - Base: `dev` at `599b248`
+  - Worktree: `.worktrees/022-author-fragment-detection`
+  - PR: pending
