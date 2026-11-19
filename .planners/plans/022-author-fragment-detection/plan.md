@@ -1,7 +1,7 @@
 ---
 id: 22
 slug: author-fragment-detection
-status: active
+status: implemented
 branch: feature/022-author-fragment-detection
 created: 2026-11-19T14:28:07-08:00
 concluded:
@@ -229,3 +229,4 @@ profile is committed.
   - Not verified here: Python 3.11 to 3.13, which CI's matrix runs; the credit reading for a caller with an API key, since every live run was unauthenticated; and the two fragments each of three anchors turned up were judged from titles, co-authors, and fields, not confirmed with the authors.
   - Left for later, as the plan scoped it: a title-first sweep for fragments under a misspelling, and paging a search past its first 200 profiles for a very common name.
 - **2026-11-19T15:20:59-08:00** — Correction to the entry above: the fragments were 1, 1, and 14 on three of the seven anchors, and 3 more on an anchor taken from a same-name pair. None was confirmed with its author.
+- **2026-11-19T15:21:49-08:00** — Implemented: 11 commits ahead of `dev`.

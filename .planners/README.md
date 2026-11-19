@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 022 | [Find and assess fragmented OpenAlex author profiles](plans/022-author-fragment-detection/plan.md) | active | — | [#97](https://github.com/gitronald/citefinder/pull/97) |
+| 022 | [Find and assess fragmented OpenAlex author profiles](plans/022-author-fragment-detection/plan.md) | implemented | — | [#97](https://github.com/gitronald/citefinder/pull/97) |
 | 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | done | 2026-11-19 14:39 PT | [#96](https://github.com/gitronald/citefinder/pull/96) |
 | 021 | [Look up book metadata by ISBN through Open Library and the Library of Congress](plans/021-book-metadata-by-isbn/plan.md) | done | 2026-09-25 23:54 PT | [#73](https://github.com/gitronald/citefinder/pull/73) |
 | 020 | [Route DataCite DOIs away from Crossref in verify](plans/020-route-datacite-dois/plan.md) | done | 2026-09-25 23:23 PT | [#72](https://github.com/gitronald/citefinder/pull/72) |
