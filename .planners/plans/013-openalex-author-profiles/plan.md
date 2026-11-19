@@ -1,10 +1,10 @@
 ---
 id: 13
 slug: openalex-author-profiles
-status: implemented
+status: done
 branch: feature/013-openalex-author-profiles
 created: 2026-09-05T15:54:41-07:00
-concluded:
+concluded: 2026-11-19T14:39:01-08:00
 pr: https://github.com/gitronald/citefinder/pull/96
 ---
 
@@ -147,3 +147,11 @@ pacing applies; document that the batch command is cache-first and idempotent.
   - **Conscious no-ops.** `authors-from-cache` parses the cache file twice (once to collect IDs, once in the client's replay): one extra parse beside a paced request per uncached author. Superseded rows would add author IDs, but no code path writes a works key twice. `author --raw` builds the summary it discards.
   - **Rejected.** Validating the ID before the client is built (intended, and tested); `_one_line` as a copy of `normalize_title_query` (that one also rewrites punctuation); the batch command's `--cache-dir` option as a copy of verify's (a different layout).
   - The review is posted on the PR.
+
+## Retrospective
+
+- **Re-reading the spec against the repo before starting was the step that mattered most.** The plan sat for ten weeks while three other plans changed how caches are keyed, merged, and found. The spec's cache key (`https://openalex.org/A...`) would have been unroutable by `cache merge`, `cache stats`, and the drift check it asked for, and its "three forms share one entry" could not hold for an ORCID. Both were caught in the review entry written on activation, before any code.
+- **Surveying live profiles first shaped the code more than the spec did.** 531 real profiles gave the model its coverage figures, and turned up line breaks inside recorded spellings, a key missing on some records, and a request estimate (about 2.9 authors per work) higher than the spec's. None of these would have come from the API documentation.
+- **Measure the whole artifact before quoting a number.** The first cost figure for keeping profiles in the works cache counted 380 of the 531 rows and was corrected a minute later. The real cost of the same-file decision is that profiles about double `openalex.jsonl` and its replay. That was accepted so that merge, stats, and the read-through fallback keep finding caches by name; a sibling file is the lever if replay time becomes a problem.
+- **The three review fixes were one mistake made three ways:** matching on the text of a value where its structure was meant (a substring of a cache key for a URL path, `\d` for ASCII digits, the served record's ID for the requested one). `_model_for` still matches works rows by substring; a new kind of row should be routed on the parsed URL.
+- **Still not verified:** what OpenAlex returns for a merged or deleted author profile. No surveyed lookup returned a 404 or a different ID than asked for, so the cached-404 path and the row for a profile served under another ID are covered by mocked tests only. The fixtures are synthetic by choice, to keep real people's profiles out of the repo.
