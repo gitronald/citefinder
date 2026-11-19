@@ -5,7 +5,7 @@ status: active
 branch: feature/022-author-fragment-detection
 created: 2026-11-19T14:28:07-08:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/97
 ---
 
 # Find and assess fragmented OpenAlex author profiles
@@ -208,3 +208,4 @@ profile is committed.
   - `possible` was 11 of 135 checked candidates and `different` most of the rest, so `possible` prints by default and `different` is a count (open question 3).
   - Size. A full profile is about 9 KB and a work about 8 KB, nearly all of it the affiliation strings in `authorships`, which `select=` cannot trim: the scratch cache reached 37 MB. Decision: the author search selects the six summary fields, the works list selects the fields compared, and each works page is trimmed to them before it is cached. A candidate's fields and institutions are then read from its works, not from profile topics.
   - An anchor's works are all paged (open question 2): 1,237 works were 7 pages, 7 credits, less than one search.
+- **2026-11-19T15:00:27-08:00** — PR opened: https://github.com/gitronald/citefinder/pull/97
