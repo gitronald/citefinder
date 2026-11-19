@@ -347,6 +347,19 @@ def test_lookup_author_by_orcid_also_caches_the_profile_under_its_id(
     assert session.get.call_count == 1
 
 
+def test_lookup_author_by_orcid_replaces_a_404_cached_for_the_id(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(404)
+    assert client.lookup_author(AUTHOR_ID) is None
+    session.get.return_value = mock_response(200, PROFILE)
+    assert client.lookup_author(ORCID) == PROFILE
+    assert client.lookup_author(AUTHOR_ID) == PROFILE
+    assert session.get.call_count == 2
+
+
 def test_lookup_author_by_orcid_tolerates_a_record_without_an_id(
     setup: tuple[OpenAlexClient, MagicMock],
     mock_response,

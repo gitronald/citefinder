@@ -212,14 +212,17 @@ class OpenAlexClient(CachedJsonClient):
         return profile
 
     def _alias_author(self, profile: OpenAlexAuthorProfile) -> None:
-        """Store `profile` under its own ID's key, unless the cache has it."""
+        """Store `profile` under its own ID's key, unless a record is there.
+
+        A 404 cached for the ID is replaced: the profile just fetched is newer.
+        """
         if self.cache is None:
             return
         try:
             key = f"{OPENALEX_BASE}/authors/{author_path(profile.get('id') or '')}"
         except ValueError:  # a record without a usable `id`
             return
-        if key not in self.cache:
+        if self.cache.get(key) is None:
             self.cache.put(key, profile)
 
     def search(self, query: str, rows: int = 3) -> list[OpenAlexWork]:
