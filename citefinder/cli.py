@@ -995,9 +995,9 @@ def drift(cache: Path) -> None:
     """Report keys the records in a JSONL cache carry that the models lack.
 
     Rows are grouped by the request host in their key into `crossref-work`,
-    `crossref-search`, `openalex-work`, `openalex-search`, and
-    `openalex-author`. Each undeclared dotted path is printed with the share of
-    records carrying it, most common first.
+    `crossref-search`, `openalex-work`, `openalex-search`, `openalex-author`,
+    and `openalex-author-search`. Each undeclared dotted path is printed with
+    the share of records carrying it, most common first.
     """
     _require_file(cache)
     drift_by_kind = cache_drift(read_records(cache))

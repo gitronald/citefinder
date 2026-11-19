@@ -315,9 +315,21 @@ class CachedJsonClient:
         self._persist_rate_limit(force=True)
         return self.rate_limit
 
-    def _get(self, url: str) -> Any | None:
+    def _get(
+        self,
+        url: str,
+        *,
+        refresh: bool = False,
+        trim: Callable[[Any], Any] | None = None,
+    ) -> Any | None:
+        """The cached value for `url`, fetched and stored on a miss.
+
+        `refresh` skips the cache read and stores what comes back, which
+        supersedes the older row. `trim` reduces a 2xx payload before it is
+        cached, for a response that carries far more than its caller reads.
+        """
         cache_key = self._cache_key(url)
-        if self.cache is not None and cache_key in self.cache:
+        if not refresh and self.cache is not None and cache_key in self.cache:
             return self.cache.get(cache_key)
         self.network_calls += 1
         response = self._fetch(self._request_url(url))
@@ -326,6 +338,8 @@ class CachedJsonClient:
         else:
             response.raise_for_status()
             value = self._decode(response)
+            if trim is not None:
+                value = trim(value)
         if self.cache is not None:
             self.cache.put(cache_key, value)
         return value

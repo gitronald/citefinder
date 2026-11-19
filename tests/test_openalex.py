@@ -455,3 +455,163 @@ def test_cached_author_ids_reads_doi_lookups_in_first_seen_order() -> None:
         },
     ]
     assert cached_author_ids(rows) == [two, one]
+
+
+# --- author search and works lists ---------------------------------------------
+
+
+def test_author_search_page_selects_the_summary_fields(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    page = {"meta": {"count": 7}, "results": [PROFILE]}
+    session.get.return_value = mock_response(200, page)
+
+    assert client.author_search_page("  Jane   Doe ", rows=50) == page
+    called_url = session.get.call_args[0][0]
+    assert called_url.startswith(
+        "https://api.openalex.org/authors?search=Jane+Doe&per-page=50&select=id%2Corcid"
+    )
+    assert "last_known_institutions" in called_url
+    # The same name, however it is spaced, is one cache entry.
+    assert client.search_authors("Jane Doe", rows=50) == [PROFILE]
+    assert session.get.call_count == 1
+
+
+def test_author_search_page_refresh_replaces_the_cached_page(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    old, new = {"results": []}, {"results": [PROFILE]}
+    session.get.side_effect = [mock_response(200, old), mock_response(200, new)]
+
+    assert client.search_authors("Jane Doe") == []
+    assert client.author_search_page("Jane Doe", refresh=True) == new
+    assert client.search_authors("Jane Doe") == [PROFILE]
+    assert session.get.call_count == 2
+    # A fresh client replays the log and sees the newer row.
+    assert isinstance(client.cache, JsonlCache)
+    reopened = OpenAlexClient(cache=JsonlCache(client.cache.path))
+    reopened.session = session  # type: ignore[assignment]
+    assert reopened.search_authors("Jane Doe") == [PROFILE]
+    assert session.get.call_count == 2
+
+
+def test_author_search_skips_a_blank_name_and_survives_a_404(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    assert client.search_authors("   ") == []
+    session.get.assert_not_called()
+    session.get.return_value = mock_response(404)
+    assert client.author_search_page("Jane Doe") == {}
+    assert client.search_authors("Jane Doe") == []
+
+
+FULL_WORK = {
+    "id": "https://openalex.org/W1",
+    "doi": "https://doi.org/10.1/a",
+    "display_name": "A Paper",
+    "publication_year": 2020,
+    "type": "article",
+    "authorships": [
+        {
+            "author_position": "first",
+            "author": {"id": AUTHOR_URL, "display_name": "Jané Doe", "orcid": None},
+            "raw_author_name": "Doe, J.",
+            "institutions": [{"id": "https://openalex.org/I1", "display_name": "U"}],
+            "raw_affiliation_strings": ["Dept. of Things, U, Somewhere"],
+            "countries": ["US"],
+        },
+        # An authorship OpenAlex could not link to a profile.
+        {"raw_author_name": "Unlinked Author"},
+    ],
+    "primary_location": {
+        "landing_page_url": "https://example.org/a",
+        "source": {"id": "https://openalex.org/S1", "display_name": "Journal"},
+    },
+    "primary_topic": {
+        "id": "https://openalex.org/T1",
+        "display_name": "Topic",
+        "field": {"id": "https://openalex.org/fields/17", "display_name": "Field"},
+    },
+}
+TRIMMED_WORK = {
+    "id": "https://openalex.org/W1",
+    "doi": "https://doi.org/10.1/a",
+    "display_name": "A Paper",
+    "publication_year": 2020,
+    "type": "article",
+    "authorships": [
+        {
+            "author": {"id": AUTHOR_URL, "display_name": "Jané Doe"},
+            "institutions": [{"display_name": "U"}],
+            "raw_author_name": "Doe, J.",
+        },
+        {"author": {}, "institutions": [], "raw_author_name": "Unlinked Author"},
+    ],
+    "primary_location": {"source": {"display_name": "Journal"}},
+    "primary_topic": {"field": {"display_name": "Field"}},
+}
+
+
+def test_author_works_page_caches_the_trimmed_page(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    # A work with no DOI, venue, or topic keeps only what it has.
+    bare = {"id": "https://openalex.org/W2", "doi": None, "primary_location": None}
+    session.get.return_value = mock_response(
+        200, {"meta": {"count": 2}, "results": [FULL_WORK, bare]}
+    )
+    trimmed = {
+        "meta": {"count": 2},
+        "results": [TRIMMED_WORK, {"id": "https://openalex.org/W2", "authorships": []}],
+    }
+
+    assert client.author_works_page(AUTHOR_URL) == trimmed
+    called_url = session.get.call_args[0][0]
+    assert called_url.startswith(
+        f"https://api.openalex.org/works?filter=author.id:{AUTHOR_ID}"
+        "&select=id,doi,display_name,publication_year,type,authorships,"
+        "primary_location,primary_topic&per-page=200&page=1"
+    )
+    # Every form of the ID shares the entry, and the cache holds the trimmed page.
+    assert client.author_works(AUTHOR_ID.lower()) == trimmed["results"]
+    assert session.get.call_count == 1
+    assert client.cache is not None
+    key = _strip_mailto(called_url)
+    assert client.cache.get(key) == trimmed
+
+
+def test_author_works_page_pages_and_refreshes(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    session.get.return_value = mock_response(200, {"results": []})
+    client.author_works_page(AUTHOR_ID, rows=50, page=3)
+    assert "&per-page=50&page=3" in session.get.call_args[0][0]
+    client.author_works_page(AUTHOR_ID, rows=50, page=3)
+    assert session.get.call_count == 1
+    client.author_works_page(AUTHOR_ID, rows=50, page=3, refresh=True)
+    assert session.get.call_count == 2
+
+
+def test_author_works_rejects_an_orcid_and_survives_a_404(
+    setup: tuple[OpenAlexClient, MagicMock],
+    mock_response,
+) -> None:
+    client, session = setup
+    with pytest.raises(ValueError, match="not an OpenAlex author ID"):
+        client.author_works(ORCID)
+    with pytest.raises(ValueError, match="not an OpenAlex author ID or ORCID"):
+        client.author_works_page("Jane Doe")
+    session.get.assert_not_called()
+    session.get.return_value = mock_response(404)
+    assert client.author_works_page(AUTHOR_ID) == {}
+    assert client.author_works(AUTHOR_ID) == []
