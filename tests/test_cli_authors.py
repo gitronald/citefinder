@@ -162,6 +162,27 @@ def test_authors_from_cache_prints_one_row_per_distinct_author(
     assert "Done: 3 network call(s), 0 cache hit(s), 1 not found." in result.stderr
 
 
+def test_authors_from_cache_labels_each_row_with_the_id_on_the_work(
+    run_cache: Path, monkeypatch, mock_response
+) -> None:
+    # Every request is answered by one other profile, as for IDs merged into it.
+    def get(self: object, url: str, **kwargs: object) -> Any:
+        return mock_response(200, _profile("A9", "Merged Person"))
+
+    monkeypatch.setattr("requests.Session.get", get)
+    result = runner.invoke(app, ["authors-from-cache", str(run_cache)])
+
+    assert result.exit_code == 0, result.output
+    # A row joins back to its works, and the rows match the distinct IDs counted.
+    assert result.stdout.splitlines() == [
+        HEADER,
+        "https://openalex.org/A2\tMerged Person\t\t",
+        "https://openalex.org/A1\tMerged Person\t\t",
+        "https://openalex.org/A3\tMerged Person\t\t",
+    ]
+    assert "3 distinct author(s)" in result.stderr
+
+
 def test_authors_from_cache_rerun_answers_from_the_same_file(
     run_cache: Path, api: Callable[..., list[str]], monkeypatch
 ) -> None:

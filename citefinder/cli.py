@@ -631,7 +631,8 @@ def authors_from_cache(
     Collects each distinct author ID on the DOI lookups in CACHE (search pages
     are skipped) and prints one tab-separated row per author: `id`,
     `display_name`, `alternatives` (the other spellings merged into the
-    profile), and `orcid`. An author whose profile is gone has only its `id`.
+    profile), and `orcid`. `id` is the one the work carries, so a row joins back
+    to its works. An author whose profile is gone has only its `id`.
 
     Profiles are stored in CACHE beside the works, one request per author not
     yet cached, so a re-run answers from disk and an interrupted run resumes
@@ -671,7 +672,7 @@ def authors_from_cache(
         name = _one_line(profile.display_name or "")
         others = [_one_line(alt) for alt in profile.display_name_alternatives]
         cells = (
-            profile.id or author_id,
+            author_id,  # as the work carries it, not `profile.id`
             name,
             "; ".join(alt for alt in others if alt != name),
             profile.orcid or "",
