@@ -177,6 +177,52 @@ own entry and also files the profile under its ID. A profile is OpenAlex's
 automated disambiguation, so read it as evidence for a byline check, not as
 the name to write.
 
+That disambiguation can also split one person across several author IDs,
+most often through a duplicate record of one paper that mints a new ID for
+every author on it. `find_fragments` starts from one profile and looks for
+the others:
+
+```python
+from citefinder import OpenAlexClient, find_fragments
+
+openalex = OpenAlexClient(cache_path="data/citefinder/openalex.jsonl")
+report = find_fragments(openalex, "A5012345678")  # an author ID or an ORCID
+if report is not None:
+    for candidate in report.candidates:
+        result = candidate.assessment
+        print(candidate.profile.id, result.verdict, result.reason)
+    print(report.counts(), report.credits_before, report.credits_after)
+
+# The two requests under it
+profiles = openalex.search_authors("Jane Doe", rows=25)  # summary fields only
+works = openalex.author_works("A5012345678")  # the first 200, trimmed
+```
+
+It searches for profiles under a compatible name (any order, initials,
+diacritics folded), sets aside those with a different ORCID, and compares the
+works of the rest with the anchor's. Each candidate gets a verdict:
+`likely-fragment` (the same ORCID, a work with the title of one of the
+anchor's on another record, or co-authors in common), `possible` (the name
+and a field or an institution match, and the works settle nothing),
+`different`, or `unchecked` (the name matches and `max_candidates` stopped
+before its works were read). A name match alone never makes a fragment, and
+nothing is merged or renamed: the report is for an editor to read. For a
+duplicate title, `DuplicateTitle.doi_on` says which record carries the DOI,
+which is the one to cite. `citefinder.fragments` also holds the parts:
+`match_names` (the name comparison), `assess` (one candidate against an
+`Anchor`), and `same_name_pairs` (profiles under different IDs whose names
+match in full).
+
+An author search costs ten times a works list against OpenAlex's daily
+budget, and a profile lookup is free, so `find_fragments` makes at most
+`max_searches` (default 3) searches and reads at most `max_candidates`
+(default 50) works lists, full-name matches and the smallest profiles first.
+Search results keep six summary fields and each works page is trimmed to the
+fields compared before it is cached, since a whole work is about 8 KB of
+mostly affiliation strings. Pass `refresh=True` to fetch the searches and
+works lists again: a cached search does not learn that OpenAlex has since
+merged or split a profile.
+
 The `mailto` argument is optional but recommended: it puts requests into
 OpenAlex's [polite pool](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool)
 for faster responses. The cache key strips `mailto` so changing it doesn't
@@ -209,8 +255,8 @@ entries.
 
 OpenAlex's schema differs from Crossref. The record shapes are declared as
 `TypedDict`s in `citefinder.models` (`CrossrefWork`, `OpenAlexWork`,
-`OpenAlexAuthorProfile`, and their nested parts; the model is rough and grows
-as fields get used), and
+`OpenAlexAuthorProfile`, `OpenAlexAuthorSearchPage`, and their nested parts;
+the model is rough and grows as fields get used), and
 `citefinder drift <cache.jsonl>` lists what the records in a cache carry that
 the model does not. Quick map of the fields verify uses:
 
@@ -361,6 +407,10 @@ citefinder author A5012345678                            # summary fields, by au
 citefinder author 0000-0002-1825-0097                    # ...or by ORCID
 citefinder author A5012345678 --raw                      # the whole OpenAlex record
 citefinder authors-from-cache data/citefinder/paper/openalex/openalex.jsonl  # every author on a run's works, as TSV
+citefinder authors-from-cache data/citefinder/paper/openalex/openalex.jsonl --same-names  # pairs of IDs whose names match in full
+citefinder author-fragments A5012345678                  # other profiles that may be this author, each assessed
+citefinder author-fragments A5012345678 --all            # ...listing the `different` and `unchecked` ones too
+citefinder author-fragments A5012345678 --refresh        # ...refetching what the cache holds
 
 # Crossref
 citefinder crossref doi 10.1126/science.aap9559 --mailto you@example.com
@@ -423,7 +473,9 @@ Read `results.json` by `method` × `status`:
 
 With `--books`, a book entry that has an `isbn` and no `doi` is checked against its catalog record instead of searched for (`method=isbn`), and each such result carries `suggestions` — fields the bib should add or change, each with the `source` it came from and whether it is `confirmed` by a catalog or only offered by a retailer-fed record. The Open Library and Library of Congress caches land beside the source cache in the output directory. `isbn` prints the same merged record for one ISBN, with the URL of each source's record. See [Book metadata by ISBN](#book-metadata-by-isbn).
 
-`author` prints one OpenAlex author profile as JSON: `id`, `display_name`, `display_name_alternatives`, `orcid`, `works_count`, and `last_known_institutions`, or the whole record with `--raw`. It takes an author ID or an ORCID, not a name; anything else exits 2 without a request. `authors-from-cache` takes an OpenAlex cache (typically a `verify` run's `openalex.jsonl`), collects every distinct author ID on its DOI lookups — search pages are skipped, since most of their hits are not the cited work — and prints one tab-separated row per author (`id` as the work carries it, `display_name`, `alternatives`, `orcid`), with progress on stderr. It makes one request per author not yet cached and stores the profiles, cached 404s included, in the same file, so a re-run answers from disk and a run stopped by a rate limit resumes where it stopped. Like `verify`, it reads the shared `<cache_dir>/openalex.jsonl` as a read-only fallback unless `--no-fallback` is given.
+`author` prints one OpenAlex author profile as JSON: `id`, `display_name`, `display_name_alternatives`, `orcid`, `works_count`, and `last_known_institutions`, or the whole record with `--raw`. It takes an author ID or an ORCID, not a name; anything else exits 2 without a request. `authors-from-cache` takes an OpenAlex cache (typically a `verify` run's `openalex.jsonl`), collects every distinct author ID on its DOI lookups — search pages are skipped, since most of their hits are not the cited work — and prints one tab-separated row per author (`id` as the work carries it, `display_name`, `alternatives`, `orcid`), with progress on stderr. It makes one request per author not yet cached and stores the profiles, cached 404s included, in the same file, so a re-run answers from disk and a run stopped by a rate limit resumes where it stopped. Like `verify`, it reads the shared `<cache_dir>/openalex.jsonl` as a read-only fallback unless `--no-fallback` is given. Its summary counts the pairs of author IDs whose names match in full (any order, diacritics folded), and `--same-names` prints those pairs (`id_a`, `name_a`, `id_b`, `name_b`) in place of the table, with no further request: each is one person under two profiles or two namesakes.
+
+`author-fragments` settles which. It takes an author ID or an ORCID, searches OpenAlex for profiles under a compatible name, sets aside those with a different ORCID, and compares the works of the rest with the anchor's. It prints JSON: the `anchor`, the `searches` made, the `candidates` with a `verdict`, a `reason`, and the `evidence` (duplicate titles with `doi_on` naming the record that carries the DOI, shared co-authors out of how many, shared fields and institutions), `counts` of every profile returned by how it was settled, and a `budget` with the searches, works lists, and network calls made and the credit balance before and after. `likely-fragment` and `possible` candidates are listed; `different` and `unchecked` ones are counted, and listed with `--all`. `--max-searches` (default 3) and `--max-candidates` (default 50) cap the cost, and the stderr summary says what each left out, and when a search returned fewer profiles than matched. Everything is cached, so a re-run is free; `--refresh` fetches the searches and works lists again.
 
 `bib-to-table` and `table-to-bib` are inverses: the first turns a `.bib` into a wide table (terminal view by default, `--csv` for piping), the second reads such a CSV back into a `.bib`. Useful for spreadsheet-style review or bulk edits before regenerating the file. The round-trip is lossless on data; within-entry field order and source-file formatting are not preserved. Input that cannot round-trip — a bib field named `key` or `entry_type`, a cell with unbalanced braces — is refused with an error and exit 1 rather than written out with data silently lost.
 

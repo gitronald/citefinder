@@ -117,7 +117,7 @@ The recipe reads one name per author: the `display_name` embedded in the work re
 {cli} authors-from-cache data/citefinder/paper/openalex/openalex.jsonl
 ```
 
-`author` prints six fields: `id`, `display_name`, `display_name_alternatives`, `orcid`, `works_count`, and `last_known_institutions` (names only). It takes an author ID or an ORCID, never a name: get the ID from `authorships[i].author.id` in the cached work. A profile OpenAlex no longer has prints `not found` and exits 1.
+`author` prints six fields: `id`, `display_name`, `display_name_alternatives`, `orcid`, `works_count`, and `last_known_institutions` (names only). It takes an author ID or an ORCID, never a name: get the ID from `authorships[i].author.id` in the cached work, or search by name in a script with `OpenAlexClient.search_authors`. A profile OpenAlex no longer has prints `not found` and exits 1.
 
 `authors-from-cache` does the same for a whole bibliography. It walks the DOI lookups in a `verify` run's `openalex.jsonl`, fetches the profile of every distinct linked author, and prints one tab-separated row each (`id`, `display_name`, `alternatives`, `orcid`), in the order the authors first appear, with progress and a summary on stderr. `id` is the ID the cached work carries, so a row joins back to its works. `alternatives` is `display_name_alternatives` without the preferred name, joined with `; `. Pipe it through `sort -t $'\t' -k2` to bring near-identical names together, or `column -t -s $'\t'` to read it.
 
@@ -126,7 +126,7 @@ The recipe reads one name per author: the `display_name` embedded in the work re
 - **Only DOI lookups are walked.** An entry `verify` matched by search has its work inside a search page of candidates, which is skipped. Add the `matched_doi` to the bib, re-run `verify`, then re-run this.
 - **Unlinked authors have no row.** An authorship OpenAlex could not attach to a profile carries no `author.id`; only `raw_author_name` exists for it.
 
-A profile is OpenAlex's automated disambiguation, not a statement by the author: it can merge two people who share a name or split one person across two IDs, and its alternatives include deposit artifacts (inverted `Family, Given` forms, bare initials). So the rule above holds here too: **a profile informs a byline check and never rewrites a name by itself.** Report the disagreement with the profile's evidence, and leave the choice of form to the editor and the printed byline.
+A profile is OpenAlex's automated disambiguation, not a statement by the author: it can merge two people who share a name or split one person across two IDs (see *One author split across profiles* below), and its alternatives include deposit artifacts (inverted `Family, Given` forms, bare initials). So the rule above holds here too: **a profile informs a byline check and never rewrites a name by itself.** Report the disagreement with the profile's evidence, and leave the choice of form to the editor and the printed byline.
 
 In a script, `OpenAlexClient.lookup_author(id_or_orcid)` returns the raw record (`OpenAlexAuthorProfile` in `citefinder.models`) and `openalex_to_author` projects it onto the six-field `AuthorProfile`:
 
@@ -137,4 +137,55 @@ client = OpenAlexClient(cache_path="data/citefinder/paper/openalex/openalex.json
 profile = openalex_to_author(client.lookup_author("https://openalex.org/A5012345678"))
 if profile is not None:
     print(profile.display_name, profile.display_name_alternatives)
+```
+
+## One author split across profiles
+
+OpenAlex can file one person's works under several author IDs. The usual cause is a duplicate record of one paper: no DOI, every author's name inverted, and a new author ID minted for each of them. A bib entry with no `doi` can then match the duplicate by title, and carries its scrambled names and no DOI candidate.
+
+Check for a split when:
+
+- `authors-from-cache` ends with `N pair(s) of author IDs have names that match in full`, or two rows of its table read as one name;
+- a profile's `works_count` is far below what the author has published, or a paper you know is missing from it;
+- a matched record has inverted author names and no DOI.
+
+```bash
+{cli} authors-from-cache data/citefinder/paper/openalex/openalex.jsonl --same-names
+{cli} author-fragments A5012345678             # other profiles of this author, each assessed
+{cli} author-fragments A5012345678 --all       # list the `different` and `unchecked` candidates too
+{cli} author-fragments A5012345678 --refresh   # refetch what the cache holds
+```
+
+`--same-names` prints one row (`id_a`, `name_a`, `id_b`, `name_b`) per pair of author IDs in the cache whose names match in full, in any order and with diacritics folded, in place of the table. It makes no request once the profiles are cached. A pair is one person under two profiles or two namesakes, and `author-fragments` on either ID says which. Pairs that match only through an initial are left out: nearly every profile lists an initials form, so those would pair any two authors who share a family name and a first letter.
+
+`author-fragments` takes one profile (the anchor) by author ID or ORCID. It searches for profiles under a compatible name, sets aside those with a different ORCID, and compares the works of the rest with the anchor's. It prints JSON with five parts (`anchor`, `searches`, `candidates`, `counts`, `budget`) and a summary on stderr. Read each candidate's `verdict` with its `reason` and `evidence`:
+
+- **`likely-fragment`** — the same ORCID; or a `duplicate_titles` entry, a work with the title of one of the anchor's on another record; or `shared_coauthors`, full names that are also co-authors on the anchor's works. For a duplicate title, `doi_on` says which record carries the DOI (`anchor`, `candidate`, `both`, or `neither`): cite that record and take the names from it.
+- **`possible`** — the name matches and a field or an institution does too (`shared_fields`, `shared_institutions`), or there were no works to compare. The works neither confirm it nor rule it out, and most such candidates are namesakes.
+- **`different`** — a different ORCID, works that fall outside the anchor's years, or no title, co-author, field, or institution in common. These are counted in `counts` and listed only with `--all`.
+- **`unchecked`** — the name matches and `--max-candidates` stopped before its works were fetched. It is not a `different`: raise the cap.
+
+`name_match` is `strong` when two or more words of the name match in full with none left over, and `weak` when the match runs through an initial or leaves a word unmatched. `shared_coauthors` makes a fragment at one name for a strong match and two for a weak one, and only when they are at least a fifth of the candidate's `coauthors_compared`: one name in common out of a hundred is chance. A record that lists both profiles is in `shared_works` and left out of the comparison.
+
+What it costs, and where it stops:
+
+- **Searches are the cost.** An author search costs ten times a works list, and a profile lookup is free. `budget` and the last stderr line give the searches, works lists, and network calls made and the credit balance before and after. A check on an uncommon name is about a dozen credits and a common one about 70 at the default caps, of the 1,000 a day OpenAlex gives a caller with no API key. Run it on the authors in question, not on every author of a bib.
+- **Two caps.** `--max-searches` (default 3) limits the name searches, one per distinct spelling. `--max-candidates` (default 50) limits the works lists, taking full-name matches first and then the smallest profiles, since a fragment is typically a handful of works. The summary says what each cap left out.
+- **A search returns at most 200 profiles.** For a very common name the summary reads `returned 200 of 6425 profiles: the candidates are incomplete`, and a fragment can be among the rest.
+- **It searches by name.** A fragment filed under a misspelling that shares no two words with any of the anchor's spellings is not found.
+- **Cache-first, stale results included.** Every request is cached by URL, so a re-run is free and an interrupted run resumes. A cached search does not learn that OpenAlex has since merged or split a profile: pass `--refresh` to fetch the searches and works lists again.
+
+A verdict is evidence for an editor, like the profile itself: it never merges two profiles, and never rewrites a name by itself.
+
+In a script, `find_fragments` returns the same report as a `FragmentReport`, and `OpenAlexClient.search_authors` and `author_works` are the two requests under it:
+
+```python
+from citefinder import OpenAlexClient, find_fragments
+
+client = OpenAlexClient(cache_path="data/citefinder/paper/openalex/openalex.jsonl")
+report = find_fragments(client, "A5012345678", max_candidates=25)
+if report is not None:
+    for candidate in report.candidates:
+        result = candidate.assessment
+        print(candidate.profile.id, result.verdict, result.reason)
 ```

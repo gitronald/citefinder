@@ -22,6 +22,7 @@ from citefinder.cache import (
 )
 from citefinder.client import CrossrefClient
 from citefinder.config import resolve_cache_path
+from citefinder.fragments import FragmentReport, find_fragments
 from citefinder.loc import LocClient, marc_book, parse_marcxml
 from citefinder.openalex import (
     OpenAlexClient,
@@ -69,6 +70,7 @@ __all__ = [
     "BookRecord",
     "CrossrefClient",
     "Entry",
+    "FragmentReport",
     "JsonlCache",
     "LayeredCache",
     "LocClient",
@@ -86,6 +88,7 @@ __all__ = [
     "crossref_to_work",
     "datacite_note",
     "datacite_registrar",
+    "find_fragments",
     "is_arxiv_doi",
     "marc_book",
     "merge_caches",
