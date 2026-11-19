@@ -309,7 +309,17 @@ def test_author_path_normalizes_every_accepted_form(identifier: str, path: str) 
 
 
 @pytest.mark.parametrize(
-    "identifier", ["", "Jane Doe", "W2741809807", "0000-0002-1825", f"{AUTHOR_ID}/x"]
+    "identifier",
+    [
+        "",
+        "Jane Doe",
+        "W2741809807",
+        "0000-0002-1825",
+        f"{AUTHOR_ID}/x",
+        # Digits of another script (Arabic-Indic) are not an ID's digits.
+        "A١٢",
+        "0000-٠٠٠٠-0000-0000",
+    ],
 )
 def test_author_path_rejects_anything_else(identifier: str) -> None:
     with pytest.raises(ValueError, match="not an OpenAlex author ID or ORCID"):

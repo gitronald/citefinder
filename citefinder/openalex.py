@@ -36,10 +36,12 @@ _FILTER_RESERVED_RE = re.compile(r"[,:|!?]")
 # `A5012345678`, bare or as the `https://openalex.org/A...` URL work records
 # carry (the API's own `/authors/A...` URL is accepted too).
 _AUTHOR_ID_RE = re.compile(
-    r"(?:https?://(?:api\.)?openalex\.org/(?:authors/)?)?(A\d+)", re.IGNORECASE
+    r"(?:https?://(?:api\.)?openalex\.org/(?:authors/)?)?(A[0-9]+)", re.IGNORECASE
 )
+# `[0-9]`, not `\d`, which also matches digits of other scripts.
 _ORCID_RE = re.compile(
-    r"(?:https?://orcid\.org/|orcid:)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])", re.IGNORECASE
+    r"(?:https?://orcid\.org/|orcid:)?([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])",
+    re.IGNORECASE,
 )
 
 __all__ = [
