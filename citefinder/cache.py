@@ -195,7 +195,7 @@ class SourceStats:
     rows: int = 0
     keys: int = 0
     lookups: int = 0
-    """Distinct keys that are single-record lookups (`/works/...`)."""
+    """Distinct keys that are single-record lookups (`/works/...`, `/authors/...`)."""
     searches: int = 0
     """Distinct keys that are search pages (`/works?...`)."""
     misses: int = 0

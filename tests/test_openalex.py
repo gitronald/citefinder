@@ -358,6 +358,13 @@ def test_lookup_author_by_orcid_tolerates_a_record_without_an_id(
     assert len(client.cache) == 1
 
 
+def test_lookup_author_by_orcid_works_without_a_cache(mock_response) -> None:
+    client = OpenAlexClient()
+    client.session = MagicMock()  # type: ignore[assignment]
+    client.session.get.return_value = mock_response(200, PROFILE)
+    assert client.lookup_author(ORCID) == PROFILE
+
+
 def test_lookup_author_caches_a_404(
     setup: tuple[OpenAlexClient, MagicMock],
     mock_response,
@@ -395,12 +402,13 @@ def test_cached_author_ids_reads_doi_lookups_in_first_seen_order() -> None:
         },
         {
             "key": "https://api.openalex.org/works/doi:10.1/b",
-            # A repeat, an unlinked authorship, and a stub with no ID.
+            # A repeat, an unlinked authorship, and stubs with no author ID.
             "value": {
                 "authorships": [
                     authorship({"id": one}),
                     {"raw_author_name": "Unlinked Author"},
                     authorship({"display_name": "No Id"}),
+                    authorship({"id": "https://openalex.org/W1"}),
                 ]
             },
             "ts": 0.0,

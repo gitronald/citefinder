@@ -131,7 +131,7 @@ def cached_author_ids(rows: Iterable[CacheRow]) -> list[str]:
 
     Reads DOI lookups (`/works/` keys) only: a search page holds candidates,
     most of them not the cited work. Authorships OpenAlex could not link to a
-    profile carry no ID and are skipped.
+    profile carry no ID and are skipped, as is an `id` that is not an author's.
     """
     seen: dict[str, None] = {}
     for row in rows:
@@ -143,7 +143,7 @@ def cached_author_ids(rows: Iterable[CacheRow]) -> list[str]:
         for authorship in work.get("authorships") or []:
             author = authorship.get("author") if isinstance(authorship, dict) else None
             author_id = author.get("id") if isinstance(author, dict) else None
-            if isinstance(author_id, str) and author_id:
+            if isinstance(author_id, str) and _AUTHOR_ID_RE.fullmatch(author_id):
                 seen.setdefault(author_id)
     return list(seen)
 
