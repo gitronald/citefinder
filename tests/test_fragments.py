@@ -1,14 +1,17 @@
 """Tests for the author-fragment check: the name gate, the assessment, and
 the run against a mocked OpenAlex. Every profile and work here is synthetic."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from typer.testing import CliRunner
 
 from citefinder.adapters import AuthorProfile, AuthorWork, WorkAuthor
+from citefinder.cli import app
 from citefinder.fragments import (
     Anchor,
     Verdict,
@@ -22,6 +25,8 @@ from citefinder.fragments import (
     search_queries,
 )
 from citefinder.openalex import OpenAlexClient
+
+runner = CliRunner()
 
 ANCHOR_ID = "https://openalex.org/A1"
 OTHER_ID = "https://openalex.org/A2"
@@ -62,6 +67,7 @@ def test_name_tokens_fold_case_diacritics_and_punctuation(
         ("John Doe", None),
         ("Jane Roe", None),
         ("Doe", None),  # one token says nothing
+        ("J. Q.", None),  # initials alone say nothing either
         ("Jane Doe Smith Jones", None),  # two extra words is another name
     ],
 )
@@ -69,6 +75,14 @@ def test_match_names_against_one_name(candidate: str, expected: str | None) -> N
     family = family_tokens("Jane Q. Doe")
     assert match_names(candidate, "Jane Q. Doe", family) == expected
     assert match_names("Jane Q. Doe", candidate, family) == expected
+
+
+def test_a_word_left_over_makes_the_match_weak() -> None:
+    # One more word can be a middle name or a second family name.
+    assert match_names("Jane Doe Roe", "Jane Doe", {"doe"}) == "weak"
+    assert match_names("Jane Quinn Doe", "Doe, Jane", {"doe"}) == "weak"
+    # A leftover initial does not: `Doe, Jane` is `Jane Q. Doe` with less printed.
+    assert match_names("Jane Q. Doe", "Doe, Jane", {"doe"}) == "strong"
 
 
 def test_family_tokens_reads_the_order_or_the_comma() -> None:
@@ -227,6 +241,17 @@ def test_anchor_reads_its_years_fields_and_institutions(anchor: Anchor) -> None:
     assert Anchor(ANCHOR_PROFILE).span is None
 
 
+def test_anchor_field_needs_a_share_of_the_works() -> None:
+    works = [_work(f"Paper {i}", field="Computer Science") for i in range(19)]
+    stray = _work("On barley", field="Agronomy")
+    anchor = Anchor(ANCHOR_PROFILE, [*works, stray, _work("No field on this one")])
+    # One work in twenty is a stray, not a field the anchor works in.
+    assert set(anchor.fields) == {"computer science"}
+    result = assess(anchor, _candidate(), [_work("On oats", field="Agronomy")])
+    assert result.verdict is Verdict.DIFFERENT
+    assert Anchor(ANCHOR_PROFILE, [stray]).fields == {"agronomy": "Agronomy"}
+
+
 def test_assess_rejects_a_name_that_does_not_match(anchor: Anchor) -> None:
     result = assess(anchor, _candidate("John Roe"), ANCHOR_WORKS)
     assert (result.verdict, result.name_match) == (Verdict.DIFFERENT, None)
@@ -324,6 +349,26 @@ def test_a_weak_name_match_needs_two_shared_coauthors(anchor: Anchor) -> None:
     result = assess(anchor, _candidate("J. Doe"), [two])
     assert result.verdict is Verdict.LIKELY_FRAGMENT
     assert result.reason == "2 shared co-authors"
+
+
+def test_a_coauthor_is_counted_once_and_as_a_share(anchor: Anchor) -> None:
+    # One co-author under two spellings, on two works, is one co-author.
+    works = [
+        _work("Another paper entirely", 2013, "Sam Lee", "Kim Other"),
+        _work("A third paper", 2014, "Lee, Sam", "Pat Third"),
+    ]
+    works[0].authors[1].names.append("Lee S.")
+    result = assess(anchor, _candidate(), works)
+    assert result.shared_coauthors == ["Sam Lee"]
+    assert result.coauthors_compared == 3
+    assert result.verdict is Verdict.LIKELY_FRAGMENT
+
+    # One name in common among many co-authors is chance, not evidence.
+    crowd = [f"Person{i} Surname{i}" for i in range(9)]
+    big = _work("A consortium paper", 2013, "Sam Lee", *crowd, field="Computer Science")
+    result = assess(anchor, _candidate(), [big])
+    assert (result.shared_coauthors, result.coauthors_compared) == (["Sam Lee"], 10)
+    assert result.verdict is Verdict.POSSIBLE
 
 
 def test_a_coauthor_counts_only_by_full_name_and_inside_the_years(
@@ -693,7 +738,9 @@ def test_find_fragments_pages_through_the_anchors_works(
         parts = urlsplit(url)
         query = parse_qs(parts.query)
         if parts.path.startswith("/authors/"):
-            return mock_response(200, _record(ANCHOR_PROFILE))
+            # Quota headers without a balance: there is no credit reading.
+            limit = {"X-RateLimit-Limit": "1000"}
+            return mock_response(200, _record(ANCHOR_PROFILE), limit)
         if parts.path == "/authors":
             return mock_response(200, {"results": [_record(FRAGMENT)]})
         author = query["filter"][0].rsplit(":", 1)[-1]
@@ -716,3 +763,122 @@ def test_find_fragments_pages_through_the_anchors_works(
     assert pages == ["A1:1", "A1:2", "A1:3", "A2:1"]
     assert (report.anchor_works, report.anchor_works_total) == (450, 450)
     assert report.works_lists == 4
+    assert (report.credits_before, report.credits_after) == (None, None)
+
+
+# --- the command -----------------------------------------------------------------
+
+
+def _run(tmp_path: Path, *args: str) -> Any:
+    cache = str(tmp_path / "cli.jsonl")
+    return runner.invoke(
+        app, ["author-fragments", *args, "--cache", cache, "--min-interval", "0"]
+    )
+
+
+def test_cli_prints_the_report_and_a_summary(
+    tmp_path: Path, config_env: None, api: Callable[..., list[str]]
+) -> None:
+    api()
+    result = _run(tmp_path, "A1")
+
+    assert result.exit_code == 0, result.output
+    shown = json.loads(result.stdout)
+    assert list(shown) == [
+        "anchor",
+        "searches",
+        "queries_skipped",
+        "candidates",
+        "counts",
+        "budget",
+    ]
+    assert [c["verdict"] for c in shown["candidates"]] == [
+        "likely-fragment",
+        "possible",
+    ]
+    assert shown["counts"]["different"] == 1
+    assert result.stderr.splitlines() == [
+        "5 profile(s) searched: 1 likely-fragment, 1 possible, 1 different, "
+        "0 unchecked, 1 with a different ORCID, 1 with another name.",
+        "Done: 1 search(es), 4 works list(s), 6 network call(s); credits 1000 -> 986.",
+    ]
+
+
+def test_cli_all_lists_every_candidate_and_a_rerun_is_free(
+    tmp_path: Path, config_env: None, api: Callable[..., list[str]]
+) -> None:
+    calls = api()
+    first = _run(tmp_path, "A1", "--all")
+    assert first.exit_code == 0, first.output
+    assert len(json.loads(first.stdout)["candidates"]) == 4
+
+    calls.clear()
+    again = _run(tmp_path, "A1", "--all")
+    assert calls == []
+    spent = {"network_calls": 6, "credits_before": 1000.0, "credits_after": 986.0}
+    free = {"network_calls": 0, "credits_before": None, "credits_after": None}
+    before, after = json.loads(first.stdout), json.loads(again.stdout)
+    assert before["budget"] == {"searches": 1, "works_lists": 4, **spent}
+    assert after == {**before, "budget": {"searches": 1, "works_lists": 4, **free}}
+    assert again.stderr.splitlines()[-1] == (
+        "Done: 1 search(es), 4 works list(s), 0 network call(s)."
+    )
+    _run(tmp_path, "A1", "--refresh")
+    assert calls[0] == "search:jane doe"
+
+
+def test_cli_says_what_the_caps_left_out(
+    tmp_path: Path, config_env: None, api: Callable[..., list[str]]
+) -> None:
+    anchor = _profile("Tim Doe", "Timothy Doe", "Timmy Doe")
+    found = (
+        _profile("Tim Doe", id="https://openalex.org/A2"),
+        _profile("Doe Tim", id="https://openalex.org/A3"),
+    )
+    api(anchor=anchor, found=found)
+    args = ("A1", "--max-searches", "1", "--max-candidates", "1")
+    result = _run(tmp_path, *args)
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines() == [
+        # The fixture's page reports six matches whatever it returns.
+        "Search 'tim doe' returned 3 of 6 profiles: the candidates are incomplete.",
+        "2 more name search(es) not made; raise --max-searches.",
+        "2 profile(s) searched: 1 likely-fragment, 0 possible, 0 different, "
+        "1 unchecked, 0 with a different ORCID, 0 with another name.",
+        "Raise --max-candidates to compare the unchecked profiles' works.",
+        "Done: 1 search(es), 2 works list(s), 4 network call(s); credits 1000 -> 988.",
+    ]
+
+
+def test_cli_reports_a_missing_profile_and_a_bad_identifier(
+    tmp_path: Path, config_env: None, api: Callable[..., list[str]]
+) -> None:
+    calls = api()
+    missing = _run(tmp_path, "A404")
+    assert missing.exit_code == 1
+    assert "not found: A404" in missing.stderr
+    assert missing.stdout == ""
+
+    calls.clear()
+    bad = _run(tmp_path, "Jane Doe")
+    assert bad.exit_code == 2
+    assert "not an OpenAlex author ID or ORCID: 'Jane Doe'" in bad.stderr
+    assert calls == []
+
+
+def test_cli_stops_on_an_http_error_and_resumes(
+    tmp_path: Path, config_env: None, api: Callable[..., list[str]]
+) -> None:
+    api(fail="A3")
+    stopped = _run(tmp_path, "A1", "--max-retries", "0")
+    assert stopped.exit_code == 1
+    assert stopped.stdout == ""
+    assert "Error: 500 error" in stopped.stderr
+    assert "Stopped; re-run to resume from the cache." in stopped.stderr
+
+    calls = api()
+    resumed = _run(tmp_path, "A1")
+    assert resumed.exit_code == 0, resumed.output
+    # Everything fetched before the failure is read from the cache.
+    assert calls == ["works:A3:1", "works:A4:1"]

@@ -232,8 +232,6 @@ def _trim_author_work(work: OpenAlexWork) -> OpenAlexWork:
 
 def _trim_works_page(page: OpenAlexSearchPage) -> OpenAlexSearchPage:
     """A works-list page with each result cut by `_trim_author_work`."""
-    if not isinstance(page, dict):
-        return page
     results = [_trim_author_work(work) for work in page.get("results") or []]
     return {**page, "results": results}
 

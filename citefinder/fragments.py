@@ -57,10 +57,17 @@ DEFAULT_MAX_CANDIDATES = 50
 # Works-list pages read for the anchor: 2,000 works.
 MAX_ANCHOR_PAGES = 10
 
-# Shared co-authors that make a fragment. No namesake with a full-name match
-# shared one; a candidate matched on an initial or the family name can.
+# Shared co-authors that make a fragment: a count, by how firmly the names
+# match, and a share of the candidate's co-authors. An anchor with thousands of
+# co-authors shares a name with a stranger by chance, so one in eleven or one in
+# a hundred is not evidence; the fragments measured shared a quarter or more.
 SHARED_COAUTHORS_STRONG = 1
 SHARED_COAUTHORS_WEAK = 2
+SHARED_COAUTHOR_SHARE = 0.2
+# The share of an anchor's works a field needs before it is one of the
+# anchor's fields. A long profile has a stray work in most fields: one anchor
+# with 91% of its works in a single field had works in ten.
+ANCHOR_FIELD_SHARE = 0.1
 
 NameMatch = Literal["strong", "weak"]
 
@@ -159,7 +166,7 @@ def _match_tokens(
         return None
     if any(family and set(family).issuperset(paired) for family in families):
         return None
-    in_full = not unpaired and len(full) >= 2
+    in_full = not unpaired and len(full) >= 2 and not _words(rest)
     if in_full and not any(set(family).issuperset(full) for family in families):
         return "strong"
     return "weak"
@@ -174,10 +181,10 @@ def match_names(a: str, b: str, family: Collection[str] = ()) -> NameMatch | Non
     and one unpaired word (a middle name), and at least one word must pair
     with the same word.
 
-    `"strong"` is two or more words paired in full with no initial expanded:
-    `Jane Q. Doe` against `Q Doe Jane` or `Doe, Jane`. `"weak"` is any other
-    match: `J. Doe`. `None` is a conflict (`Jane R. Doe`, `John Doe`) or a name
-    of one token.
+    `"strong"` is two or more words paired in full, with no initial expanded
+    and no word left over: `Jane Q. Doe` against `Q Doe Jane` or `Doe, Jane`.
+    `"weak"` is any other match: `J. Doe`, `Jane Doe Roe`. `None` is a conflict
+    (`Jane R. Doe`, `John Doe`) or a name of one token.
 
     `family` names the words that are family name (see `family_tokens`). A
     match made of those alone is `None`, and a strong match needs a word
@@ -294,6 +301,8 @@ class Assessment:
     # Co-authors of the candidate, on works inside the anchor's years, whose
     # full name is also a co-author's on the anchor's works.
     shared_coauthors: list[str] = field(default_factory=list)
+    # The candidate's distinct co-authors on those works: the denominator.
+    coauthors_compared: int | None = None
     # Work records that list both profiles, left out of the comparison.
     shared_works: list[str] = field(default_factory=list)
     works_compared: int | None = None
@@ -312,6 +321,7 @@ class Assessment:
             out["evidence"] = {
                 "duplicate_titles": [dup.as_dict() for dup in self.duplicate_titles],
                 "shared_coauthors": self.shared_coauthors,
+                "coauthors_compared": self.coauthors_compared,
                 "shared_works": self.shared_works,
                 "works_compared": self.works_compared,
                 "works_in_span": self.works_in_span,
@@ -334,7 +344,7 @@ class Anchor:
         self.works = list(works)
         years = [work.year for work in self.works if work.year is not None]
         self.span: tuple[int, int] | None = (min(years), max(years)) if years else None
-        self.fields = _own_fields(self.works)
+        self.fields = _own_fields(self.works, ANCHOR_FIELD_SHARE)
         self.institutions = _own_institutions(profile, self.works)
         self._ids = {work.id for work in self.works if work.id}
         self._titles = [title_tokens(work.title or "") for work in self.works]
@@ -408,10 +418,16 @@ def _coauthor_names(
                 yield name_tokens(name), name
 
 
-def _own_fields(works: Iterable[AuthorWork]) -> dict[str, str]:
-    """Folded field name -> field name, over a profile's works."""
+def _own_fields(works: Iterable[AuthorWork], share: float = 0.0) -> dict[str, str]:
+    """Folded field name -> field name, over a profile's works.
+
+    `share` drops a field with less than that fraction of the works that have
+    one.
+    """
+    names = [work.field_name for work in works if work.field_name]
+    counts = Counter(_fold(name) for name in names)
     return {
-        _fold(work.field_name): work.field_name for work in works if work.field_name
+        key: name for name in names if counts[key := _fold(name)] >= share * len(names)
     }
 
 
@@ -447,8 +463,9 @@ def assess(
       when it is not. Neither needs the works.
     - `works` is None: `unchecked`.
     - A work with the title of one of the anchor's, on another record, or
-      enough co-authors in common on works inside the anchor's years (one with
-      a strong name match, two with a weak one): `likely-fragment`.
+      enough co-authors in common on works inside the anchor's years:
+      `likely-fragment`. Enough is one with a strong name match or two with a
+      weak one, and at least a fifth of the candidate's co-authors.
     - No works on either side to compare: `possible`.
     - Every dated work outside the anchor's years, or no field and no
       institution in common: `different`.
@@ -477,12 +494,20 @@ def assess(
         if (twin := anchor.duplicate_of(work)) is not None
     ]
     inside = [work for work in own if anchor.in_span(work)]
-    coauthors: dict[tuple[str, ...], str] = {}
-    for tokens, name in _coauthor_names(inside, candidate.id):
-        if tokens in coauthors or anchor.is_own_name(tokens):
-            continue
-        if anchor.has_coauthor(tokens):
-            coauthors[tokens] = name
+    # One entry per co-author, whatever the spelling or the order of the name.
+    coauthors: dict[str, str | None] = {}
+    for work in inside:
+        for author in work.authors:
+            if candidate.id is not None and author.id == candidate.id:
+                continue
+            forms = [tokens for name in author.names if (tokens := name_tokens(name))]
+            if not forms or any(anchor.is_own_name(tokens) for tokens in forms):
+                continue
+            key = " ".join(sorted(_words(forms[0]) or forms[0]))
+            if coauthors.get(key) is None:
+                shared = any(anchor.has_coauthor(tokens) for tokens in forms)
+                coauthors[key] = author.names[0] if shared else None
+    shared_names = sorted(name for name in coauthors.values() if name is not None)
     fields = _own_fields(own)
     institutions = _own_institutions(candidate, own)
     result = Assessment(
@@ -490,7 +515,8 @@ def assess(
         "",
         match,
         duplicate_titles=duplicates,
-        shared_coauthors=sorted(coauthors.values()),
+        shared_coauthors=shared_names,
+        coauthors_compared=len(coauthors),
         shared_works=shared_works,
         works_compared=len(works),
         works_in_span=len(inside),
@@ -502,13 +528,14 @@ def assess(
         ),
     )
     needed = SHARED_COAUTHORS_STRONG if match == "strong" else SHARED_COAUTHORS_WEAK
-    enough = len(coauthors) >= needed
+    share = SHARED_COAUTHOR_SHARE * len(coauthors)
+    enough = len(shared_names) >= max(needed, share)
     if duplicates or enough:
         parts = []
         if duplicates:
             parts.append(_plural(len(duplicates), "duplicate title"))
         if enough:
-            parts.append(_plural(len(coauthors), "shared co-author"))
+            parts.append(_plural(len(shared_names), "shared co-author"))
         result.verdict = Verdict.LIKELY_FRAGMENT
         result.reason = " and ".join(parts)
     elif not own or not anchor.works:
