@@ -5,7 +5,7 @@ status: active
 branch: feature/013-openalex-author-profiles
 created: 2026-09-05T15:54:41-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/citefinder/pull/96
 ---
 
 # Fetch and cache OpenAlex author profiles
@@ -127,3 +127,4 @@ pacing applies; document that the batch command is cache-first and idempotent.
   - Base: `dev` at `7fdfd66`
   - Worktree: `.worktrees/013-openalex-author-profiles`
   - PR: pending
+- **2026-11-19T14:10:18-08:00** — PR opened: https://github.com/gitronald/citefinder/pull/96
