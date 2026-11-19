@@ -94,9 +94,9 @@ _NOT_WORD = re.compile(r"[\W_]+")
 def name_tokens(name: str) -> tuple[str, ...]:
     """The comparable tokens of a personal name, in order.
 
-    Case and diacritics are folded (`Kimberlé` and `Kimberle` are one token),
+    Case and diacritics are folded (`Jané` and `Jane` are one token),
     an apostrophe joins its neighbours (`O'Brien` is `obrien`), any other
-    punctuation separates (`G.L.A.` is three initials, `Nava-Muñoz` two
+    punctuation separates (`G.L.A.` is three initials, `García-López` two
     tokens), and a number is dropped (a birth year in `Doe, Jane 1959-`).
     """
     text = unicodedata.normalize("NFKD", name.casefold())
@@ -188,7 +188,7 @@ def match_names(a: str, b: str, family: Collection[str] = ()) -> NameMatch | Non
 
     `family` names the words that are family name (see `family_tokens`). A
     match made of those alone is `None`, and a strong match needs a word
-    outside them, so a bare `van der Meer` does not match every van der Meer.
+    outside them, so a bare `van der Berg` does not match every van der Berg.
     """
     return _match_tokens(name_tokens(a), name_tokens(b), frozenset(family))
 

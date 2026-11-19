@@ -40,9 +40,9 @@ OTHER_ID = "https://openalex.org/A2"
     [
         ("Jane Q. Doe", ("jane", "q", "doe")),
         ("DOE, Jané", ("doe", "jane")),
-        ("G.L.A. van der Meer", ("g", "l", "a", "van", "der", "meer")),
-        ("Séan O’Brien-Nava", ("sean", "obrien", "nava")),
-        ("Emine Yılmaz", ("emine", "yilmaz")),
+        ("G.L.A. van der Berg", ("g", "l", "a", "van", "der", "berg")),
+        ("Séan O’Brien-Ruiz", ("sean", "obrien", "ruiz")),
+        ("Ayşe Yılmaz", ("ayse", "yilmaz")),
         ("Doe, Jane 1959-", ("doe", "jane")),
         ("Jane\n   Doe", ("jane", "doe")),
         ("", ()),
@@ -87,24 +87,24 @@ def test_a_word_left_over_makes_the_match_weak() -> None:
 
 def test_family_tokens_reads_the_order_or_the_comma() -> None:
     assert family_tokens("Jane Q. Doe") == {"doe"}
-    assert family_tokens("Toni G.L.A. van der Meer") == {"van", "der", "meer"}
-    assert family_tokens("Willem De Vos") == {"de", "vos"}
-    assert family_tokens("de Vos, Willem M.") == {"de", "vos"}
+    assert family_tokens("Anna G.L.A. van der Berg") == {"van", "der", "berg"}
+    assert family_tokens("Pieter De Wit") == {"de", "wit"}
+    assert family_tokens("de Wit, Pieter M.") == {"de", "wit"}
     assert family_tokens("J. Ignacio Doe") == {"doe"}
     assert family_tokens("Madonna") == frozenset()
 
 
 def test_a_family_name_alone_is_not_a_match() -> None:
-    family = family_tokens("Toni G.L.A. van der Meer")
+    family = family_tokens("Anna G.L.A. van der Berg")
     # A bare family name among the alternatives must not admit every namesake.
-    assert match_names("Jan T. M. van der Meer", "van der Meer", family) is None
-    assert match_names("van der Meer", "Van Der Meer", family) is None
+    assert match_names("Jan T. M. van der Berg", "van der Berg", family) is None
+    assert match_names("van der Berg", "Van Der Berg", family) is None
     # Without the family words it would.
-    assert match_names("van der Meer", "Van Der Meer") == "strong"
+    assert match_names("van der Berg", "Van Der Berg") == "strong"
     # An initial for the given name is still a weak match, never a strong one.
-    assert match_names("T. van der Meer", "Toni van der Meer", family) == "weak"
-    assert match_names("W. De Vos", "W. De Vos", {"de", "vos"}) == "weak"
-    assert match_names("Toni van der Meer", "Toni G.L.A. van der Meer", family) == (
+    assert match_names("A. van der Berg", "Anna van der Berg", family) == "weak"
+    assert match_names("P. De Wit", "P. De Wit", {"de", "wit"}) == "weak"
+    assert match_names("Anna van der Berg", "Anna G.L.A. van der Berg", family) == (
         "strong"
     )
 
@@ -158,16 +158,16 @@ def test_search_queries_keep_a_differently_spelled_name() -> None:
 
 def test_search_queries_never_search_a_family_name_alone() -> None:
     profile = _profile(
-        "Toni G.L.A. van der Meer", "G.L.A. van der Meer", "Van Der Meer", "T. Meer"
+        "Anna G.L.A. van der Berg", "G.L.A. van der Berg", "Van Der Berg", "A. Berg"
     )
-    assert search_queries(profile) == ["toni van der meer"]
+    assert search_queries(profile) == ["anna van der berg"]
     assert search_queries(_profile("Madonna")) == []
     assert search_queries(AuthorProfile()) == []
 
 
 def test_search_queries_put_the_preferred_names_spellings_first() -> None:
-    profile = _profile("Willem M. de Vos", "Doe Wittern", "Willem M Vos", "W. Devos")
-    assert search_queries(profile) == ["willem vos", "doe wittern"]
+    profile = _profile("Pieter M. de Wit", "Roe Stray", "Pieter M Wit", "P. Dewit")
+    assert search_queries(profile) == ["pieter wit", "roe stray"]
 
 
 # --- assessment ----------------------------------------------------------------
