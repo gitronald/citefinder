@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- OpenAlex author profiles. `OpenAlexClient.lookup_author` fetches
+  `/authors/{id}` by OpenAlex author ID (bare, or the URL a work's authorships
+  carry) or by ORCID, cached in the same JSONL file as works with 404s
+  remembered. Every form of an ID shares one cache entry; an ORCID lookup also
+  files the profile under its ID.
+- `citefinder author <id-or-orcid>` prints a profile's `id`, `display_name`,
+  `display_name_alternatives`, `orcid`, `works_count`, and
+  `last_known_institutions` as JSON (`--raw` for the whole record).
+  `AuthorProfile` and `openalex_to_author` give the same projection in the
+  library.
+- `citefinder authors-from-cache <openalex.jsonl>` fetches the profile of every
+  distinct author on the DOI lookups in a cache, such as a `verify` run's, and
+  prints one tab-separated row per author. It is cache-first, stores what it
+  fetches in that file, and reads the shared cache as a read-only fallback
+  (`--no-fallback` to turn that off).
+- `OpenAlexAuthorProfile` in `citefinder.models`, with coverage from a survey
+  of 531 profiles, and an `openalex-author` kind in `citefinder drift`.
+- The `use-citefinder` skill (now 1.2.0) documents the two commands in its
+  `given-names` reference: when a profile is worth fetching, and that it
+  informs a byline check and never rewrites a name by itself.
+
 ## [0.14.3] - 2026-11-13
 
 ### Changed
