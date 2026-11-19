@@ -1,8 +1,8 @@
 ---
 id: 13
 slug: openalex-author-profiles
-status: draft
-branch:
+status: active
+branch: feature/013-openalex-author-profiles
 created: 2026-09-05T15:54:41-07:00
 concluded:
 pr:
@@ -122,3 +122,8 @@ pacing applies; document that the batch command is cache-first and idempotent.
   - **Skill.** The skill is packaged with pkgskills since plan 019: commands are written `{cli} ...`, reference material is a declared `Doc`, and the body carries a `metadata.version` to bump.
   - **Open question 1:** a separate command, as the plan leans. **Open question 2:** the same `openalex.jsonl`. The read-through fallback (plan 018), `cache merge`, and `cache stats` find caches by the `<source>.jsonl` name, so a sibling file would be outside all of them.
   - **Which works the batch walks:** DOI-lookup rows (`/works/`), the same set the given-names recipe from plan 012 reads. Search pages hold up to three candidates per entry, most of them not the cited work.
+- **2026-11-19T14:05:42-08:00** — Activated.
+  - Branch: `feature/013-openalex-author-profiles`
+  - Base: `dev` at `7fdfd66`
+  - Worktree: `.worktrees/013-openalex-author-profiles`
+  - PR: pending
