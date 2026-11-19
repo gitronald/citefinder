@@ -84,6 +84,9 @@ class Work:
 # `unknown` and search-path selection refuses to match on title alone.
 MIN_TITLE_TOKENS = 3
 
+# The word-set similarity at which two titles are taken to name one work.
+TITLE_PASS_SIMILARITY = 0.85
+
 
 def strip_braces(s: str) -> str:
     """`s` with BibTeX's protective braces removed and the ends trimmed."""
@@ -140,6 +143,17 @@ def title_similarity(a: str, b: str) -> float:
     return _jaccard(title_tokens(a), title_tokens(b))
 
 
+def same_title(sa: set[str], sb: set[str]) -> bool:
+    """Whether two `title_tokens` sets name one work by `check_title`'s bar.
+
+    Both sides need `MIN_TITLE_TOKENS` words, so two records titled
+    "Editorial" are not a match.
+    """
+    if min(len(sa), len(sb)) < MIN_TITLE_TOKENS:
+        return False
+    return _jaccard(sa, sb) >= TITLE_PASS_SIMILARITY
+
+
 def _is_truncation(sa: set[str], sb: set[str]) -> bool:
     """One title is the other with words dropped, and the shorter side is
     still long enough to be distinctive.
@@ -171,7 +185,7 @@ def check_title(bib_title: str | None, work_title: str | None) -> dict[str, Any]
     sa = title_tokens(bib_title)
     sb = title_tokens(work_title)
     s = _jaccard(sa, sb)
-    if s >= 0.85:
+    if s >= TITLE_PASS_SIMILARITY:
         v = "pass"
     elif s < 0.30:
         v = "fail"

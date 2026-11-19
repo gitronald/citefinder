@@ -1,7 +1,8 @@
 """Adapters from source-specific JSON to the canonical `Work` shape.
 
 Everything that knows the Crossref or OpenAlex JSON shape lives here,
-including the `AuthorProfile` projection of an OpenAlex author record.
+including the `AuthorProfile` projection of an OpenAlex author record and the
+`AuthorWork` projection of a work in an author's works list.
 """
 
 from __future__ import annotations
@@ -149,4 +150,66 @@ def openalex_to_author(message: OpenAlexAuthorProfile | None) -> AuthorProfile |
         last_known_institutions=[
             name for inst in institutions if (name := inst.get("display_name"))
         ],
+    )
+
+
+@dataclass
+class WorkAuthor:
+    """One author of a work: the profile it links to and the names it carries.
+
+    `names` holds the linked profile's name and the byline as printed, which
+    differ when the deposit abbreviated or inverted the name.
+    """
+
+    id: str | None = None  # `https://openalex.org/A...`; None when unlinked
+    names: list[str] = field(default_factory=list)
+    institutions: list[str] = field(default_factory=list)  # names only
+
+
+@dataclass
+class AuthorWork:
+    """A work as a comparison of two authors' works reads it."""
+
+    id: str | None = None  # `https://openalex.org/W...`
+    doi: str | None = None  # bare, without the `https://doi.org/` prefix
+    title: str | None = None
+    year: int | None = None
+    type: str | None = None
+    venue: str | None = None
+    field_name: str | None = None  # the primary topic's field
+    authors: list[WorkAuthor] = field(default_factory=list)
+
+
+def openalex_to_author_work(message: OpenAlexWork) -> AuthorWork:
+    """Project an OpenAlex work onto `AuthorWork`.
+
+    Reads a whole work or one `OpenAlexClient.author_works_page` trimmed.
+    """
+    authors: list[WorkAuthor] = []
+    for authorship in message.get("authorships") or []:
+        author = authorship.get("author") or {}
+        names = [author.get("display_name"), authorship.get("raw_author_name")]
+        authors.append(
+            WorkAuthor(
+                id=author.get("id"),
+                names=list(dict.fromkeys(name for name in names if name)),
+                institutions=[
+                    name
+                    for inst in authorship.get("institutions") or []
+                    if (name := inst.get("display_name"))
+                ],
+            )
+        )
+    source = (message.get("primary_location") or {}).get("source") or {}
+    topic_field = (message.get("primary_topic") or {}).get("field") or {}
+    year = message.get("publication_year")
+    return AuthorWork(
+        id=message.get("id"),
+        doi=openalex_doi(message.get("doi")) or None,
+        title=message.get("display_name") or message.get("title"),
+        year=year if isinstance(year, int) else None,
+        type=message.get("type"),
+        venue=source.get("display_name"),
+        field_name=topic_field.get("display_name"),
+        authors=authors,
     )
