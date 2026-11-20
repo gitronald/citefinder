@@ -29,6 +29,7 @@ from citefinder.adapters import (
     openalex_to_author,
     openalex_to_author_work,
 )
+from citefinder.models import OpenAlexSearchPage
 from citefinder.openalex import MAX_PER_PAGE, OpenAlexClient
 from citefinder.signals import MIN_TITLE_TOKENS, same_title, title_tokens
 
@@ -74,6 +75,9 @@ NameMatch = Literal["strong", "weak"]
 # The reason on a candidate the ORCID check ruled out, which `counts` reports
 # apart from the candidates its works ruled out.
 _DIFFERENT_ORCID = "different ORCID"
+# The reason on a profile the name gate ruled out, which `counts` reports as a
+# name mismatch and no report lists.
+_NAME_MISMATCH = "the names do not match"
 
 
 class Verdict(StrEnum):
@@ -92,7 +96,11 @@ _UNDECOMPOSED = str.maketrans(
     {"ı": "i", "ø": "o", "ł": "l", "đ": "d", "ð": "d", "æ": "ae", "œ": "oe", "þ": "th"}
 )
 _APOSTROPHES = re.compile(r"['’‘`ʼ]")
-_NOT_WORD = re.compile(r"[\W_]+")
+
+
+def _in_word(char: str) -> bool:
+    """A letter, a digit, or a mark written with its letter (a vowel sign)."""
+    return char.isalnum() or unicodedata.category(char).startswith("M")
 
 
 def name_tokens(name: str) -> tuple[str, ...]:
@@ -102,11 +110,16 @@ def name_tokens(name: str) -> tuple[str, ...]:
     an apostrophe joins its neighbours (`O'Brien` is `obrien`), any other
     punctuation separates (`G.L.A.` is three initials, `García-López` two
     tokens), and a number is dropped (a birth year in `Doe, Jane 1959-`).
+    A mark the fold leaves in place, such as a Devanagari or Thai vowel sign,
+    stays inside its token.
     """
     text = unicodedata.normalize("NFKD", name.casefold())
     text = "".join(c for c in text if not unicodedata.combining(c))
     text = _APOSTROPHES.sub("", text.translate(_UNDECOMPOSED))
-    return tuple(t for t in _NOT_WORD.split(text) if t and not t.isdigit())
+    text = "".join(c if _in_word(c) else " " for c in text)
+    return tuple(
+        t for t in text.split() if not t.isdigit() and any(map(str.isalnum, t))
+    )
 
 
 def _is_initial(token: str) -> bool:
@@ -295,7 +308,8 @@ class Assessment:
     """A verdict on one candidate profile and the evidence behind it.
 
     The works fields are None when the candidate's works were not compared:
-    an ORCID settled it, or the cap left it unchecked.
+    an ORCID settled it, or the cap left it unchecked. `name_match` is None
+    when the names do not match, which the same ORCID overrides.
     """
 
     verdict: Verdict
@@ -310,9 +324,19 @@ class Assessment:
     # Work records that list both profiles, left out of the comparison.
     shared_works: list[str] = field(default_factory=list)
     works_compared: int | None = None
+    # Works the candidate has, when known: more than `works_compared` when
+    # only its first page was read.
+    works_total: int | None = None
     works_in_span: int | None = None
     shared_fields: list[str] = field(default_factory=list)
     shared_institutions: list[str] = field(default_factory=list)
+
+    @property
+    def works_cut_short(self) -> bool:
+        """Whether the candidate has more works than were compared."""
+        if self.works_compared is None or self.works_total is None:
+            return False
+        return self.works_total > self.works_compared
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -328,6 +352,7 @@ class Assessment:
                 "coauthors_compared": self.coauthors_compared,
                 "shared_works": self.shared_works,
                 "works_compared": self.works_compared,
+                "works_total": self.works_total,
                 "works_in_span": self.works_in_span,
                 "shared_fields": self.shared_fields,
                 "shared_institutions": self.shared_institutions,
@@ -456,15 +481,17 @@ def assess(
     anchor: Anchor,
     candidate: AuthorProfile,
     works: Sequence[AuthorWork] | None = None,
+    works_total: int | None = None,
 ) -> Assessment:
     """Weigh `candidate` as a fragment of the anchor's profile.
 
-    `works` are the candidate's works, or None when they were not fetched.
-    In order:
+    `works` are the candidate's works, or None when they were not fetched,
+    and `works_total` is how many it has when `works` may be only some of
+    them. In order:
 
+    - The same ORCID on both: `likely-fragment`, whatever the names.
     - No name match (`best_match` over both profiles' spellings): `different`.
-    - Both have an ORCID: `likely-fragment` when it is the same, `different`
-      when it is not. Neither needs the works.
+    - A different ORCID on each: `different`. No ORCID check needs the works.
     - `works` is None: `unchecked`.
     - A work with the title of one of the anchor's, on another record, or
       enough co-authors in common on works inside the anchor's years:
@@ -478,13 +505,16 @@ def assess(
 
     A work record that lists both profiles is left out of the comparison and
     reported in `shared_works`: it would share every co-author with itself.
+
+    A verdict short of `likely-fragment` on fewer works than the candidate has
+    says so in its reason: the rest were not read.
     """
     match = best_match(profile_names(candidate), anchor.names, anchor.family)
-    if match is None:
-        return Assessment(Verdict.DIFFERENT, "the names do not match")
     same_orcid = _same_orcid(anchor.profile.orcid, candidate.orcid)
     if same_orcid:
         return Assessment(Verdict.LIKELY_FRAGMENT, "same ORCID", match)
+    if match is None:
+        return Assessment(Verdict.DIFFERENT, _NAME_MISMATCH)
     if same_orcid is False:
         return Assessment(Verdict.DIFFERENT, _DIFFERENT_ORCID, match)
     if works is None:
@@ -507,7 +537,10 @@ def assess(
             forms = [tokens for name in author.names if (tokens := name_tokens(name))]
             if not forms or any(anchor.is_own_name(tokens) for tokens in forms):
                 continue
-            key = " ".join(sorted(_words(forms[0]) or forms[0]))
+            # Words alone when there are two, so `Lee, Sam` and `Sam A. Lee`
+            # are one entry; with fewer, the initials tell `J. Lee` from `K. Lee`.
+            words = _words(forms[0])
+            key = " ".join(sorted(words if len(words) >= 2 else forms[0]))
             if coauthors.get(key) is None:
                 shared = any(anchor.has_coauthor(tokens) for tokens in forms)
                 coauthors[key] = author.names[0] if shared else None
@@ -523,6 +556,7 @@ def assess(
         coauthors_compared=len(coauthors),
         shared_works=shared_works,
         works_compared=len(works),
+        works_total=works_total,
         works_in_span=len(inside),
         shared_fields=sorted(
             name for key, name in fields.items() if key in anchor.fields
@@ -552,6 +586,8 @@ def assess(
         result.reason = "no title, co-author, field, or institution in common"
     else:
         result.reason = "the name and a field or an institution match, the works do not"
+    if result.works_cut_short and result.verdict is not Verdict.LIKELY_FRAGMENT:
+        result.reason += f" ({len(works)} of its {works_total} works compared)"
     return result
 
 
@@ -683,6 +719,12 @@ class _Meter:
         return self.client.network_calls - self.start
 
 
+def _page_count(page: OpenAlexSearchPage) -> int | None:
+    """`meta.count`: the results across every page of a list."""
+    count = (page.get("meta") or {}).get("count")
+    return count if isinstance(count, int) else None
+
+
 def _anchor_works(
     client: OpenAlexClient, author_id: str, refresh: bool, meter: _Meter
 ) -> tuple[list[AuthorWork], int | None, int]:
@@ -701,8 +743,8 @@ def _anchor_works(
         for record in results:
             work = openalex_to_author_work(record)
             works.setdefault(work.id or f"#{len(works)}", work)
-        count = (page.get("meta") or {}).get("count")
-        total = count if isinstance(count, int) else total
+        count = _page_count(page)
+        total = total if count is None else count
         if len(results) < MAX_PER_PAGE or (total is not None and len(works) >= total):
             break
     return list(works.values()), total, pages
@@ -722,11 +764,13 @@ def find_fragments(
     takes); None is returned when OpenAlex has no such profile.
 
     Runs `search_queries` up to `max_searches`, keeps the profiles whose names
-    match the anchor's, settles those with an ORCID, and compares works for up
-    to `max_candidates` of the rest: strong name matches first, then the
-    profiles with the fewest works, since a fragment is typically a handful.
-    The rest are `unchecked`. The anchor's works are read only when a
-    candidate needs them.
+    match the anchor's or that carry its ORCID, settles those with an ORCID,
+    and compares works for up to `max_candidates` of the rest: strong name
+    matches first, then the profiles with the fewest works, since a fragment
+    is typically a handful. The rest are `unchecked`. The anchor's works are
+    read only when a candidate needs them, and a candidate's first page of
+    works (`MAX_PER_PAGE`) is the one compared: its `works_total` says when it
+    has more.
 
     Every request is cached by URL, so a re-run costs nothing and an
     interrupted run resumes. `refresh` fetches the searches and works lists
@@ -767,7 +811,7 @@ def find_fragments(
     open_: list[Candidate] = []
     for other in found.values():
         assessment = assess(anchor, other)
-        if assessment.name_match is None:
+        if assessment.reason == _NAME_MISMATCH:
             report.name_mismatches += 1
         elif assessment.verdict is Verdict.UNCHECKED:
             open_.append(Candidate(other, assessment))
@@ -793,7 +837,9 @@ def find_fragments(
             meter.observe()
             report.works_lists += 1
             theirs = [openalex_to_author_work(w) for w in page.get("results") or []]
-            candidate.assessment = assess(anchor, candidate.profile, theirs)
+            candidate.assessment = assess(
+                anchor, candidate.profile, theirs, _page_count(page)
+            )
 
     report.candidates = sorted(
         [*settled, *open_],

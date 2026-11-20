@@ -14,6 +14,7 @@ from citefinder.adapters import AuthorProfile, AuthorWork, WorkAuthor
 from citefinder.cli import _fragment_summary, app
 from citefinder.fragments import (
     Anchor,
+    Candidate,
     FragmentReport,
     Verdict,
     assess,
@@ -46,6 +47,10 @@ OTHER_ID = "https://openalex.org/A2"
         ("Ayşe Yılmaz", ("ayse", "yilmaz")),
         ("Doe, Jane 1959-", ("doe", "jane")),
         ("Jane\n   Doe", ("jane", "doe")),
+        # A vowel sign is a mark the fold keeps: it stays inside its word.
+        ("नमूना नाम", ("नमूना", "नाम")),
+        ("สมชาย ใจดี", ("สมชาย", "ใจดี")),
+        ("Jane \u093e Doe", ("jane", "doe")),  # a mark with no letter is no token
         ("", ()),
     ],
 )
@@ -270,6 +275,15 @@ def test_assess_settles_on_an_orcid_without_works() -> None:
     assert assess(anchor, _candidate()).verdict is Verdict.UNCHECKED
 
 
+def test_the_same_orcid_outranks_a_name_that_does_not_match() -> None:
+    anchor = Anchor(_profile("Jane Q. Doe", orcid=ANCHOR_ORCID))
+    # A conflicting initial fails the name gate; the ORCID is the same person's.
+    result = assess(anchor, _candidate("Jane R. Doe", orcid=ANCHOR_ORCID))
+    assert (result.verdict, result.reason) == (Verdict.LIKELY_FRAGMENT, "same ORCID")
+    assert result.name_match is None
+    assert result.as_dict()["name_match"] is None
+
+
 def test_assess_without_works_is_unchecked_never_different(anchor: Anchor) -> None:
     result = assess(anchor, _candidate())
     assert (result.verdict, result.name_match) == (Verdict.UNCHECKED, "strong")
@@ -370,6 +384,43 @@ def test_a_coauthor_is_counted_once_and_as_a_share(anchor: Anchor) -> None:
     result = assess(anchor, _candidate(), [big])
     assert (result.shared_coauthors, result.coauthors_compared) == (["Sam Lee"], 10)
     assert result.verdict is Verdict.POSSIBLE
+
+
+def test_coauthors_known_by_an_initial_are_told_apart(anchor: Anchor) -> None:
+    # Five people with one family name, each printed with an initial. Counted
+    # as one, the shared name would be one co-author in two.
+    parks = [f"{initial}. Park" for initial in "JKLMN"]
+    work = _work("A crowded paper", 2013, "Sam Lee", *parks, field="Computer Science")
+    result = assess(anchor, _candidate(), [work])
+    assert (result.shared_coauthors, result.coauthors_compared) == (["Sam Lee"], 6)
+    assert result.verdict is Verdict.POSSIBLE
+
+
+def test_a_verdict_on_some_of_the_works_says_so(anchor: Anchor) -> None:
+    works = [_work("On barley", 2015, field="Agronomy")]
+    partial = assess(anchor, _candidate(), works, works_total=800)
+    assert partial.verdict is Verdict.DIFFERENT
+    assert partial.reason == (
+        "no title, co-author, field, or institution in common "
+        "(1 of its 800 works compared)"
+    )
+    assert partial.works_cut_short
+    evidence = partial.as_dict()["evidence"]
+    assert (evidence["works_compared"], evidence["works_total"]) == (1, 800)
+
+    # Every work read, or a total nobody reported: nothing to add.
+    for total in (1, None):
+        whole = assess(anchor, _candidate(), works, works_total=total)
+        assert not whole.works_cut_short
+        assert whole.reason == "no title, co-author, field, or institution in common"
+    # What was found stands whatever was not read.
+    duplicate = [_work("Measuring the spread of rumours in networks", 2012)]
+    found = assess(anchor, _candidate(), duplicate, works_total=800)
+    assert (found.verdict, found.reason) == (
+        Verdict.LIKELY_FRAGMENT,
+        "1 duplicate title",
+    )
+    assert not assess(anchor, _candidate()).works_cut_short
 
 
 def test_a_coauthor_counts_only_by_full_name_and_inside_the_years(
@@ -598,6 +649,14 @@ def test_find_fragments_runs_the_whole_check(
     assert (report.anchor_works, report.anchor_works_total) == (2, 2)
     assert report.anchor_years == (2012, 2020)
     assert report.searches == [{"query": "jane doe", "count": 6, "returned": 6}]
+    # Each works list's own count goes with what was compared from it.
+    totals = {c.profile.id: c.assessment.works_total for c in report.candidates}
+    assert totals == {
+        FRAGMENT.id: 1,
+        INITIALS.id: 1,
+        NAMESAKE.id: 1,
+        WITH_ORCID.id: None,
+    }
     # Ten credits for the search, one per works list; the lookup is free.
     assert (report.credits_before, report.credits_after) == (1000, 986)
     assert (report.works_lists, report.network_calls) == (4, 6)
@@ -640,17 +699,24 @@ def test_find_fragments_settles_an_orcid_without_a_works_list(
     client: OpenAlexClient, api: Callable[..., list[str]]
 ) -> None:
     same = _profile("Jane Doe", id="https://openalex.org/A7", orcid=ANCHOR_ORCID)
-    calls = api(found=(same, WITH_ORCID, STRANGER))
+    # The anchor's ORCID under a name the gate rejects is listed, not dropped.
+    renamed = _profile("Jane Roe", id="https://openalex.org/A8", orcid=ANCHOR_ORCID)
+    calls = api(found=(same, renamed, WITH_ORCID, STRANGER))
     report = find_fragments(client, "A1")
 
     assert report is not None
     # No candidate is left open, so not even the anchor's works are read.
     assert calls == ["/authors/A1", "search:jane doe"]
+    likely = [c for c in report.candidates if c.assessment.reason == "same ORCID"]
+    assert [(c.profile.id, c.assessment.name_match) for c in likely] == [
+        (same.id, "strong"),
+        (renamed.id, None),
+    ]
     assert report.counts() == {
-        "profiles_searched": 3,
+        "profiles_searched": 4,
         "name_mismatch": 1,
         "different_orcid": 1,
-        "likely-fragment": 1,
+        "likely-fragment": 2,
         "possible": 0,
         "unchecked": 0,
         "different": 0,
@@ -857,13 +923,53 @@ def test_cli_says_what_the_caps_left_out(
 
 
 def test_summary_says_when_the_anchors_works_were_cut_short() -> None:
-    report = FragmentReport(ANCHOR_PROFILE, anchor_works=2000, anchor_works_total=3120)
+    report = FragmentReport(
+        ANCHOR_PROFILE,
+        anchor_works=2000,
+        anchor_works_total=3120,
+        searches=[{"query": "jane doe", "count": 1, "returned": 1}],
+    )
     assert _fragment_summary(report) == [
         "Compared the first 2000 of the anchor's 3120 works: "
         "a duplicate title among the rest is not found.",
         "0 profile(s) searched: 0 likely-fragment, 0 possible, 0 different, "
         "0 unchecked, 0 with a different ORCID, 0 with another name.",
-        "Done: 0 search(es), 0 works list(s), 0 network call(s).",
+        "Done: 1 search(es), 0 works list(s), 0 network call(s).",
+    ]
+
+
+def test_summary_says_when_a_candidates_works_were_cut_short(anchor: Anchor) -> None:
+    works = [_work("On barley", 2015, field="Agronomy")]
+    report = FragmentReport(
+        ANCHOR_PROFILE,
+        searches=[{"query": "jane doe", "count": 2, "returned": 2}],
+        candidates=[
+            Candidate(_candidate(), assess(anchor, _candidate(), works, 800)),
+            Candidate(_candidate(), assess(anchor, _candidate(), works, 1)),
+        ],
+    )
+    assert _fragment_summary(report)[1] == (
+        "1 candidate(s) have more works than the first page compared; "
+        "`works_total` in the evidence gives the count."
+    )
+
+
+def test_cli_says_when_no_name_could_be_searched(
+    tmp_path: Path, config_env: None, api: Callable[..., list[str]]
+) -> None:
+    # Initials and a family name: no query that would not return every Doe.
+    calls = api(anchor=_profile("J. Doe", "Doe, J."))
+    result = _run(tmp_path, "A1")
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["/authors/A1"]
+    assert json.loads(result.stdout)["searches"] == []
+    assert result.stderr.splitlines() == [
+        "No name search made: no spelling of the anchor's name has two full "
+        "words, so no other profile was looked for.",
+        "0 profile(s) searched: 0 likely-fragment, 0 possible, 0 different, "
+        "0 unchecked, 0 with a different ORCID, 0 with another name.",
+        "Done: 0 search(es), 0 works list(s), 1 network call(s); credits 1000 -> 1000.",
     ]
 
 

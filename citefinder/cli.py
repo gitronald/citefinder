@@ -732,6 +732,11 @@ def _fragment_summary(report: FragmentReport) -> list[str]:
     """The stderr lines that sum up an `author-fragments` run."""
     counts = report.counts()
     lines = []
+    if not report.searches and not report.queries_skipped:
+        lines.append(
+            "No name search made: no spelling of the anchor's name has two full "
+            "words, so no other profile was looked for."
+        )
     for search in report.searches:
         count, returned = search["count"], search["returned"]
         if isinstance(count, int) and count > returned:
@@ -761,6 +766,12 @@ def _fragment_summary(report: FragmentReport) -> list[str]:
     )
     if counts["unchecked"]:
         lines.append("Raise --max-candidates to compare the unchecked profiles' works.")
+    cut_short = sum(c.assessment.works_cut_short for c in report.candidates)
+    if cut_short:
+        lines.append(
+            f"{cut_short} candidate(s) have more works than the first page "
+            "compared; `works_total` in the evidence gives the count."
+        )
     spent = ""
     before, after = report.credits_before, report.credits_after
     if before is not None and after is not None:
@@ -819,8 +830,8 @@ def author_fragments(
     rules out those with a different ORCID, and compares the works of the
     rest with the anchor's. Each candidate gets a verdict and its evidence:
 
-    - `likely-fragment`: the same ORCID, a work with the title of one of the
-      anchor's on another record, or co-authors in common.
+    - `likely-fragment`: the same ORCID (whatever the name), a work with the
+      title of one of the anchor's on another record, or co-authors in common.
     - `possible`: the name and a field or an institution match; the works
       neither confirm nor rule it out.
     - `different`: a different ORCID, works outside the anchor's years, or
