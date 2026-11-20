@@ -283,3 +283,69 @@ def test_authors_from_cache_rejects_a_missing_file(tmp_path: Path) -> None:
     result = runner.invoke(app, ["authors-from-cache", str(tmp_path / "nope.jsonl")])
     assert result.exit_code == 1
     assert "is not a file" in result.output
+
+
+# --- authors-from-cache --same-names ---------------------------------------------
+
+PAIRS_HEADER = "id_a\tname_a\tid_b\tname_b"
+
+
+@pytest.fixture
+def split_cache(tmp_path: Path) -> Path:
+    """A run's cache with profiles already in it: one author under two IDs,
+    two authors who share only an initials form, and one gone."""
+    cache = JsonlCache(tmp_path / "run" / "openalex.jsonl")
+    cache.put(f"{API}/works/doi:10.1/a", _work("A1", "A2", "A3"))
+    cache.put(f"{API}/works/doi:10.1/b", _work("A4", "A5"))
+    cache.put(f"{API}/authors/A1", _profile("A1", "Jané Q. Smith", "J. Smith"))
+    cache.put(f"{API}/authors/A2", _profile("A2", "Sam Lee", "S. Lee"))
+    cache.put(f"{API}/authors/A3", _profile("A3", "Smith Jane\n  Q"))
+    cache.put(f"{API}/authors/A4", _profile("A4", "John Smith", "J. Smith"))
+    cache.put(f"{API}/authors/A5", None)
+    return cache.path
+
+
+def test_authors_from_cache_counts_same_name_pairs_in_the_summary(
+    split_cache: Path, monkeypatch
+) -> None:
+    _no_network(monkeypatch)
+    result = runner.invoke(app, ["authors-from-cache", str(split_cache)])
+
+    assert result.exit_code == 0, result.output
+    # The table is unchanged: a header and one row per author.
+    assert result.stdout.splitlines()[0] == HEADER
+    assert len(result.stdout.splitlines()) == 6
+    assert result.stderr.splitlines()[-2:] == [
+        "Done: 0 network call(s), 5 cache hit(s), 1 not found.",
+        "1 pair(s) of author IDs have names that match in full; "
+        "list them with --same-names.",
+    ]
+
+
+def test_authors_from_cache_same_names_prints_the_pairs(
+    split_cache: Path, monkeypatch
+) -> None:
+    _no_network(monkeypatch)
+    result = runner.invoke(
+        app, ["authors-from-cache", str(split_cache), "--same-names"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [
+        PAIRS_HEADER,
+        "https://openalex.org/A1\tJané Q. Smith\thttps://openalex.org/A3\tSmith Jane Q",
+    ]
+    assert "pair(s) of author IDs" not in result.stderr
+
+
+def test_authors_from_cache_same_names_with_no_pairs_prints_only_a_header(
+    run_cache: Path, api: Callable[..., list[str]]
+) -> None:
+    calls = api()
+    result = runner.invoke(app, ["authors-from-cache", str(run_cache), "--same-names"])
+
+    assert result.exit_code == 0, result.output
+    # Profiles are fetched as for the table, and the gone one is skipped.
+    assert calls == ["A2", "A1", "A3"]
+    assert result.stdout.splitlines() == [PAIRS_HEADER]
+    assert "Done: 3 network call(s), 0 cache hit(s), 1 not found." in result.stderr

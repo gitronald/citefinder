@@ -14,6 +14,7 @@ from citefinder.signals import (
     compute_signals,
     container_similarity,
     normalize_title,
+    same_title,
     status_from_signals,
     title_similarity,
     title_tokens,
@@ -347,3 +348,12 @@ def test_status_keeps_str_compatibility() -> None:
     # StrEnum guarantees: status values compare equal to their string form.
     assert Status.MATCHED == "matched"
     assert Status.MATCHED.header.startswith("Matched")
+
+
+def test_same_title_uses_the_check_title_bar() -> None:
+    a = title_tokens("Measuring the Spread of Rumours in Networks.")
+    assert same_title(a, title_tokens("Measuring the spread of rumours in networks"))
+    assert not same_title(a, title_tokens("Measuring the spread of disease in herds"))
+    # Identical, and too short to be distinctive.
+    assert not same_title(title_tokens("Editorial"), title_tokens("Editorial"))
+    assert not same_title(a, set())

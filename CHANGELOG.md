@@ -29,6 +29,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The `use-citefinder` skill (now 1.2.0) documents the two commands in its
   `given-names` reference: when a profile is worth fetching, and that it
   informs a byline check and never rewrites a name by itself.
+- Fragmented author profiles. `citefinder author-fragments <id-or-orcid>`
+  searches OpenAlex for other profiles under a compatible name (any order,
+  initials, diacritics folded), sets aside those with a different ORCID, and
+  compares the works of the rest with the anchor's. Each candidate gets a
+  verdict (`likely-fragment`, `possible`, `different`, or `unchecked`) with
+  its evidence: duplicate titles and which record carries the DOI, shared
+  co-authors, shared fields and institutions. The JSON report also counts
+  every profile returned and gives the requests made and the credit balance
+  before and after. `--max-searches` and `--max-candidates` cap the cost,
+  `--all` lists every candidate, and `--refresh` refetches. `find_fragments`
+  and `FragmentReport` are the library form, with `match_names`, `assess`, and
+  `same_name_pairs` in `citefinder.fragments`.
+- `citefinder authors-from-cache --same-names` prints the pairs of author IDs
+  in a cache whose names match in full, in place of the table, and the default
+  run's summary counts them.
+- `OpenAlexClient.search_authors` and `author_works`, with
+  `author_search_page` and `author_works_page` for the whole page. Search
+  results keep six summary fields, and each works page is trimmed to the
+  fields a comparison reads before it is cached.
+- `OpenAlexAuthorSearchPage` in `citefinder.models`, an
+  `openalex-author-search` kind in `citefinder drift`, and `AuthorWork`,
+  `WorkAuthor`, and `openalex_to_author_work` in `citefinder.adapters`.
+- The `use-citefinder` skill (now 1.3.0) covers the fragment check in its
+  `given-names` reference: when to run it, how to read each verdict, and what
+  it costs.
 
 ## [0.14.3] - 2026-11-13
 

@@ -1,8 +1,9 @@
 """OpenAlex API client with optional caching.
 
 Looks up works by DOI, free-text search, or title-only search, and author
-profiles by OpenAlex author ID or ORCID. Cache keys drop the polite-pool
-`mailto`; 404s are cached as `None`.
+profiles by OpenAlex author ID or ORCID. Searches authors by name and lists
+the works attached to an author ID. Cache keys drop the polite-pool `mailto`;
+404s are cached as `None`.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import re
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 from citefinder._base import (
@@ -24,7 +26,16 @@ from citefinder._base import (
     _doi_path,
 )
 from citefinder.cache import JsonlCache, LayeredCache
-from citefinder.models import CacheRow, OpenAlexAuthorProfile, OpenAlexWork
+from citefinder.models import (
+    CacheRow,
+    OpenAlexAuthor,
+    OpenAlexAuthorProfile,
+    OpenAlexAuthorSearchPage,
+    OpenAlexAuthorship,
+    OpenAlexInstitution,
+    OpenAlexSearchPage,
+    OpenAlexWork,
+)
 
 OPENALEX_BASE = "https://api.openalex.org"
 API_KEY_ENV_VAR = "OPENALEX_API_KEY"
@@ -44,9 +55,38 @@ _ORCID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The most results OpenAlex returns on one page.
+MAX_PER_PAGE = 200
+
+# What an author search keeps of each profile: the fields `AuthorProfile`
+# reads. A whole profile is about 9 KB, most of it topics and affiliations.
+AUTHOR_SEARCH_FIELDS = (
+    "id",
+    "orcid",
+    "display_name",
+    "display_name_alternatives",
+    "works_count",
+    "last_known_institutions",
+)
+# What a works list asks for. `select=` takes root keys only, so
+# `_trim_author_work` cuts the rest.
+AUTHOR_WORK_FIELDS = (
+    "id",
+    "doi",
+    "display_name",
+    "publication_year",
+    "type",
+    "authorships",
+    "primary_location",
+    "primary_topic",
+)
+
 __all__ = [
     "API_KEY_ENV_VAR",
+    "AUTHOR_SEARCH_FIELDS",
+    "AUTHOR_WORK_FIELDS",
     "DEFAULT_MIN_INTERVAL",
+    "MAX_PER_PAGE",
     "OPENALEX_BASE",
     "OpenAlexClient",
     "author_path",
@@ -148,6 +188,52 @@ def cached_author_ids(rows: Iterable[CacheRow]) -> list[str]:
             if isinstance(author_id, str) and _AUTHOR_ID_RE.fullmatch(author_id):
                 seen.setdefault(author_id)
     return list(seen)
+
+
+def _trim_authorship(authorship: OpenAlexAuthorship) -> OpenAlexAuthorship:
+    author = authorship.get("author") or {}
+    slim_author: OpenAlexAuthor = {}
+    if author.get("id"):
+        slim_author["id"] = author["id"]
+    if author.get("display_name"):
+        slim_author["display_name"] = author["display_name"]
+    institutions: list[OpenAlexInstitution] = [
+        {"display_name": name}
+        for inst in authorship.get("institutions") or []
+        if (name := inst.get("display_name"))
+    ]
+    slim: OpenAlexAuthorship = {"author": slim_author, "institutions": institutions}
+    if authorship.get("raw_author_name"):
+        slim["raw_author_name"] = authorship["raw_author_name"]
+    return slim
+
+
+def _trim_author_work(work: OpenAlexWork) -> OpenAlexWork:
+    """`work` cut to what a comparison of two authors' works reads.
+
+    Each author keeps an ID, the profile name, the byline, and institution
+    names; the venue and the topic's field keep their names. An untrimmed
+    work is about 8 KB, nearly all of it affiliation strings.
+    """
+    raw: dict[str, Any] = dict(work)
+    kept = ("id", "doi", "display_name", "publication_year", "type")
+    slim = cast(OpenAlexWork, {k: raw[k] for k in kept if raw.get(k) is not None})
+    slim["authorships"] = [
+        _trim_authorship(authorship) for authorship in work.get("authorships") or []
+    ]
+    source = (work.get("primary_location") or {}).get("source") or {}
+    if source.get("display_name"):
+        slim["primary_location"] = {"source": {"display_name": source["display_name"]}}
+    field = (work.get("primary_topic") or {}).get("field") or {}
+    if field.get("display_name"):
+        slim["primary_topic"] = {"field": {"display_name": field["display_name"]}}
+    return slim
+
+
+def _trim_works_page(page: OpenAlexSearchPage) -> OpenAlexSearchPage:
+    """A works-list page with each result cut by `_trim_author_work`."""
+    results = [_trim_author_work(work) for work in page.get("results") or []]
+    return {**page, "results": results}
 
 
 class OpenAlexClient(CachedJsonClient):
@@ -252,3 +338,69 @@ class OpenAlexClient(CachedJsonClient):
         if payload is None:
             return []
         return payload.get("results", [])
+
+    def author_search_page(
+        self, name: str, rows: int = 25, *, refresh: bool = False
+    ) -> OpenAlexAuthorSearchPage:
+        """One page of author profiles matching `name` (`/authors?search=`).
+
+        OpenAlex matches every word of `name` against each profile's spellings,
+        diacritics folded, so a shorter name returns more profiles. Each result
+        holds `AUTHOR_SEARCH_FIELDS` only, which is what `openalex_to_author`
+        reads. `meta.count` is the number of matches, which can exceed `rows`
+        (at most `MAX_PER_PAGE`). A blank `name` makes no request. `refresh`
+        fetches the page again in place of the cached one.
+        """
+        name = " ".join(name.split())
+        if not name:
+            return {}
+        params = {
+            "search": name,
+            "per-page": str(rows),
+            "select": ",".join(AUTHOR_SEARCH_FIELDS),
+        }
+        url = f"{OPENALEX_BASE}/authors?{urlencode(params)}"
+        return self._get(url, refresh=refresh) or {}
+
+    def search_authors(self, name: str, rows: int = 25) -> list[OpenAlexAuthorProfile]:
+        """Author profiles matching `name`, best match first.
+
+        The results of `author_search_page`: each is a profile with its summary
+        fields only.
+        """
+        return self.author_search_page(name, rows).get("results", [])
+
+    def author_works_page(
+        self,
+        author_id: str,
+        rows: int = MAX_PER_PAGE,
+        page: int = 1,
+        *,
+        refresh: bool = False,
+    ) -> OpenAlexSearchPage:
+        """One page of the works attached to an author ID (`filter=author.id:`).
+
+        `author_id` is an OpenAlex author ID, bare or as a URL; an ORCID raises
+        `ValueError`. Each work is cut by `_trim_author_work` before it is
+        cached, so it holds an ID, DOI, title, year, type, each author's names
+        and institutions, the venue name, and the topic's field. `meta.count`
+        is the number of works across every page.
+        """
+        path = author_path(author_id)
+        if path.startswith("orcid:"):
+            raise ValueError(f"not an OpenAlex author ID: {author_id!r}")
+        url = (
+            f"{OPENALEX_BASE}/works?filter=author.id:{path}"
+            f"&select={','.join(AUTHOR_WORK_FIELDS)}&per-page={rows}&page={page}"
+        )
+        return self._get(url, refresh=refresh, trim=_trim_works_page) or {}
+
+    def author_works(
+        self, author_id: str, rows: int = MAX_PER_PAGE
+    ) -> list[OpenAlexWork]:
+        """The first `rows` works attached to an author ID.
+
+        The results of the first `author_works_page`; page through that method
+        for an author with more.
+        """
+        return self.author_works_page(author_id, rows).get("results", [])

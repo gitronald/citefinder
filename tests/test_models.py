@@ -361,6 +361,15 @@ def test_cache_drift_routes_by_key_host_and_kind() -> None:
             "ts": 0.0,
         },
         {"key": "https://api.openalex.org/authors/A2", "value": None, "ts": 0.0},
+        # An author search page: each result is measured as a profile.
+        {
+            "key": "https://api.openalex.org/authors?search=Jane+Smith&per-page=25",
+            "value": {
+                "meta": {"count": 2, "notice": "No API key"},
+                "results": [OPENALEX_AUTHOR, {**OPENALEX_AUTHOR, "relevance_score": 1}],
+            },
+            "ts": 0.0,
+        },
     ]
     drift = cache_drift(rows)
     assert set(drift) == {
@@ -369,7 +378,9 @@ def test_cache_drift_routes_by_key_host_and_kind() -> None:
         "openalex-work",
         "openalex-search",
         "openalex-author",
+        "openalex-author-search",
     }
+    assert drift["openalex-author-search"] == (1, {"results[].relevance_score": 1})
     assert drift["openalex-author"] == (1, {"h_index": 1, "ids.scopus": 1})
     assert drift["crossref-work"] == (1, {"novel": 1})
     assert drift["crossref-search"] == (1, {"items[].novel": 1})

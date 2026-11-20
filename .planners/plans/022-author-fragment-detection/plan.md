@@ -1,11 +1,11 @@
 ---
 id: 22
 slug: author-fragment-detection
-status: active
+status: done
 branch: feature/022-author-fragment-detection
 created: 2026-11-19T14:28:07-08:00
-concluded:
-pr:
+concluded: 2026-11-19T22:14:48-08:00
+pr: https://github.com/gitronald/citefinder/pull/97
 ---
 
 # Find and assess fragmented OpenAlex author profiles
@@ -196,3 +196,57 @@ profile is committed.
   - Base: `dev` at `599b248`
   - Worktree: `.worktrees/022-author-fragment-detection`
   - PR: pending
+- **2026-11-19T15:00:13-08:00** — Step 1, measured: seven anchors, unauthenticated, through a scratch script and a scratch cache (neither kept). Anchors came from the author IDs on an existing local works cache: a name with a diacritic, a common Western surname, a three-token name whose accent the profile's preferred spelling lacks, a very common two-token name, a name with a dotless i, a multi-part family name with particles, and one with 1,260 works.
+  - Cost, from the quota headers: an author search is 10 credits of the 1,000 a day, a works-list page is 1, a profile lookup is 0. `x-ratelimit-credits-used` is per request, so the reading before a run is the first response's remaining plus its own cost.
+  - Query forms. OpenAlex matches every query token and folds diacritics, so a shorter query returns a superset: for the three-token name the preferred spelling returned 1 profile (the anchor) and the two multi-letter tokens returned 2, the second a real fragment. Decision: a query is the multi-letter tokens of a spelling, fewest tokens first, skipping any set that contains one already searched. That left 1, 2, 1, 1, 2, 1, and 4 queries per anchor, so the cap is 3.
+  - The initials form returned 7, 1,123, and 1 profiles on three anchors and found no fragment the other forms missed. It stays unsearched, as planned.
+  - A family-name-only spelling among the alternatives (a bare `van der Meer`, a bare `De Vos`) became a query that returned 1,287 and 1,662 profiles and passed namesakes through the gate. Decision: a query, and a strong name match, needs a token outside the family part of the preferred name.
+  - Diacritics. The fragment above carries the accent and the anchor's preferred name does not, so a gate that kept diacritics would have dropped it. Decision: the gate folds them, departing from the plan's "diacritics kept".
+  - A candidate is gated on its preferred name and its alternatives: a one-work profile displayed with an initial listed the anchor's full name among its alternatives.
+  - Candidates left after the ORCID check, per anchor: 4, 121, 1, 5 (of a search truncated at 200 of 6,425), 37, 14, 44. The ORCID check alone ruled out 195 of 200 for the very common name. Fragments found had 1 to 9 works. Decision: check candidates with a full-name match first, then smallest first, default cap 50.
+  - Shared co-authors (open question 6). Of 105 namesakes with a full-name match and no duplicate title, none shared a co-author's full name with the anchor. The two false positives were candidates matched on the family name or an initial only, each sharing one co-author name with an anchor of 122 and 1,237 works. Sixteen profiles that are plainly the anchor shared 1 to 18. Decision: one shared co-author with a full-name match, two with a weaker one.
+  - `possible` was 11 of 135 checked candidates and `different` most of the rest, so `possible` prints by default and `different` is a count (open question 3).
+  - Size. A full profile is about 9 KB and a work about 8 KB, nearly all of it the affiliation strings in `authorships`, which `select=` cannot trim: the scratch cache reached 37 MB. Decision: the author search selects the six summary fields, the works list selects the fields compared, and each works page is trimmed to them before it is cached. A candidate's fields and institutions are then read from its works, not from profile topics.
+  - An anchor's works are all paged (open question 2): 1,237 works were 7 pages, 7 credits, less than one search.
+- **2026-11-19T15:00:27-08:00** — PR opened: https://github.com/gitronald/citefinder/pull/97
+- **2026-11-19T15:17:16-08:00** — Steps 2 to 5 implemented, then the command run on the same seven anchors against a fresh scratch cache. Two figures in the step 1 entry were miscounted: `possible` was 13 of 139 checked candidates, not 11 of 135, and fifteen profiles were plainly the anchor, not sixteen.
+  - Result on the seven anchors: 477 profiles returned; 15 failed the name gate, 266 had a different ORCID, 16 were `likely-fragment` (one by ORCID), 10 `possible`, 99 `different`, 71 `unchecked` (all on the common-surname anchor, at the cap of 50). 238 credits in all, 10 to 72 an anchor.
+  - Rules that changed once real reports could be read, each a departure from the plan's wording:
+    - The family part of a name is every word after the first given name, read from the order (or before a comma). The first version took it from a name parser, which put a capitalized particle (`De`) with the given names.
+    - A match that leaves a whole word unpaired (`Jane Doe Roe` for `Jane Doe`) is weak, not strong: on one anchor it was a second family name every time.
+    - A field is one of the anchor's only if a tenth of its works carry it. An anchor with 91% of its works in one field had a work or two in nine others, and with those counted 26 namesakes came out `possible`; with the share, none.
+    - A co-author is counted once, whatever the spelling or order, and the evidence carries the denominator (`coauthors_compared`). Shared co-authors must also be a fifth of the candidate's: the fragments shared 1 of 4 (with a duplicate title), 2 of 6, and from there up to all; the two doubtful candidates that one shared name had made `likely-fragment` shared 1 of 11 and 1 of 100, against an anchor with 4,600 co-author names.
+    - A work record that lists both profiles is left out of the comparison and reported: it shares its title and every co-author with itself.
+    - The same ORCID is `likely-fragment` without fetching works, as planned; `possible` also covers a candidate with no works to compare, which the plan's table left open.
+  - Client. `search_authors` and `author_works` return lists; `author_search_page` and `author_works_page` return the page, whose `meta.count` the report needs to say a search was truncated. `_get` gained `refresh` and `trim`. The seven anchors' cache is 5.8 MB with trimmed works pages, against 37 MB untrimmed.
+  - Open questions, as settled: (1) `author-fragments`. (2) The anchor's works are paged, to 10 pages. (3) `likely-fragment` and `possible` are listed, the rest counted, `--all` lists everything. (4) `authors-from-cache --same-names` prints the pairs in place of the table; the default table is unchanged and its summary gains a count. (5) `--refresh` refetches the searches and works lists. (6) One shared co-author with a full-name match, two otherwise, and a fifth of the candidate's.
+  - Same-name pairs count full-name matches only. On a 531-author cache that was 2 pairs; a weak match would have added 21, because nearly every profile lists an initials form. The full command settled both pairs as namesakes, and found three fragments of one of them under other IDs.
+- **2026-11-19T15:20:51-08:00** — Step 6 and the final checks. Checks ran at b0d3fa9, with `dev` unmoved since activation, so no merge of the base was needed: `ruff check`, `ruff format --check`, and `pyrefly check` clean; `pytest` 578 passed at 98.31% coverage; `citefinder install --check` ok after the stub was regenerated for the skill's 1.3.0.
+  - Skill: the `given-names` reference gained "One author split across profiles" (when to check, both commands, how to read each verdict, what a run costs and where it stops), and the body's version went to 1.3.0. README, changelog, and the package map in the project instructions cover the command, `--same-names`, and the library entry points; `find_fragments` and `FragmentReport` are exported from the package.
+  - `citefinder drift` over the validation cache: 0 undeclared paths across 9 profiles, 13 author-search pages, and 187 works-list pages, so the search-page model and the trimmed works pages hold against live records. `meta.notice`, which OpenAlex adds to a response to a request without an API key, was added to `OpenAlexMeta`.
+  - Names in the tests and docstrings that had come from the measured profiles were replaced with synthetic ones before the docs commit. The tests' profiles and works were synthetic from the start.
+  - Late fixes from reading the diff against the plan: a negative `max_searches` sliced off the last query in place of making none, and the summary now says when the anchor has more works than the 2,000 read.
+  - Not verified here: Python 3.11 to 3.13, which CI's matrix runs; the credit reading for a caller with an API key, since every live run was unauthenticated; and the two fragments each of three anchors turned up were judged from titles, co-authors, and fields, not confirmed with the authors.
+  - Left for later, as the plan scoped it: a title-first sweep for fragments under a misspelling, and paging a search past its first 200 profiles for a very common name.
+- **2026-11-19T15:20:59-08:00** — Correction to the entry above: the fragments were 1, 1, and 14 on three of the seven anchors, and 3 more on an anchor taken from a same-name pair. None was confirmed with its author.
+- **2026-11-19T15:21:49-08:00** — Implemented: 11 commits ahead of `dev`.
+- **2026-11-19T22:15:28-08:00** — Review gate before close, at the medium level: two finders (correctness; reuse, simplification, and efficiency) over the PR diff, each candidate then verified by a probe or a reading of the code. 14 candidates, 9 kept (5 confirmed, 4 plausible), 3 rejected, 2 dropped. Posted to the PR. Checks at 9c438e9: `ruff check`, `ruff format --check`, and `pyrefly check` clean; `pytest` 587 passed at 98.32% coverage.
+  - Review follow-up, actioned, each with a test:
+    - An anchor with no spelling of two full words (`J. Doe`, one word) gives nothing to search, and the summary read like a run that found no fragment. It now opens with `No name search made`.
+    - `assess` checked the name before the ORCID, so a profile carrying the anchor's ORCID under a name the gate rejects was counted as a name mismatch. The same ORCID is now `likely-fragment` whatever the name, with `name_match` null; a departure from the plan's order of the two checks.
+    - A candidate is compared on its first page of works, and nothing said when it had more. The evidence gains `works_total`, a verdict short of `likely-fragment` on part of the works says so in its reason, and the summary counts such candidates. The verdict itself is unchanged.
+    - `name_tokens` split a name at a vowel sign (Devanagari, Thai), because such a mark is not a word character. A mark now stays inside its token.
+    - Co-authors printed with an initial and one family name were one entry, which shrank the denominator of the one-fifth share. A name with fewer than two full words is now keyed on all its tokens.
+    - A test that the adapter reads the same from a trimmed work as from the whole one, since the trimmer and the adapter each list the fields by hand.
+  - Conscious no-ops: a duplicate title needs no year agreement (the plan's design, and none of 105 measured namesakes shared one); `_same_orcid` keeps its own normalization (OpenAlex returns the URL form, and `author_path` raises where a comparison should not); the name fold and the title fold stay separate (they differ on purpose).
+  - Rejected: the two list-returning client methods have no caller inside the package (they are the library surface the plan specifies); repeated name tokenizing (measured at 0.1 s to index an anchor of 2,000 works and 1.6 s for 600 assessments).
+  - Not verified: the vowel-sign fix on a live profile (tested on synthetic names only), and how often OpenAlex puts one ORCID on two profiles under names that do not match.
+
+## Retrospective
+
+- **Measuring before coding changed the design, and measuring again after changed it more.** Step 1 overturned two things the plan had written down (diacritics kept, every alternative spelling a query) and settled the co-author threshold it had left open. Running the built command on the same anchors then moved six more rules, each visible only once a whole report could be read. Both passes were needed; neither a design review nor the unit tests would have found that an anchor with 91% of its works in one field shares a field with 26 namesakes through a stray work or two.
+- **Every count that held up had its denominator beside it.** One shared co-author meant nothing until it was one of four or one of a hundred. The review found the same gap in what was left: works compared with no total for the candidate, and a co-author denominator that merged people known by an initial. A number of matches with no "out of" is the thing to look for first in a check like this.
+- **"Unchecked, never different" was applied to the cap and not to the other places a run stops short.** An anchor with nothing to search and a candidate read one page deep both produced output that read as a clean negative. Next time, list every point where the check can stop early while writing the design, and give each its own line in the report.
+- **The plan's order of the name gate and the ORCID check was wrong in one case**, a shared ORCID under a name that does not match, and nothing in the measurements could show it, because the gate dropped such profiles before they were counted. A filter hides its own false negatives: count what it removes by reason, not as one number.
+- **Figures typed into the Log were corrected twice the same day.** The command prints its own counts now; later entries should quote those and not a tally made by hand.
+- **Left open, as scoped:** a title-first sweep for a fragment under a misspelling, paging a search past its first 200 profiles, and confirming any fragment with its author. None of the fragments found was confirmed that way.

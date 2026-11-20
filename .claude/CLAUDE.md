@@ -11,21 +11,22 @@ citefinder/
 ├── cache.py            # JsonlCache (append-only JSONL key-value store), LayeredCache (read-only fallbacks) + merge/inventory/atomic-write maintenance
 ├── client.py           # CrossrefClient
 ├── config.py           # resolve_cache_path + config-file discovery/loading (read by the CLI; never auto-loaded by the library)
-├── openalex.py         # OpenAlexClient (works, author profiles by ID or ORCID) + abstract reconstruction + DataCite (arXiv/Zenodo) prefix routing
+├── openalex.py         # OpenAlexClient (works, author profiles by ID or ORCID, author search by name, an author's works list) + abstract reconstruction + DataCite (arXiv/Zenodo) prefix routing
 ├── openlibrary.py      # OpenLibraryClient (editions by ISBN, search) + retailer-provenance check
 ├── loc.py              # LocClient (Library of Congress SRU, MARCXML parsed to JSON) + marc_book MARC reader
 ├── books.py            # BookRecord/BookField, book_record ISBN chain (Open Library -> LCCN -> LoC), compare_book
 ├── bib.py              # Entry, parse_entries, bib-side query helpers
 ├── signals.py          # Status, BibCitation, Work, signal checks, status reduction
 ├── models.py           # TypedDicts for raw Crossref/OpenAlex records (works, author profiles) + undeclared_keys/cache_drift drift check
-├── adapters.py         # crossref_to_work, openalex_to_work, AuthorProfile + openalex_to_author (pure JSON adapters)
+├── adapters.py         # crossref_to_work, openalex_to_work, AuthorProfile + openalex_to_author, AuthorWork + openalex_to_author_work (pure JSON adapters)
 ├── verify.py           # Source, Result, verify_entry orchestration
+├── fragments.py        # author-fragment check: name_tokens/match_names (name gate), Anchor + assess (verdict and evidence), find_fragments (the run against a client), same_name_pairs
 ├── bib_table.py        # bib_to_table / table_to_bib (bib <-> wide polars DataFrame)
 ├── host.py             # pkgskills Host declaration: the skill, its reference Docs, render_cli
 ├── prompts/skills/use-citefinder/
 │   ├── SKILL.md        # canonical `use-citefinder` skill body (package data)
 │   └── references/     # docs the body loads with `citefinder doc use-citefinder/<name>`
-└── cli.py              # Typer CLI: doi, search, author, authors-from-cache, isbn, verify (--books), bib-to-table, table-to-bib, drift, config, crossref and cache subcommands; skill, doc, install mounted from pkgskills
+└── cli.py              # Typer CLI: doi, search, author, authors-from-cache (--same-names), author-fragments, isbn, verify (--books), bib-to-table, table-to-bib, drift, config, crossref and cache subcommands; skill, doc, install mounted from pkgskills
 ```
 
 The `use-citefinder` skill is packaged with
@@ -55,6 +56,16 @@ every key is optional, coverage comments say how often a surveyed record
 carried it, and `citefinder drift <cache.jsonl>` (`cache_drift` in the
 library) reports what real records carry that the model does not. Add a key
 when a consumer starts reading it, or when drift shows it on most records.
+
+`fragments.py` finds and assesses a split OpenAlex author profile (plan
+[`022-author-fragment-detection`](.planners/plans/022-author-fragment-detection/plan.md)).
+Its thresholds (the search and candidate caps, the shared co-author count and
+share, the share of works that makes a field the anchor's) are constants at
+the top of the module, each measured on real anchors and recorded in the
+plan's Log; change one with a measurement, not by feel. An author search
+costs ten times a works list, and the works pages are trimmed before they are
+cached (`_trim_author_work` in `openalex.py`) because the shared cache is
+replayed into memory on every CLI call.
 
 ## Configuration
 

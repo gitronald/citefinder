@@ -1,12 +1,16 @@
-"""Tests for citefinder.adapters — Crossref/OpenAlex JSON to Work and AuthorProfile."""
+"""Tests for citefinder.adapters — Crossref/OpenAlex JSON to Work, AuthorProfile,
+and AuthorWork."""
 
 import pytest
 
 from citefinder.adapters import (
     AuthorProfile,
+    AuthorWork,
+    WorkAuthor,
     crossref_to_work,
     openalex_doi,
     openalex_to_author,
+    openalex_to_author_work,
     openalex_to_work,
 )
 from citefinder.models import CrossrefWork, OpenAlexAuthorProfile, OpenAlexWork
@@ -185,3 +189,49 @@ def test_openalex_to_author_tolerates_a_sparse_record() -> None:
 
 def test_openalex_to_author_returns_none_for_missing_record() -> None:
     assert openalex_to_author(None) is None
+
+
+def test_openalex_to_author_work_keeps_what_a_comparison_reads() -> None:
+    record: OpenAlexWork = {
+        "id": "https://openalex.org/W1",
+        "doi": "https://doi.org/10.1/a",
+        "display_name": "A Paper",
+        "publication_year": 2020,
+        "type": "article",
+        "authorships": [
+            {
+                "author": {"id": "https://openalex.org/A1", "display_name": "Jané Doe"},
+                "raw_author_name": "Doe, J.",
+                "institutions": [{"display_name": "Example University"}, {}],
+            },
+            # The byline repeats the profile name; an unlinked author has only it.
+            {"author": {"display_name": "Sam Lee"}, "raw_author_name": "Sam Lee"},
+            {"raw_author_name": "Unlinked Author"},
+        ],
+        "primary_location": {"source": {"display_name": "Journal of Things"}},
+        "primary_topic": {"field": {"display_name": "Computer Science"}},
+    }
+    assert openalex_to_author_work(record) == AuthorWork(
+        id="https://openalex.org/W1",
+        doi="10.1/a",
+        title="A Paper",
+        year=2020,
+        type="article",
+        venue="Journal of Things",
+        field_name="Computer Science",
+        authors=[
+            WorkAuthor(
+                id="https://openalex.org/A1",
+                names=["Jané Doe", "Doe, J."],
+                institutions=["Example University"],
+            ),
+            WorkAuthor(names=["Sam Lee"]),
+            WorkAuthor(names=["Unlinked Author"]),
+        ],
+    )
+
+
+def test_openalex_to_author_work_tolerates_a_bare_record() -> None:
+    record: OpenAlexWork = {"title": "Only a title", "primary_location": {}}
+    assert openalex_to_author_work(record) == AuthorWork(title="Only a title")
+    assert openalex_to_author_work({}) == AuthorWork()

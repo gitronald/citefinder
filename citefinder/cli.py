@@ -29,7 +29,7 @@ from citefinder._base import (
     DEFAULT_MIN_INTERVAL,
     validate_knob,
 )
-from citefinder.adapters import openalex_to_author
+from citefinder.adapters import AuthorProfile, openalex_to_author
 from citefinder.bib import normalize_doi, parse_entries
 from citefinder.books import BookLookup
 from citefinder.cache import (
@@ -54,6 +54,13 @@ from citefinder.config import (
     load_config,
     resolve_cache_path,
     user_config_path,
+)
+from citefinder.fragments import (
+    DEFAULT_MAX_CANDIDATES,
+    DEFAULT_MAX_SEARCHES,
+    FragmentReport,
+    find_fragments,
+    same_name_pairs,
 )
 from citefinder.host import HOST
 from citefinder.loc import LOC_MIN_INTERVAL, LocClient
@@ -619,6 +626,12 @@ def authors_from_cache(
         help="OpenAlex JSONL cache holding the works, "
         "such as a verify run's openalex.jsonl.",
     ),
+    same_names: bool = typer.Option(
+        False,
+        "--same-names",
+        help="Print the pairs of author IDs whose names match in full, "
+        "in place of the table.",
+    ),
     cache_dir: Path | None = AuthorsCacheDirOption,
     no_fallback: bool = NoFallbackOption,
     mailto: str | None = OpenAlexMailtoOption,
@@ -638,6 +651,11 @@ def authors_from_cache(
     yet cached, so a re-run answers from disk and an interrupted run resumes
     where it stopped. A miss falls back, read-only, to the shared cache, as in
     `verify`.
+
+    Two IDs whose names match in full are one person split across two profiles
+    or two namesakes. The summary counts such pairs, and `--same-names` prints
+    them (`id_a`, `name_a`, `id_b`, `name_b`) in place of the table, at no
+    further request; `author-fragments` on either ID settles a pair.
     """
     _require_file(cache)
     ids = cached_author_ids(read_records(cache))
@@ -652,8 +670,10 @@ def authors_from_cache(
         **_client_kwargs(max_retries, min_interval),
     )
     typer.echo(f"{len(ids)} distinct author(s) on the works in {cache}", err=True)
-    typer.echo("id\tdisplay_name\talternatives\torcid")
+    if not same_names:
+        typer.echo("id\tdisplay_name\talternatives\torcid")
     missing = 0
+    profiles: dict[str, AuthorProfile] = {}
     for done, author_id in enumerate(ids):
         try:
             profile = openalex_to_author(client.lookup_author(author_id))
@@ -666,7 +686,11 @@ def authors_from_cache(
             raise typer.Exit(code=1) from exc
         if profile is None:
             missing += 1
-            typer.echo(f"{author_id}\t\t\t")
+            if not same_names:
+                typer.echo(f"{author_id}\t\t\t")
+            continue
+        profiles[author_id] = profile
+        if same_names:
             continue
         # Some recorded spellings hold a line break; a row stays one line.
         name = _one_line(profile.display_name or "")
@@ -678,12 +702,173 @@ def authors_from_cache(
             profile.orcid or "",
         )
         typer.echo("\t".join(cells))
+    pairs = same_name_pairs(profiles.items())
+    if same_names:
+        typer.echo("id_a\tname_a\tid_b\tname_b")
+        for a, b in pairs:
+            names = (_one_line(profiles[label].display_name or "") for label in (a, b))
+            name_a, name_b = names
+            typer.echo("\t".join((a, name_a, b, name_b)))
     calls = client.network_calls
     typer.echo(
         f"Done: {calls} network call(s), {len(ids) - calls} cache hit(s), "
         f"{missing} not found.",
         err=True,
     )
+    if pairs and not same_names:
+        typer.echo(
+            f"{len(pairs)} pair(s) of author IDs have names that match in full; "
+            "list them with --same-names.",
+            err=True,
+        )
+
+
+def _credits(value: float) -> str:
+    """A credit balance for the summary line: whole when it is whole."""
+    return str(int(value)) if value == int(value) else str(value)
+
+
+def _fragment_summary(report: FragmentReport) -> list[str]:
+    """The stderr lines that sum up an `author-fragments` run."""
+    counts = report.counts()
+    lines = []
+    if not report.searches and not report.queries_skipped:
+        lines.append(
+            "No name search made: no spelling of the anchor's name has two full "
+            "words, so no other profile was looked for."
+        )
+    for search in report.searches:
+        count, returned = search["count"], search["returned"]
+        if isinstance(count, int) and count > returned:
+            lines.append(
+                f"Search {search['query']!r} returned {returned} of {count} "
+                "profiles: the candidates are incomplete."
+            )
+    read, total = report.anchor_works, report.anchor_works_total
+    if read is not None and total is not None and total > read:
+        lines.append(
+            f"Compared the first {read} of the anchor's {total} works: "
+            "a duplicate title among the rest is not found."
+        )
+    if report.queries_skipped:
+        lines.append(
+            f"{report.queries_skipped} more name search(es) not made; "
+            "raise --max-searches."
+        )
+    verdicts = ", ".join(
+        f"{counts[key]} {key}"
+        for key in ("likely-fragment", "possible", "different", "unchecked")
+    )
+    lines.append(
+        f"{counts['profiles_searched']} profile(s) searched: {verdicts}, "
+        f"{counts['different_orcid']} with a different ORCID, "
+        f"{counts['name_mismatch']} with another name."
+    )
+    if counts["unchecked"]:
+        lines.append("Raise --max-candidates to compare the unchecked profiles' works.")
+    cut_short = sum(c.assessment.works_cut_short for c in report.candidates)
+    if cut_short:
+        lines.append(
+            f"{cut_short} candidate(s) have more works than the first page "
+            "compared; `works_total` in the evidence gives the count."
+        )
+    spent = ""
+    before, after = report.credits_before, report.credits_after
+    if before is not None and after is not None:
+        spent = f"; credits {_credits(before)} -> {_credits(after)}"
+    lines.append(
+        f"Done: {len(report.searches)} search(es), {report.works_lists} works "
+        f"list(s), {report.network_calls} network call(s){spent}."
+    )
+    return lines
+
+
+@app.command("author-fragments")
+def author_fragments(
+    author_id: str = typer.Argument(
+        ...,
+        metavar="ID",
+        help="OpenAlex author ID (A5012345678) or ORCID, bare or as a URL.",
+    ),
+    max_searches: int = typer.Option(
+        DEFAULT_MAX_SEARCHES,
+        "--max-searches",
+        min=0,
+        help="Most name searches to make. Each costs ten times a works list.",
+    ),
+    max_candidates: int = typer.Option(
+        DEFAULT_MAX_CANDIDATES,
+        "--max-candidates",
+        min=0,
+        help="Most candidates whose works are compared, one works list each: "
+        "full-name matches first, then the smallest profiles. "
+        "The rest are reported `unchecked`.",
+    ),
+    everything: bool = typer.Option(
+        False,
+        "--all",
+        help="List the `unchecked` and `different` candidates too, "
+        "not only their counts.",
+    ),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="Fetch the searches and works lists again in place of the cached "
+        "ones, which predate any profile OpenAlex has split or merged since.",
+    ),
+    cache: Path | None = OpenAlexCacheOption,
+    cache_dir: Path | None = CacheDirOption,
+    mailto: str | None = OpenAlexMailtoOption,
+    api_key: str | None = ApiKeyOption,
+    max_retries: int | None = OpenAlexMaxRetriesOption,
+    min_interval: float | None = OpenAlexMinIntervalOption,
+) -> None:
+    """Find other OpenAlex profiles that may be the same author as ID.
+
+    OpenAlex can split one person across several author IDs. This searches for
+    profiles under a compatible name (any order, initials, diacritics folded),
+    rules out those with a different ORCID, and compares the works of the
+    rest with the anchor's. Each candidate gets a verdict and its evidence:
+
+    - `likely-fragment`: the same ORCID (whatever the name), a work with the
+      title of one of the anchor's on another record, or co-authors in common.
+    - `possible`: the name and a field or an institution match; the works
+      neither confirm nor rule it out.
+    - `different`: a different ORCID, works outside the anchor's years, or
+      nothing in common.
+    - `unchecked`: the name matches and --max-candidates stopped short of it.
+
+    Prints JSON: the anchor, the searches made, the `likely-fragment` and
+    `possible` candidates (every candidate with --all), counts, and the
+    requests and credits spent. For a duplicate title, `doi_on` says which
+    record carries the DOI. A summary goes to stderr.
+
+    A report to read, never a merge: a name match alone is at most `possible`.
+    Everything is cached, so a re-run is free and an interrupted run resumes.
+    """
+    with _report_errors(ValueError, code=2):
+        author_path(author_id)
+    client = _openalex_client(
+        cache, cache_dir, mailto, api_key, max_retries, min_interval
+    )
+    try:
+        report = find_fragments(
+            client,
+            author_id,
+            max_searches=max_searches,
+            max_candidates=max_candidates,
+            refresh=refresh,
+        )
+    except requests.RequestException as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        typer.echo("Stopped; re-run to resume from the cache.", err=True)
+        raise typer.Exit(code=1) from exc
+    if report is None:
+        typer.echo(f"not found: {author_id}", err=True)
+        raise typer.Exit(code=1)
+    _emit(report.as_dict(everything=everything))
+    for line in _fragment_summary(report):
+        typer.echo(line, err=True)
 
 
 def _age(seconds: float) -> str:
@@ -995,9 +1180,9 @@ def drift(cache: Path) -> None:
     """Report keys the records in a JSONL cache carry that the models lack.
 
     Rows are grouped by the request host in their key into `crossref-work`,
-    `crossref-search`, `openalex-work`, `openalex-search`, and
-    `openalex-author`. Each undeclared dotted path is printed with the share of
-    records carrying it, most common first.
+    `crossref-search`, `openalex-work`, `openalex-search`, `openalex-author`,
+    and `openalex-author-search`. Each undeclared dotted path is printed with
+    the share of records carrying it, most common first.
     """
     _require_file(cache)
     drift_by_kind = cache_drift(read_records(cache))
