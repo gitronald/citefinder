@@ -1,10 +1,10 @@
 ---
 id: 22
 slug: author-fragment-detection
-status: implemented
+status: done
 branch: feature/022-author-fragment-detection
 created: 2026-11-19T14:28:07-08:00
-concluded:
+concluded: 2026-11-19T22:14:48-08:00
 pr: https://github.com/gitronald/citefinder/pull/97
 ---
 
@@ -241,3 +241,12 @@ profile is committed.
   - Conscious no-ops: a duplicate title needs no year agreement (the plan's design, and none of 105 measured namesakes shared one); `_same_orcid` keeps its own normalization (OpenAlex returns the URL form, and `author_path` raises where a comparison should not); the name fold and the title fold stay separate (they differ on purpose).
   - Rejected: the two list-returning client methods have no caller inside the package (they are the library surface the plan specifies); repeated name tokenizing (measured at 0.1 s to index an anchor of 2,000 works and 1.6 s for 600 assessments).
   - Not verified: the vowel-sign fix on a live profile (tested on synthetic names only), and how often OpenAlex puts one ORCID on two profiles under names that do not match.
+
+## Retrospective
+
+- **Measuring before coding changed the design, and measuring again after changed it more.** Step 1 overturned two things the plan had written down (diacritics kept, every alternative spelling a query) and settled the co-author threshold it had left open. Running the built command on the same anchors then moved six more rules, each visible only once a whole report could be read. Both passes were needed; neither a design review nor the unit tests would have found that an anchor with 91% of its works in one field shares a field with 26 namesakes through a stray work or two.
+- **Every count that held up had its denominator beside it.** One shared co-author meant nothing until it was one of four or one of a hundred. The review found the same gap in what was left: works compared with no total for the candidate, and a co-author denominator that merged people known by an initial. A number of matches with no "out of" is the thing to look for first in a check like this.
+- **"Unchecked, never different" was applied to the cap and not to the other places a run stops short.** An anchor with nothing to search and a candidate read one page deep both produced output that read as a clean negative. Next time, list every point where the check can stop early while writing the design, and give each its own line in the report.
+- **The plan's order of the name gate and the ORCID check was wrong in one case**, a shared ORCID under a name that does not match, and nothing in the measurements could show it, because the gate dropped such profiles before they were counted. A filter hides its own false negatives: count what it removes by reason, not as one number.
+- **Figures typed into the Log were corrected twice the same day.** The command prints its own counts now; later entries should quote those and not a tally made by hand.
+- **Left open, as scoped:** a title-first sweep for a fragment under a misspelling, paging a search past its first 200 profiles, and confirming any fragment with its author. None of the fragments found was confirmed that way.
