@@ -27,7 +27,7 @@ repos:
     hooks:
       - id: planners-index
         name: 'regenerate plan index after merge'
-        entry: uv run planners index .
+        entry: uv run planners index . --after-merge
         language: system
         stages: [post-merge]
         always_run: true
