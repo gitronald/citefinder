@@ -1,15 +1,19 @@
 """Tests for the OpenAlex client and helpers (HTTP mocked)."""
 
+from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from citefinder._base import _strip_mailto
+from citefinder.adapters import openalex_to_author_work
 from citefinder.cache import JsonlCache
-from citefinder.models import CacheRow
+from citefinder.models import CacheRow, OpenAlexWork
 from citefinder.openalex import (
     OpenAlexClient,
+    _trim_author_work,
     author_path,
     cached_author_ids,
     datacite_note,
@@ -556,6 +560,18 @@ TRIMMED_WORK = {
     "primary_location": {"source": {"display_name": "Journal"}},
     "primary_topic": {"field": {"display_name": "Field"}},
 }
+
+
+def test_a_trimmed_work_reads_the_same_as_the_whole_one() -> None:
+    # The trimmer and the adapter each list a work's fields by hand. A field
+    # the adapter reads and the trimmer drops would be missing from the cache.
+    work = cast(OpenAlexWork, FULL_WORK)
+    whole = openalex_to_author_work(work)
+    assert openalex_to_author_work(_trim_author_work(work)) == whole
+    # The fixture fills every field, so one added to `AuthorWork` fails here
+    # until the fixture carries it, and then above until the trimmer keeps it.
+    assert all(value not in (None, []) for value in asdict(whole).values())
+    assert all(asdict(whole.authors[0]).values())
 
 
 def test_author_works_page_caches_the_trimmed_page(
