@@ -2,6 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
+| 023 | [Build bib files from cached lookup records](plans/023-build-bib-from-records/plan.md) | draft | — | — |
 | 022 | [Find and assess fragmented OpenAlex author profiles](plans/022-author-fragment-detection/plan.md) | done | 2026-11-19 22:14 PT | [#97](https://github.com/gitronald/citefinder/pull/97) |
 | 013 | [Fetch and cache OpenAlex author profiles](plans/013-openalex-author-profiles/plan.md) | done | 2026-11-19 14:39 PT | [#96](https://github.com/gitronald/citefinder/pull/96) |
 | 021 | [Look up book metadata by ISBN through Open Library and the Library of Congress](plans/021-book-metadata-by-isbn/plan.md) | done | 2026-09-25 23:54 PT | [#73](https://github.com/gitronald/citefinder/pull/73) |
